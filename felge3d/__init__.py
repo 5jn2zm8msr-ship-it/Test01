@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 20, 0),
+    "version": (0, 21, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -34,8 +34,9 @@ if "core" in locals():
     updater = importlib.reload(updater)
     ai = importlib.reload(ai)
     car = importlib.reload(car)
+    tire_data = importlib.reload(tire_data)
 else:
-    from . import ai, car, core, updater
+    from . import ai, car, core, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -66,6 +67,7 @@ class Felge3DSettings(PropertyGroup):
         ("NO", "Nein – nur Felge", "Äußersten deutlichen Kreis als Felge nehmen"),
     ])
     warning: StringProperty(default="")
+    check_text: StringProperty(default="")
     auto_detect: BoolProperty(name="Felge automatisch finden", default=True,
                               description="Mittelpunkt und Radius beim Laden automatisch suchen")
     center_x: FloatProperty(name="Mitte X", default=0.5, min=0, max=1, precision=3,
@@ -90,7 +92,7 @@ class Felge3DSettings(PropertyGroup):
     invert: BoolProperty(name="Invertieren", default=False, description="Material und Lücken vertauschen")
     clean: IntProperty(name="Glätten", default=2, min=0, max=10,
                        description="Entfernt kleine Störungen in der Maske (Pixel)")
-    proc_size: IntProperty(name="Arbeitsauflösung", default=768, min=256, max=2048,
+    proc_size: IntProperty(name="Arbeitsauflösung", default=1536, min=256, max=3000,
                            description="Bild wird für die Analyse auf diese Größe verkleinert")
 
     sym_mode: EnumProperty(name="Symmetrie", default="AUTO", items=[
@@ -544,6 +546,10 @@ def make_rim_meshes(context, s, overrides=None):
     hub_n = hub_symmetry(s, gray, cx, cy, rx, ry, n)
     res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth, hub_n=hub_n, gray=gray)
     s["tone_info"] = res.get("tone_info", "")
+    chk = res.get("selfcheck") or {}
+    s["check_text"] = "\n".join(chk.get("lines", []))
+    if chk.get("warn"):
+        s["warning"] = (s.get("warning", "") + ("; " if s.get("warning") else "") + "; ".join(chk["warn"]))
     if not res["star_faces"]:
         raise RuntimeError("Keine Speichen erkannt – Erkennung/Schwellwert prüfen (Maske anzeigen).")
 
@@ -977,6 +983,11 @@ class FELGE3D_PT_main(Panel):
             wb.label(text="Erkennung unsicher:", icon="ERROR")
             wb.label(text=s.warning)
             wb.label(text="→ Erkennung prüfen: ‚Maske anzeigen‘")
+        if s.check_text:
+            cb = L.box()
+            cb.label(text="Selbstprüfung", icon="CHECKMARK" if not s.warning else "ERROR")
+            for ln in s.check_text.split("\n"):
+                cb.label(text=ln)
         if s.collection:
             info = "%d Speichen" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
             L.label(text="Erkannt: " + info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
@@ -1158,6 +1169,8 @@ class Felge3DCar(PropertyGroup):
     tire_rotation: FloatProperty(name="Reifentextur drehen (Grad)", default=0, min=-180, max=180,
                                  description="Dreht die Reifentextur auf der Flanke (Beschriftung oben/unten)")
     tire_flip: BoolProperty(name="Reifentextur spiegeln", default=False)
+    tire_relief: FloatProperty(name="Schrift-Relief (mm)", default=1.2, min=0, max=4,
+                               description="Wie weit die Beschriftung der Reifenflanke hervorsteht (Displacement). 0 = nur Bump")
     tread_grooves: IntProperty(name="Längsrillen", default=3, min=0, max=4)
     decal_sidewall_top: StringProperty(name="Flanke oben (PNG)", subtype="FILE_PATH", default="")
     decal_sidewall_bottom: StringProperty(name="Flanke unten (PNG)", subtype="FILE_PATH", default="")
@@ -1175,26 +1188,24 @@ class Felge3DCar(PropertyGroup):
     use_bevel: BoolProperty(name="Kantenfasen (Bevel)", default=True)
 
 
-TEX_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures")
-TIRE_TEXTURE = os.path.join(TEX_DIR, "reifen.png")
+def tire_texture_file():
+    """Eingebettete Reifentextur als JPG in den Add-on-Datenordner auspacken (einmalig)."""
+    import base64
+    path = os.path.join(ai.data_dir(), "reifen_michelin_pilot_sport_cup2.jpg")
+    data = base64.b64decode("".join(tire_data.JPG_B64))
+    if not (os.path.isfile(path) and os.path.getsize(path) == len(data)):
+        with open(path, "wb") as f:
+            f.write(data)
+    return path
 
 
 def tire_texture_params(c):
     """
-    Feste Reifentextur (Michelin Pilot Sport Cup 2, im Add-on gebündelt) laden. Mittelpunkt und Radien
-    der Flanke stehen vorgemessen in textures/reifen.json. Gibt (Bild, tex-dict) oder (None, None) zurück.
+    Feste Reifentextur (Michelin Pilot Sport Cup 2, im Code eingebettet). Mittelpunkt und Radien der
+    Flanke sind vorgemessen (tire_data.META). Gibt (Bild, tex-dict) zurück.
     """
-    jpath = os.path.join(TEX_DIR, "reifen.json")
-    if not (os.path.isfile(TIRE_TEXTURE) and os.path.isfile(jpath)):
-        return None, None
-    import json
-    with open(jpath, encoding="utf-8") as f:
-        j = json.load(f)
-    img = bpy.data.images.load(TIRE_TEXTURE, check_existing=True)
-    try:
-        img.alpha_mode = "NONE"                    # Alpha der PNG nicht ins Material einrechnen
-    except (TypeError, AttributeError):
-        pass
+    j = tire_data.META
+    img = bpy.data.images.load(tire_texture_file(), check_existing=True)
     W, H = j["width"], j["height"]
     o = j["outer"]
     r_out = o["a"] / W
@@ -1261,13 +1272,15 @@ def build_car(context, s, c):
             ob = bpy.data.objects.new("Reifen " + name, me_t)
             ob.parent = parent
             col.objects.link(ob)
+            if tex is not None and c.tire_relief > 0:
+                car.add_relief(ob, tire_img, c.tire_relief)
             # Bremsscheibe und Sattel: Code liegt in car.build_brake bereit, kommt später dazu
     for o in context.view_layer.objects:
         o.select_set(False)
     context.view_layer.objects.active = created[0]
     return col, ("4 Räder erzeugt: vorn %g×%gJ ET%g, hinten %g×%gJ ET%g%s" % (
         c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et,
-        " · Reifentextur gemappt" if tex else " · Reifentextur fehlt (textures/reifen.png)"))
+        " · Reifendecal mit Relief"))
 
 
 class FELGE3D_OT_car_generate(Operator):
@@ -1356,6 +1369,7 @@ class FELGE3D_PT_car_extra(Panel):
         row = L.row(align=True)
         row.prop(c, "tire_rotation")
         row.prop(c, "tire_flip", text="", icon="MOD_MIRROR")
+        L.prop(c, "tire_relief")
         L.prop(c, "tread_grooves")
         for prop in ("decal_sidewall_top", "decal_sidewall_bottom", "decal_sidewall_scale", "decal_sidewall_arc"):
             L.prop(c, prop)

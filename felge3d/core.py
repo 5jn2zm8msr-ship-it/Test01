@@ -129,6 +129,9 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     """
     g = rgba_to_gray(rgb)
     h, w = g.shape
+    kf = max(1.0, rx / 250.0)                    # Filtergrößen wachsen mit der Auflösung (feine Speichen bleiben)
+    k1, k2 = max(1, int(round(1 * kf))), max(2, int(round(2 * kf)))
+    clean = max(1, int(round(clean * kf))) if clean > 0 else 0
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     u, v = (xx - cx) / rx, (yy - cy) / ry
     rn = np.hypot(u, v)
@@ -182,17 +185,17 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     else:
         mad = np.zeros_like(g)
 
-    gg = blur(g, 1, 1)
+    gg = blur(g, k1, 1)
     thr = otsu(gg[inside]) if inside.any() else 0.5
     br = gg > thr
     ring = (rn > 0.94) & (rn < 0.99)
     A = br if br[ring].mean() > 0.5 else ~br
-    bgs = blur(bgd, 1, 1)
+    bgs = blur(bgd, k1, 1)
     tb = otsu(np.clip(bgs[inside] / 1.5, 0, 1)) * 1.5
     B = bgs > tb
     if n > 1:
         # was in allen N Speichen gleich aussieht und nicht exakt wie der Hintergrund ist, ist Material
-        mads = blur(mad, 2, 2)
+        mads = blur(mad, k2, 2)
         tm = otsu(np.clip(mads[inside] / 0.6, 0, 1)) * 0.6
         B = B | ((mads < 0.6 * tm) & (bgs > 0.35 * tb))
 
@@ -216,7 +219,7 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     if uniform_bg:
         # Einfarbiger Hintergrund: Material = jeder Pixel, der sich messbar vom Hintergrundton
         # unterscheidet (auch helles Silber auf Weiß). Fenster = exakt Hintergrundfarbe.
-        maxd = blur(np.abs(rgb - ref[idx]).max(-1), 1, 1)
+        maxd = blur(np.abs(rgb - ref[idx]).max(-1), k1, 1)
         U = maxd > max(0.07, 5.0 * bg_sigma)
         frac = U[inside & (rn > 0.15)].mean() if inside.any() else 0
         if plausible(U) and 0.08 < frac < 0.85:
@@ -316,15 +319,101 @@ def detect_hub_symmetry(gray, cx, cy, rx, ry, n_spoke):
     return n
 
 
+def _sector_defects(T):
+    """
+    Qualität eines Segments (bool-Array n_r x m, Material=True): Löcher im Material, lose Reste und Rauheit.
+    Gibt (defekt-Zellen, Randkanten, Fläche) zurück – verglichen wird später zwischen den Segmenten.
+    """
+    n_r, m = T.shape
+    area = int(T.sum())
+    edges = int(np.abs(np.diff(T.astype(np.int8), axis=0)).sum() + np.abs(np.diff(T.astype(np.int8), axis=1)).sum())
+    bad = 0
+    gaps = [x for x in _components(~T) if min(c_[0] for c_ in x) > 0]      # geschlossene Lücken
+    if gaps:
+        big = max(len(x) for x in gaps)
+        for cells in gaps:                              # nur KLEINE Lücken (< 10 % der größten) = Löcher;
+            if len(cells) < 0.10 * big:                 # große sind echte Fenster/Schlitze
+                bad += len(cells)
+    for cells in _components(T):                        # lose Reste: weder an Nabe noch am Außenring
+        ii = np.array([x[0] for x in cells])
+        if ii.min() > 0 and ii.max() < n_r - 1:
+            bad += len(cells)
+    return bad, edges, area
+
+
+def symmetrize_checked(Fz, n, tau=0.08):
+    """
+    Symmetrie MIT Selbstprüfung. Das Feld wird in n Segmente geteilt (Schnitt in einer Lücke, damit keine
+    Speiche zerschnitten wird). Jedes Segment wird bewertet (Löcher, lose Reste, Rauheit gegenüber den
+    anderen); die sauberen Segmente bestimmen die Form, alle n Segmente werden danach identisch.
+    Gibt (Feld, Bericht) zurück.
+    """
+    n_r, n_t = Fz.shape
+    if n <= 1 or n_t % n or n_r < 4:
+        return Fz, None
+    m = n_t // n
+    M = Fz >= 0.5
+    # Schnittposition: Winkel mit dem wenigsten Material (über alle Segmente gefaltet) = Mitte eines Fensters
+    fold = M.mean(axis=0).reshape(n, m).mean(axis=0)
+    sm = np.convolve(np.r_[fold, fold, fold], np.ones(max(3, m // 20)) / max(3, m // 20), mode="same")[m:2 * m]
+    j0 = int(np.argmin(sm))
+    G = np.roll(M, -j0, axis=1)
+    S = G.reshape(n_r, n, m).transpose(1, 0, 2)                         # (n, n_r, m)
+    # Bewertung auf halber Auflösung (schnell)
+    stats = [_sector_defects(S[k][::2, ::2]) for k in range(n)]
+    bad = np.array([s_[0] for s_ in stats], float)
+    edges = np.array([s_[1] for s_ in stats], float)
+    area = np.array([s_[2] for s_ in stats], float)
+    med_e, med_a = max(np.median(edges), 1.0), max(np.median(area), 1.0)
+    ref_a = max(float(np.percentile(area, 75)), 1.0)
+    # Fehlerwert: Löcher/lose Reste + Rauheit + zu wenig Fläche (unvollständig) + auffällig viel Fläche (falsch positiv)
+    defect = (bad / med_a * 8.0 + np.maximum(0.0, edges / med_e - 1.0) * 2.0
+              + np.maximum(0.0, 1.0 - area / ref_a) * 3.0 + np.maximum(0.0, area / ref_a - 1.25) * 2.0)
+    w = np.exp(-(defect - defect.min()) / tau)
+    soft = (S * w[:, None, None]).sum(axis=0) / w.sum()
+    master = soft >= 0.5
+    out = np.roll(np.tile(master, (1, n)), j0, axis=1).astype(np.float32)
+    agree = np.array([(S[k] & master).sum() / max(1, (S[k] | master).sum()) for k in range(n)])
+    best = int(np.argmin(defect))
+    return out, dict(n=n, best=best, defect=defect.round(3).tolist(), agree=agree.round(3).tolist(),
+                     best_defect=float(defect[best]), worst_defect=float(defect.max()),
+                     agree_min=float(agree.min()), agree_mean=float(agree.mean()),
+                     weights=(w / w.sum()).round(3).tolist())
+
+
+def selfcheck_report(sym_report, F0, F1, radii, r_face):
+    """Fasst die Selbstprüfung zusammen: wie sauber war die beste Speiche, wie stark wurde korrigiert."""
+    rep = dict(ok=True, lines=[], warn=[])
+    sp = sym_report.get("spokes")
+    zone = radii > 0.30 * r_face
+    a, b = F0[zone] >= 0.5, F1[zone] >= 0.5
+    corr = float((a ^ b).sum()) / max(1.0, float((a | b).sum()))       # Anteil der geänderten Fläche
+    rep["correction"] = corr
+    if sp:
+        rep["best"], rep["n"] = sp["best"] + 1, sp["n"]
+        rep["lines"].append("%d Speichen: Segment %d war am saubersten (Fehlerwert %.2f)" % (sp["n"], sp["best"] + 1, sp["best_defect"]))
+        rep["lines"].append("Übereinstimmung der Speichen: Ø %.0f %%, schwächste %.0f %%" % (sp["agree_mean"] * 100, sp["agree_min"] * 100))
+        if sp["best_defect"] > 0.6:
+            rep["warn"].append("keine Speiche vollständig erkannt")
+        if sp["agree_min"] < 0.75:
+            rep["warn"].append("Speichen sehen im Foto sehr verschieden aus")
+    rep["lines"].append("Korrektur gegenüber dem Foto: %.0f %% der Fläche" % (corr * 100))
+    if corr > 0.25:
+        rep["warn"].append("starke Korrektur (%.0f %%) – Erkennung prüfen" % (corr * 100))
+    rep["ok"] = not rep["warn"]
+    return rep
+
+
 def symmetrize_zones(F, radii, split_r, n_hub, n_spoke):
-    """Innen (r < split_r) mit Nabensymmetrie, außen mit Speichensymmetrie angleichen."""
+    """Innen (r < split_r) mit Nabensymmetrie, außen mit Speichensymmetrie angleichen (mit Selbstprüfung)."""
     out = F.copy()
     inner = radii < split_r
+    report = {}
     if n_spoke > 1:
-        out[~inner] = symmetrize_polar(F[~inner], n_spoke)
+        out[~inner], report["spokes"] = symmetrize_checked(F[~inner], n_spoke)
     if n_hub > 1:
-        out[inner] = symmetrize_polar(F[inner], n_hub)
-    return out
+        out[inner], report["hub"] = symmetrize_checked(F[inner], n_hub)
+    return out, report
 
 
 def symmetrize_polar(F, n):
@@ -559,7 +648,7 @@ def polar_open(F, radii, half_mm=2.0):
     return _polar_morph(F, radii, half_mm, "open")
 
 
-def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.07, lug_zone=0.45):
+def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.12, lug_zone=0.45):
     """
     - Material, das nicht mit dem Außenring verbunden ist, entfernen (würde lose herumfliegen)
     - Lücken kleiner als min_hole_mm2 füllen (Spiegelungen/Störungen), Mittelbohrung bleibt
@@ -875,7 +964,7 @@ def tone_step_fn(gray, mask, cx, cy, rx, ry, R_out, n, hub_n=None, split_r=0.0, 
     Ist die Felge deutlich zweifarbig (z.B. silber glanzgedreht + schwarz), wird die helle
     Fläche zur erhabenen Stufe. Gibt (f(xy)->0..1, info) zurück; None, wenn einfarbig.
     """
-    g = blur(gray, 1, 1)
+    g = blur(gray, max(1, int(round(rx / 250.0))), 1)
     sel = (mask > 0.5) & (norm_radius(gray.shape, cx, cy, rx, ry) < 0.92)
     vals = g[sel]
     if vals.size < 500:
@@ -1067,9 +1156,10 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     ko = max(1, int(round(1.5 * px_per_mm)))
     mopen = (blur((blur(mask, ko, 1) > 0.999).astype(np.float32), ko, 1) > 0.001).astype(np.float32)
     mask = np.minimum(mask, mopen)
-    F = sample_polar(blur(mask, 1, 1), cx, cy, rx, ry, radii / R_out, n_t)
+    F = sample_polar(blur(mask, max(1, int(round(rx / 250.0))), 1), cx, cy, rx, ry, radii / R_out, n_t)
     split_r = p.hub_zone * R_out
-    F = symmetrize_zones(F, radii, split_r, hub_n, symmetry_n)
+    F0 = F.copy()
+    F, sym_report = symmetrize_zones(F, radii, split_r, hub_n, symmetry_n)
     F[radii > r_face - p.ring / 1000.0, :] = 1.0   # Außenring verbindet Stern mit Bett
     F = polar_close(F, radii, 3.0)                  # Spalten < ~6 mm nach dem Angleichen schließen
     F = clean_polar(F, radii, p.min_hole)
@@ -1136,7 +1226,7 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp, star_kinds=kinds,
                 barrel_verts=bv, barrel_faces=bf, dish=dish, tone_info=tone_info,
-                analysis=shape_analysis(p),
+                analysis=shape_analysis(p), selfcheck=selfcheck_report(sym_report, F0, F, radii, r_face),
                 hub_back=(z_rim - dish / 1000.0 - p.hub_thickness / 1000.0) * 1000.0)
 
 
