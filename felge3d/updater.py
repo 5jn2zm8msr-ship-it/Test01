@@ -27,7 +27,7 @@ def _ssl_context():
     return ctx
 
 
-def _get(url, token="", accept=None, timeout=20):
+def _get_once(url, token="", accept=None, timeout=20):
     req = urllib.request.Request(url, headers={"User-Agent": "Felge3D-Updater"})
     if token:
         req.add_header("Authorization", "Bearer " + token)
@@ -37,6 +37,33 @@ def _get(url, token="", accept=None, timeout=20):
         return r.read()
 
 
+def _get(url, token="", accept=None, timeout=20, tries=3):
+    """Mit Wiederholung bei Zeitüberschreitung / 5xx (z.B. 504 Gateway Time-out)."""
+    import time
+    last = None
+    for i in range(tries):
+        try:
+            return _get_once(url, token, accept, timeout)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            msg = str(e)
+            if any(c in msg for c in ("401", "403", "404")):
+                raise
+            time.sleep(1.5 * (i + 1))
+    raise last
+
+
+def _first_ok(urls, **kw):
+    """Probiert mehrere Adressen nacheinander (API, dann direkte Download-Server)."""
+    last = None
+    for u, extra in urls:
+        try:
+            return _get(u, **dict(kw, **extra))
+        except Exception as e:  # noqa: BLE001
+            last = e
+    raise last
+
+
 def parse_version(text):
     m = re.search(r'"version"\s*:\s*\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)\)', text)
     return tuple(int(x) for x in m.groups()) if m else None
@@ -44,15 +71,27 @@ def parse_version(text):
 
 def remote_version(repo, branch="main", token=""):
     """Liest bl_info['version'] aus <repo>/felge3d/__init__.py auf GitHub."""
-    url = "https://api.github.com/repos/%s/contents/%s/__init__.py?ref=%s" % (repo, PKG, branch)
-    raw = _get(url, token, accept="application/vnd.github.raw")
+    urls = [
+        ("https://raw.githubusercontent.com/%s/%s/%s/__init__.py" % (repo, branch, PKG), {}),
+        ("https://api.github.com/repos/%s/contents/%s/__init__.py?ref=%s" % (repo, PKG, branch),
+         {"accept": "application/vnd.github.raw"}),
+    ]
+    if token:  # privates Repo: nur über die API mit Token
+        urls = urls[1:]
+    raw = _first_ok(urls, token=token)
     return parse_version(raw.decode("utf-8", "replace"))
 
 
 def install_latest(repo, branch="main", token=""):
     """Lädt das Repo als ZIP und ersetzt die .py/.toml-Dateien des Add-ons. Gibt Liste der Dateien zurück."""
-    url = "https://api.github.com/repos/%s/zipball/%s" % (repo, branch)
-    data = _get(url, token, timeout=60)
+    urls = [
+        ("https://codeload.github.com/%s/zip/refs/heads/%s" % (repo, branch), {}),
+        ("https://github.com/%s/archive/refs/heads/%s.zip" % (repo, branch), {}),
+        ("https://api.github.com/repos/%s/zipball/%s" % (repo, branch), {}),
+    ]
+    if token:
+        urls = urls[2:]
+    data = _first_ok(urls, token=token, timeout=90)
     zf = zipfile.ZipFile(io.BytesIO(data))
     prefix = None
     for name in zf.namelist():
@@ -83,6 +122,8 @@ def describe_error(e):
         return "Kein Zugriff (privates Repo? Token in den Add-on-Einstellungen eintragen)."
     if "404" in msg:
         return "Repository oder Branch nicht gefunden – Namen in den Add-on-Einstellungen prüfen."
+    if "504" in msg or "502" in msg or "503" in msg or "timed out" in msg.lower():
+        return "GitHub antwortet gerade nicht (Zeitüberschreitung) – bitte in ein paar Minuten erneut versuchen."
     if "CERTIFICATE" in msg.upper():
         return "SSL-Zertifikat konnte nicht geprüft werden (macOS: Blender-Python ohne Zertifikate)."
     return msg
