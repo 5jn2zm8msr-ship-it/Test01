@@ -291,6 +291,65 @@ def boundary_edges_directed(faces):
     return [(a, b) for a, b in directed if count[(a, b) if a < b else (b, a)] == 1]
 
 
+def _components(B):
+    """Zusammenhangskomponenten (4er-Nachbarschaft) auf dem Polarraster, zyklisch in theta."""
+    n_r, n_t = B.shape
+    lab = -np.ones(B.shape, np.int64)
+    comps = []
+    for i0, j0 in zip(*np.nonzero(B)):
+        if lab[i0, j0] >= 0:
+            continue
+        cid = len(comps)
+        stack = [(i0, j0)]
+        lab[i0, j0] = cid
+        cells = []
+        while stack:
+            i, j = stack.pop()
+            cells.append((i, j))
+            for a, b in ((i + 1, j), (i - 1, j), (i, (j + 1) % n_t), (i, (j - 1) % n_t)):
+                if 0 <= a < n_r and B[a, b] and lab[a, b] < 0:
+                    lab[a, b] = cid
+                    stack.append((a, b))
+        comps.append(cells)
+    return comps
+
+
+def clean_polar(F, radii, min_hole_mm2=60.0):
+    """
+    - Material, das nicht mit dem Außenring verbunden ist, entfernen (würde lose herumfliegen)
+    - Lücken kleiner als min_hole_mm2 füllen (Spiegelungen/Störungen), Mittelbohrung bleibt
+    """
+    n_r, n_t = F.shape
+    dr = np.gradient(radii)
+    cell_mm2 = (radii[:, None] * (2 * np.pi / n_t) * dr[:, None]) * 1e6
+    M = F >= 0.5
+    out = F.copy()
+    for cells in _components(M):
+        ii = np.array([c[0] for c in cells])
+        if ii.max() < n_r - 1:                  # berührt den Außenring nicht -> lose
+            out[ii, [c[1] for c in cells]] = 0.0
+    M = out >= 0.5
+    for cells in _components(~M):
+        ii = np.array([c[0] for c in cells])
+        jj = np.array([c[1] for c in cells])
+        if ii.min() == 0:                       # Mittelbohrung
+            continue
+        if cell_mm2[ii, 0].sum() < min_hole_mm2:
+            out[ii, jj] = 1.0
+    return out
+
+
+def _dilate_max(D, steps):
+    out = D.copy()
+    for k in range(steps):
+        p = np.pad(out, 1, mode="edge")
+        m = np.maximum.reduce([out, p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:]])
+        if k % 2:
+            m = np.maximum.reduce([m, p[:-2, :-2], p[:-2, 2:], p[2:, :-2], p[2:, 2:]])
+        out = m
+    return out
+
+
 def _erode(m, square):
     p = np.pad(m, 1, mode="edge")
     out = m & p[:-2, 1:-1] & p[2:, 1:-1] & p[1:-1, :-2] & p[1:-1, 2:]
@@ -329,12 +388,15 @@ def edge_distance_fn(F, radii, r_face, max_mm, grid_mm=1.0):
         cur = _erode(cur, k % 2 == 1)
         if not cur.any():
             break
-    D = blur(D * grid_mm, 1, 2)
+    D = D * grid_mm
+    # lokale halbe Speichenbreite = größter Abstand in der Umgebung (Grat der Speiche)
+    W = _dilate_max(D, steps)
+    T = blur(np.clip(D / np.maximum(W, grid_mm), 0.0, 1.0), 1, 2)
 
     def at(xy):
         px = xy[:, 0] / g + (N - 1) / 2.0
         py = xy[:, 1] / g + (N - 1) / 2.0
-        return bilinear(D, px, py)
+        return bilinear(T, px, py)
     return at
 
 
@@ -431,7 +493,11 @@ class Params:
     hub_thickness = 40.0  # mm, Dicke an der Nabe
     hub_radius = 85.0     # mm, flache Nabenanlagefläche
     relief = 10.0         # mm, Wölbung der Speichen (0 = flach)
-    relief_width = 30.0   # mm, Breite der Kantenrundung
+    relief_width = 40.0   # mm, max. halbe Breite, über die gewölbt wird
+    boss_height = 12.0    # mm, Nabenbund um den Zentralverschluss
+    boss_radius = 75.0    # mm
+    boss_slope = 15.0     # mm, Breite der Flanke
+    min_hole = 60.0       # mm², kleinere Lücken werden gefüllt
     flange = 17.0         # mm
     wall = 5.0            # mm
     drop = 22.0           # mm
@@ -472,6 +538,7 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1):
     if symmetry_n > 1:
         F = symmetrize_polar(F, symmetry_n)
     F[radii > r_face - p.ring / 1000.0, :] = 1.0   # Außenring verbindet Stern mit Bett
+    F = clean_polar(F, radii, p.min_hole)
 
     r_hub = min(p.hub_radius / 1000.0, r_face * 0.8)
     z_rim = -p.face_inset / 1000.0
@@ -490,8 +557,18 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1):
         dist = edge_distance_fn(F, radii, r_face, p.relief_width)
 
         def offset(xy):
-            t = np.clip(dist(xy) / p.relief_width, 0.0, 1.0)
-            return p.relief / 1000.0 * np.sqrt(1.0 - (1.0 - t) ** 2)   # Viertelkreis-Rundung
+            t = np.clip(dist(xy), 0.0, 1.0)           # 0 = Kante, 1 = Speichenmitte
+            off = p.relief / 1000.0 * np.sqrt(1.0 - (1.0 - t) ** 2)   # Viertelkreis-Rundung
+            if p.boss_height > 0:
+                r = np.hypot(xy[:, 0], xy[:, 1]) * 1000.0
+                u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
+                off = off + p.boss_height / 1000.0 * u * u * (3 - 2 * u)   # weicher Bund
+            return off
+    elif p.boss_height > 0:
+        def offset(xy):
+            r = np.hypot(xy[:, 0], xy[:, 1]) * 1000.0
+            u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
+            return p.boss_height / 1000.0 * u * u * (3 - 2 * u)
 
     sv, sf, sharp = star_solid(F, radii, z_front, thick, offset)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))

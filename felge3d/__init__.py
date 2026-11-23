@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 2, 2),
+    "version": (0, 3, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -116,9 +116,17 @@ class Felge3DSettings(PropertyGroup):
     relief: FloatProperty(name="Speichen-Wölbung (mm)", default=10.0, min=0, max=40,
                           update=_update_rebuild,
                           description="Wie stark die Speichen zur Mitte hin gewölbt sind (0 = flach)")
-    relief_width: FloatProperty(name="Rundungsbreite (mm)", default=30.0, min=2, max=80,
+    relief_width: FloatProperty(name="Max. Rundungsbreite (mm)", default=40.0, min=2, max=120,
                                 update=_update_rebuild,
-                                description="Über welche Breite die Speichenkante rund abfällt")
+                                description="Schmale Speichen werden über ihre ganze Breite gewölbt, breite Flächen höchstens über diese Breite")
+    boss_height: FloatProperty(name="Nabenbund Höhe (mm)", default=12.0, min=0, max=60,
+                               update=_update_rebuild,
+                               description="Erhabener Bund um den Zentralverschluss / die Nabe (0 = aus)")
+    boss_radius: FloatProperty(name="Nabenbund Radius (mm)", default=75.0, min=20, max=200,
+                               update=_update_rebuild)
+    min_hole: FloatProperty(name="Kleine Löcher füllen (mm²)", default=60.0, min=0, max=2000,
+                            update=_update_rebuild,
+                            description="Lücken kleiner als diese Fläche gelten als Störung (Spiegelung) und werden gefüllt")
     one_body: BoolProperty(name="Ein Körper (fräsfertig)", default=True,
                            description="Stern und Felgenbett per Boolean zu einem geschlossenen Mesh vereinen")
     flange: FloatProperty(name="Hornhöhe (mm)", default=17.0, min=5, max=30)
@@ -180,7 +188,7 @@ def compute_mask(s, gray, cx, cy, rx, ry):
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -690,6 +698,9 @@ class FELGE3D_PT_dims(Panel):
         c = self.layout.column(align=True)
         c.prop(s, "relief")
         c.prop(s, "relief_width")
+        c = self.layout.column(align=True)
+        c.prop(s, "boss_height")
+        c.prop(s, "boss_radius")
         self.layout.prop(s, "one_body")
         self.layout.prop(s, "photo_texture")
 
@@ -725,6 +736,7 @@ class FELGE3D_PT_detect(Panel):
         row = L.row()
         row.prop(s, "invert")
         row.prop(s, "clean")
+        L.prop(s, "min_hole")
         row = L.row(align=True)
         row.prop(s, "sym_mode", text="")
         if s.sym_mode == "MANUAL":
