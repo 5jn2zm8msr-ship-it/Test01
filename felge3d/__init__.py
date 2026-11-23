@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 19, 1),
+    "version": (0, 19, 2),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -1284,7 +1284,7 @@ class FELGE3D_OT_car_generate(Operator):
         except Exception as e:  # noqa: BLE001
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
-        self.report({"INFO"}, info)
+        self.report({"WARNING"} if "fehlt" in info else {"INFO"}, info)
         return {"FINISHED"}
 
 
@@ -1323,8 +1323,6 @@ class FELGE3D_PT_car(Panel):
         col.prop(c, "wheelbase")
         col.prop(c, "front_track")
         col.prop(c, "rear_track")
-        if not os.path.isfile(TIRE_TEXTURE):
-            L.label(text="Reifentextur fehlt (textures/reifen.jpg)", icon="ERROR")
         L.operator("felge3d.car_reset", icon="LOOP_BACK")
 
 
