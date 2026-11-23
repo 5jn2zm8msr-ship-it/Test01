@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 7, 2),
+    "version": (0, 7, 3),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -753,7 +753,7 @@ class FELGE3D_OT_install_update(Operator):
             _update_state["msg"] = updater.describe_error(e)
             self.report({"ERROR"}, _update_state["msg"])
             return {"CANCELLED"}
-        _update_state["msg"] = "Installiert (%s) – bitte Blender neu starten." % ", ".join(files)
+        _update_state["msg"] = "Installiert – jetzt Blender komplett beenden (Cmd+Q) und neu starten."
         _update_state["remote"] = None
         self.report({"INFO"}, _update_state["msg"])
         return {"FINISHED"}

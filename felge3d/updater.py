@@ -71,8 +71,10 @@ def parse_version(text):
 
 def remote_version(repo, branch="main", token=""):
     """Liest bl_info['version'] aus <repo>/felge3d/__init__.py auf GitHub."""
+    import time
     urls = [
-        ("https://raw.githubusercontent.com/%s/%s/%s/__init__.py" % (repo, branch, PKG), {}),
+        # ?t=… umgeht den Zwischenspeicher von raw.githubusercontent.com (sonst bis 5 min alte Version)
+        ("https://raw.githubusercontent.com/%s/%s/%s/__init__.py?t=%d" % (repo, branch, PKG, int(time.time())), {}),
         ("https://api.github.com/repos/%s/contents/%s/__init__.py?ref=%s" % (repo, PKG, branch),
          {"accept": "application/vnd.github.raw"}),
     ]
