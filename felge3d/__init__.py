@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -70,7 +70,7 @@ class Felge3DSettings(PropertyGroup):
 
     # --- Erkennung
     seg_mode: EnumProperty(name="Erkennung", default="AUTO", items=[
-        ("AUTO", "Automatisch", "Otsu-Schwellwert, Material = was am Felgenrand dominiert"),
+        ("AUTO", "Automatisch", "Wählt selbst: Hintergrund-Vergleich (auch zweifarbige Felgen) oder Helligkeit"),
         ("BRIGHT", "Hell = Material", ""),
         ("DARK", "Dunkel = Material", ""),
         ("BAND", "Grauband = Lücke", "Mittlere Grauwerte sind Lücke (z.B. Wand hinter schwarz/silbernen Speichen)"),
@@ -91,6 +91,7 @@ class Felge3DSettings(PropertyGroup):
     ])
     sym_n: IntProperty(name="Ordnung", default=5, min=2, max=36)
     detected_n: IntProperty(name="Erkannt", default=0)
+    method_used: StringProperty(name="Methode", default="")
 
     # --- Maße
     diameter: IntProperty(name="Felgengröße (Zoll)", default=20, min=19, max=24,
@@ -158,12 +159,33 @@ def image_to_gray(img):
     return buf[..., 0].copy()
 
 
+def image_to_rgb(img, max_size):
+    """Blender-Bild -> verkleinertes RGB-Array (Zeile 0 = unten)."""
+    w, h = img.size
+    if w == 0 or h == 0:
+        raise RuntimeError("Bild '%s' konnte nicht gelesen werden." % img.name)
+    ch = img.channels
+    buf = np.empty(w * h * ch, dtype=np.float32)
+    img.pixels.foreach_get(buf)
+    buf = buf.reshape(h, w, ch)
+    if ch < 3:
+        buf = np.repeat(buf[..., :1], 3, axis=2)
+    return core.downscale_rgb(buf, max_size)
+
+
+_rgb_cache = {}
+
+
 def prepare(s):
     """Bild laden, verkleinern, Felgenlage in Arbeits-Pixeln bestimmen."""
     if not s.image:
         raise RuntimeError("Kein Bild geladen.")
-    gray_full = image_to_gray(s.image)
-    gray = core.downscale(gray_full, s.proc_size)
+    key = (s.image.name, s.proc_size, tuple(s.image.size))
+    if key not in _rgb_cache:
+        _rgb_cache.clear()
+        _rgb_cache[key] = image_to_rgb(s.image, s.proc_size)
+    rgb = _rgb_cache[key]
+    gray = core.rgba_to_gray(rgb)
     h, w = gray.shape
     cx = s.center_x * w
     cy = s.center_y * h
@@ -172,7 +194,18 @@ def prepare(s):
     return gray, cx, cy, rx, ry
 
 
-def compute_mask(s, gray, cx, cy, rx, ry):
+def symmetry_order(s, gray, cx, cy, rx, ry):
+    if s.sym_mode == "AUTO":
+        n, _ = core.detect_symmetry_gray(gray, cx, cy, rx, ry)
+    elif s.sym_mode == "MANUAL":
+        n = s.sym_n
+    else:
+        n = 1
+    s["detected_n"] = n
+    return n
+
+
+def compute_mask(s, gray, cx, cy, rx, ry, n=None):
     if s.mask_image:
         m = image_to_gray(s.mask_image)
         if m.shape != gray.shape:
@@ -181,6 +214,13 @@ def compute_mask(s, gray, cx, cy, rx, ry):
             xi = (np.arange(gray.shape[1]) * m.shape[1] / gray.shape[1]).astype(int)
             m = m[yi][:, xi]
         return (m > 0.5).astype(np.float32), None
+    if s.seg_mode == "AUTO":
+        if n is None:
+            n = symmetry_order(s, gray, cx, cy, rx, ry)
+        rgb = _rgb_cache[next(iter(_rgb_cache))]
+        mask, method = core.segment_auto(rgb, cx, cy, rx, ry, n, s.clean)
+        s["method_used"] = method
+        return mask, None
     return core.segment(gray, cx, cy, rx, ry, s.seg_mode, s.auto_threshold,
                         s.threshold, s.threshold_hi, s.invert, s.clean)
 
@@ -325,16 +365,10 @@ def unique_collection_name(base):
 def build_wheel(context, s, new_collection=True):
     """Komplette Pipeline. Gibt (collection, info-text) zurück."""
     gray, cx, cy, rx, ry = prepare(s)
-    mask, thr = compute_mask(s, gray, cx, cy, rx, ry)
+    n = symmetry_order(s, gray, cx, cy, rx, ry)
+    mask, thr = compute_mask(s, gray, cx, cy, rx, ry, n)
     if thr is not None and s.auto_threshold:
         s["threshold"] = thr          # anzeigen, ohne Update-Callback auszulösen
-
-    n = 1
-    if s.sym_mode == "AUTO":
-        n, _ = core.detect_symmetry_gray(gray, cx, cy, rx, ry)
-    elif s.sym_mode == "MANUAL":
-        n = s.sym_n
-    s["detected_n"] = n
 
     p = make_params(s)
     res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n)
@@ -663,26 +697,27 @@ class FELGE3D_PT_main(Panel):
         col = self.layout.column(align=True)
         col.scale_y = 1.4
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
-        row = self.layout.row(align=True)
-        row.operator("felge3d.rebuild", icon="FILE_REFRESH")
-        row.operator("felge3d.rebuild", text="", icon="ADD").new_collection = True
-        self.layout.prop(s, "image")
+        self.layout.prop(s, "diameter", slider=True)
         if s.collection:
-            self.layout.label(text="Collection: " + s.collection.name, icon="OUTLINER_COLLECTION")
-        self.layout.operator("felge3d.export_obj", icon="EXPORT")
+            info = "%d Speichen-Symmetrie" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
+            self.layout.label(text=info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
+            self.layout.operator("felge3d.export_obj", icon="EXPORT")
 
 
 class FELGE3D_PT_dims(Panel):
-    bl_label = "Maße"
+    bl_label = "Feinabstimmung: Maße & Form"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
     bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         s = context.scene.felge3d
+        row = self.layout.row(align=True)
+        row.operator("felge3d.rebuild", icon="FILE_REFRESH")
+        row.operator("felge3d.rebuild", text="", icon="ADD").new_collection = True
         c = self.layout.column(align=True)
-        c.prop(s, "diameter", slider=True)
         c.prop(s, "width")
         c = self.layout.column(align=True)
         c.prop(s, "use_et")
@@ -706,11 +741,12 @@ class FELGE3D_PT_dims(Panel):
 
 
 class FELGE3D_PT_detect(Panel):
-    bl_label = "Erkennung"
+    bl_label = "Feinabstimmung: Erkennung"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
     bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         s = context.scene.felge3d

@@ -104,6 +104,94 @@ def segment(gray, cx, cy, rx, ry, mode="AUTO", auto_threshold=True,
     return m, float(thr)
 
 
+def downscale_rgb(rgb, max_size):
+    h, w = rgb.shape[:2]
+    f = max(1, int(math.ceil(max(h, w) / float(max_size))))
+    if f == 1:
+        return rgb[..., :3].astype(np.float32)
+    h2, w2 = h // f, w // f
+    return rgb[:h2 * f, :w2 * f, :3].reshape(h2, f, w2, f, 3).mean(axis=(1, 3)).astype(np.float32)
+
+
+def _sample_rgb(rgb, X, Y):
+    return np.stack([bilinear(rgb[..., c], X, Y) for c in range(3)], -1)
+
+
+def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
+    """
+    Automatische Erkennung ohne Einstellungen. Zwei Kandidaten:
+      A) Helligkeit (Otsu; Material = was am Felgenhorn dominiert)
+      B) Abstand zum Hintergrund: jedes Pixel wird mit dem Hintergrund direkt AUSSERHALB
+         der Felge in derselben Richtung verglichen. Ähnlich = Lücke (man sieht durch).
+         Funktioniert auch bei zweifarbigen Felgen (schwarz + silber).
+    Gewählt wird der Kandidat, bei dem Material sich stärker vom Hintergrund unterscheidet
+    und über die N Speichen gleich aussieht (Konsistenz).
+    """
+    g = rgba_to_gray(rgb)
+    h, w = g.shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    u, v = (xx - cx) / rx, (yy - cy) / ry
+    rn = np.hypot(u, v)
+    th = np.arctan2(u, v)
+    inside = rn < 1.0
+
+    # Hintergrund je Richtung (Median über einen Ring außerhalb der Felge)
+    nb = 720
+    ang = np.linspace(-np.pi, np.pi, nb, endpoint=False)
+    ref = np.median(np.stack([_sample_rgb(rgb, cx + rr * rx * np.sin(ang), cy + rr * ry * np.cos(ang))
+                              for rr in np.linspace(1.06, 1.25, 12)]), axis=0)
+    ref = np.stack([blur(np.tile(ref[:, c], 3)[None, :], 3, 2)[0, nb:2 * nb] for c in range(3)], -1)
+    idx = ((th + np.pi) / (2 * np.pi) * nb).astype(np.int64) % nb
+    bgd = np.abs(rgb - ref[idx]).sum(-1)
+
+    # Konsistenz über die N Speichen
+    if n > 1:
+        S = np.stack([_sample_rgb(rgb, cx + rn * rx * np.sin(th + 2 * np.pi * k / n),
+                                  cy + rn * ry * np.cos(th + 2 * np.pi * k / n)) for k in range(n)])
+        med = np.median(S, axis=0)
+        mad = np.median(np.abs(S - med).sum(-1), axis=0)
+    else:
+        mad = np.zeros_like(g)
+
+    gg = blur(g, 1, 1)
+    thr = otsu(gg[inside]) if inside.any() else 0.5
+    br = gg > thr
+    ring = (rn > 0.94) & (rn < 0.99)
+    A = br if br[ring].mean() > 0.5 else ~br
+    bgs = blur(bgd, 1, 1)
+    tb = otsu(np.clip(bgs[inside] / 1.5, 0, 1)) * 1.5
+    B = bgs > tb
+    if n > 1:
+        # was in allen N Speichen gleich aussieht und nicht exakt wie der Hintergrund ist, ist Material
+        mads = blur(mad, 2, 2)
+        tm = otsu(np.clip(mads[inside] / 0.6, 0, 1)) * 0.6
+        B = B | ((mads < 0.6 * tm) & (bgs > 0.35 * tb))
+
+    band = (rn < 0.97) & (rn > 0.15)
+
+    def score(M):
+        gap, mat = band & ~M, band & M
+        if gap.sum() < 50 or mat.sum() < 50:
+            return -9.0
+        return (bgd[mat].mean() - bgd[gap].mean()) + (mad[gap].mean() - mad[mat].mean())
+
+    hub = (rn > 0.12) & (rn < 0.30)
+
+    def plausible(M):
+        # Nabe (um die Mitte) ist bei echten Felgen überwiegend Material
+        return M[hub].mean() >= 0.55
+
+    sa = score(A) + (0 if plausible(A) else -10)
+    sb = score(B) + (0 if plausible(B) else -10)
+    M, method = (B, "Hintergrund") if sb >= sa else (A, "Helligkeit")
+    m = (M & inside).astype(np.float32)
+    if clean > 0:
+        m = (blur((blur(m, clean, 1) > 0.999).astype(np.float32), clean, 1) > 0.001).astype(np.float32)
+        m = (blur((blur(m, clean, 1) > 0.001).astype(np.float32), clean, 1) > 0.999).astype(np.float32)
+        m *= inside
+    return m, method
+
+
 # ============================================================ Polarraster
 def bilinear(img, x, y):
     h, w = img.shape
@@ -314,7 +402,7 @@ def _components(B):
     return comps
 
 
-def clean_polar(F, radii, min_hole_mm2=60.0):
+def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.07, lug_zone=0.45):
     """
     - Material, das nicht mit dem Außenring verbunden ist, entfernen (würde lose herumfliegen)
     - Lücken kleiner als min_hole_mm2 füllen (Spiegelungen/Störungen), Mittelbohrung bleibt
@@ -329,12 +417,18 @@ def clean_polar(F, radii, min_hole_mm2=60.0):
         if ii.max() < n_r - 1:                  # berührt den Außenring nicht -> lose
             out[ii, [c[1] for c in cells]] = 0.0
     M = out >= 0.5
+    holes = []
     for cells in _components(~M):
         ii = np.array([c[0] for c in cells])
         jj = np.array([c[1] for c in cells])
         if ii.min() == 0:                       # Mittelbohrung
             continue
-        if cell_mm2[ii, 0].sum() < min_hole_mm2:
+        holes.append((ii, jj, cell_mm2[ii, 0].sum(), radii[ii].mean() / radii[-1]))
+    biggest = max([h[2] for h in holes], default=0.0)
+    for ii, jj, area, r_mean in holes:
+        # kleine Störungen immer füllen; außerhalb der Radschrauben-Zone auch Flecken
+        # (z.B. Spiegelungen auf silbernen Einsätzen), die viel kleiner als ein Fenster sind
+        if area < min_hole_mm2 or (r_mean > lug_zone and area < rel_spot * biggest):
             out[ii, jj] = 1.0
     return out
 
