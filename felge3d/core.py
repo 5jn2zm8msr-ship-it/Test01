@@ -588,20 +588,47 @@ def edge_distance_fn(F, radii, r_face, max_mm, grid_mm=1.0):
     return at
 
 
+def smooth_on_mesh(values, faces, n_verts, iters=6, lam=0.6):
+    """
+    Laplace-Glättung von Werten auf den Mesh-Vertices (über die Kanten der Flächen).
+    Randpunkte (an Fenstern) mitteln dabei auch mit den Punkten innerhalb der Speiche –
+    das entfernt die Sägezähne, die durch Hintergrundwerte an der Kante entstehen.
+    """
+    if iters <= 0 or not faces:
+        return values
+    a_list, b_list = [], []
+    for f in faces:
+        k = len(f)
+        for i in range(k):
+            a_list.append(f[i])
+            b_list.append(f[(i + 1) % k])
+    a = np.array(a_list + b_list)
+    b = np.array(b_list + a_list)
+    deg = np.bincount(a, minlength=n_verts).astype(np.float64)
+    deg[deg == 0] = 1
+    v = values.astype(np.float64).copy()
+    for _ in range(iters):
+        avg = np.bincount(a, weights=v[b], minlength=n_verts) / deg
+        v += lam * (avg - v)
+    return v
+
+
 def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_override_fn=None,
-               min_thick=0.006):
+               min_thick=0.006, smooth_iters=10):
     """
     Geschlossener Felgenstern: Vorderfläche (Wölbung), Rückfläche, Seitenwände
     exakt parallel zur Radachse (3-Achs-fräsbar von vorn).
     """
     fv, ff = star_mesh(F, radii)
     if not ff:
-        return fv, ff, []
+        return fv, ff, [], []
     r = np.hypot(fv[:, 0], fv[:, 1])
     zb = z_front_fn(r) - thick_fn(r)
     zf = z_front_fn(r) + (front_offset_fn(fv[:, :2]) if front_offset_fn else 0.0)
     if front_override_fn is not None:
+        z0 = zf.copy()
         zf = front_override_fn(fv[:, :2], zf)
+        zf = z0 + smooth_on_mesh(zf - z0, ff, len(fv), smooth_iters)   # keine Sägezähne an den Kanten
         zb = np.minimum(zb, zf - thick_fn(r))    # Rückseite folgt der KI-Vorderseite
     zf = np.maximum(zf, zb + min_thick)          # Mindestwandstärke
     n = len(fv)
@@ -614,7 +641,8 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
     for a, b in bnd:
         for x, y in ((a, b), (a + n, b + n)):
             sharp.append((x, y) if x < y else (y, x))
-    return verts, faces, sharp
+    kinds = [0] * len(ff) + [1] * len(ff) + [2] * len(bnd)   # 0 vorn, 1 hinten, 2 Taschenwand
+    return verts, faces, sharp, kinds
 
 
 def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_n=None, split_r=0.0,
@@ -890,9 +918,9 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
             def override(xy, z, _b=base_override, _s=step):
                 z2 = _b(xy, z) if _b is not None else z
                 return z2 + p.tone_step / 1000.0 * (_s(xy) - 1.0)   # dunkle Fläche liegt tiefer
-    sv, sf, sharp = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
+    sv, sf, sharp, kinds = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
-    return dict(star_verts=sv, star_faces=sf, star_sharp=sharp,
+    return dict(star_verts=sv, star_faces=sf, star_sharp=sharp, star_kinds=kinds,
                 barrel_verts=bv, barrel_faces=bf, dish=dish, tone_info=tone_info,
                 hub_back=(z_rim - dish / 1000.0 - p.hub_thickness / 1000.0) * 1000.0)
 

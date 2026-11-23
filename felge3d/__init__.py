@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 10, 0),
+    "version": (0, 11, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -145,6 +145,10 @@ class Felge3DSettings(PropertyGroup):
                              description="Stufe der glanzgedrehten Fläche gegenüber dem dunklen Bereich "
                                          "(nur bei zweifarbigen Felgen, 0 = aus)")
     tone_info: StringProperty(default="")
+    pocket_color: bpy.props.FloatVectorProperty(name="Taschen-Farbe", subtype="COLOR", size=3,
+                                                default=(0.015, 0.015, 0.017), min=0, max=1,
+                                                update=_update_rebuild,
+                                                description="Farbe der Fensterwände in der Tiefe")
     ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
                                description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
     min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
@@ -426,18 +430,29 @@ def build_wheel(context, s, new_collection=True):
     set_smooth(star_me, 50, res["star_sharp"])
     barrel_me = new_mesh("Felgenbett", res["barrel_verts"], res["barrel_faces"])
     set_smooth(barrel_me, 35)
+    pocket = get_material("Felge3D_Taschen", s.pocket_color[:] + (1.0,) if len(s.pocket_color) == 3
+                          else tuple(s.pocket_color), 0.3, 0.6)
+    pocket.diffuse_color = tuple(s.pocket_color) + (1.0,)
+    bsdf = pocket.node_tree.nodes.get("Principled BSDF") if pocket.use_nodes else None
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = tuple(s.pocket_color) + (1.0,)
+    kinds = np.array(res.get("star_kinds") or [0] * len(star_me.polygons), dtype=np.int32)
     if s.photo_texture:
         R_out = core.dimensions(p)[4]
         photo = get_photo_material(s.image)
         plain = get_material("Felge3D_Grund_" + s.image.name, mean_color(s.image, mask), 0.6, 0.4)
         for me in (star_me, barrel_me):
             project_photo_uv(me, s, R_out)
-            me.materials.append(photo)
-            me.materials.append(plain)
-            # Foto nur auf Flächen, die nach vorn zeigen – Wände/Bett einfarbig (keine Schlieren)
-            nrm = np.empty(len(me.polygons) * 3, dtype=np.float32)
-            me.polygons.foreach_get("normal", nrm)
-            me.polygons.foreach_set("material_index", (nrm[2::3] < 0.35).astype(np.int32))
+            me.materials.append(photo)    # 0: Foto (Vorderseite)
+            me.materials.append(plain)    # 1: Grundfarbe
+            me.materials.append(pocket)   # 2: Taschen (dunkel)
+        # Stern: fest nach Flächenart – vorn Foto, Taschenwände + Rückseite dunkel
+        idx = np.where(kinds == 0, 0, 2).astype(np.int32)
+        star_me.polygons.foreach_set("material_index", idx[:len(star_me.polygons)])
+        # Felgenbett: nach vorn zeigende Flächen Foto, Rest Grundfarbe
+        nrm = np.empty(len(barrel_me.polygons) * 3, dtype=np.float32)
+        barrel_me.polygons.foreach_get("normal", nrm)
+        barrel_me.polygons.foreach_set("material_index", (nrm[2::3] < 0.35).astype(np.int32))
     else:
         star_me.materials.append(get_material("Felge3D_Stern", (0.05, 0.05, 0.055, 1), 0.6, 0.45))
         barrel_me.materials.append(get_material("Felge3D_Bett", (0.7, 0.7, 0.72, 1), 1.0, 0.25))
@@ -789,6 +804,7 @@ class FELGE3D_PT_main(Panel):
                 self.layout.prop(s, "ai_depth", slider=True)
         row2 = self.layout.row(align=True)
         row2.prop(s, "tone_step", slider=True)
+        self.layout.prop(s, "pocket_color")
         if s.tone_info:
             self.layout.label(text="Kante: " + s.tone_info, icon="MOD_BEVEL")
         else:
