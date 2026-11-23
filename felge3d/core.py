@@ -626,7 +626,7 @@ def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_
     (gewölbte Speichen, Kanten, Stufen glanzgedreht/schwarz, Nabe).
     """
     base = np.nan_to_num(depth, nan=float(np.nanmin(depth)))
-    fine = blur(base, 2, 3)                                    # Pixelrauschen weg
+    fine = blur(base, 1, 2)                                    # Pixelrauschen weg, Kanten bleiben
     big = max(4, int(round((detail_scale_px or 0.10 * rx))))
     coarse = blur(base, big, 3)                                # großflächige (unzuverlässige) Tiefe
     hp = fine - coarse                                         # nur Details
@@ -665,6 +665,48 @@ def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_
         rel = np.clip(d / scale, -1.2, 1.0)                    # -1..1 = tief..hoch
         return z_base + strength * rel * relief_mm / 1000.0
     return f
+
+
+def tone_step_fn(gray, mask, cx, cy, rx, ry, R_out, n, hub_n=None, split_r=0.0, bevel_px=1.0):
+    """
+    Feine Kante der glanzgedrehten Fläche direkt aus dem Foto (schärfer als die KI):
+    Ist die Felge deutlich zweifarbig (z.B. silber glanzgedreht + schwarz), wird die helle
+    Fläche zur erhabenen Stufe. Gibt (f(xy)->0..1, info) zurück; None, wenn einfarbig.
+    """
+    g = blur(gray, 1, 1)
+    sel = (mask > 0.5) & (norm_radius(gray.shape, cx, cy, rx, ry) < 0.92)
+    vals = g[sel]
+    if vals.size < 500:
+        return None, "zu wenig Material"
+    thr = otsu(vals)
+    lo, hi = vals[vals <= thr], vals[vals > thr]
+    if lo.size < 0.08 * vals.size or hi.size < 0.08 * vals.size:
+        return None, "einfarbig"
+    sep = (hi.mean() - lo.mean()) / (vals.std() + 1e-6)
+    if hi.mean() - lo.mean() < 0.30 or sep < 1.6:
+        return None, "einfarbig (Kontrast %.2f)" % (hi.mean() - lo.mean())
+    w = max(0.02, 0.15 * (hi.mean() - lo.mean()))
+    soft = np.clip((g - thr) / w * 0.5 + 0.5, 0.0, 1.0)      # weiche Stufe (Fase ~ 1 px)
+    if bevel_px > 0:
+        soft = blur(soft, int(round(bevel_px)), 1)
+
+    def _sample_n(xy, nn):
+        vals = []
+        for k in range(max(1, nn)):
+            a = 2 * np.pi * k / max(1, nn)
+            ca, sa = np.cos(a), np.sin(a)
+            x = xy[:, 0] * ca - xy[:, 1] * sa
+            y = xy[:, 0] * sa + xy[:, 1] * ca
+            vals.append(bilinear(soft, cx + x / R_out * rx, cy + y / R_out * ry))
+        return np.median(np.stack(vals), axis=0)              # über alle Speichen -> sauber
+
+    def f(xy):
+        outer = _sample_n(xy, n)
+        if hub_n is None or hub_n == n:
+            return outer
+        inner = _sample_n(xy, hub_n)
+        return np.where(np.hypot(xy[:, 0], xy[:, 1]) < split_r, inner, outer)
+    return f, "zweifarbig (Kontrast %.2f)" % (hi.mean() - lo.mean())
 
 
 def apply_dish(verts, z_front, dish, power, r_face):
@@ -745,6 +787,7 @@ class Params:
     hub_zone = 0.33       # Anteil des Radius, in dem die Nabensymmetrie gilt
     ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
     ai_depth = 15.0       # mm, Stärke des KI-Reliefs (Details auf der Grundform)
+    tone_step = 3.0       # mm, Stufe der glanzgedrehten Fläche (nur bei zweifarbigen Felgen)
     min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
     wall = 5.0            # mm
@@ -770,7 +813,7 @@ def dimensions(p):
     return R, W, flange, wall, R_out, r_face, dish
 
 
-def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None):
+def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=None):
     """
     mask: Materialmaske (Bildpixel, y nach oben), cx..ry in Pixeln (Felgenhorn außen).
     Gibt dict mit star_verts, star_faces, star_sharp, barrel_verts, barrel_faces, dish.
@@ -837,10 +880,20 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None):
     if depth is not None and p.ai_strength > 0:
         override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist,
                                hub_n=hub_n, split_r=split_r, relief_mm=p.ai_depth)
+    # feine Kante glanzgedreht/schwarz aus dem Foto
+    tone_info = "aus"
+    if gray is not None and p.tone_step > 0:
+        step, tone_info = tone_step_fn(gray, mask, cx, cy, rx, ry, R_out, symmetry_n, hub_n, split_r)
+        if step is not None:
+            base_override = override
+
+            def override(xy, z, _b=base_override, _s=step):
+                z2 = _b(xy, z) if _b is not None else z
+                return z2 + p.tone_step / 1000.0 * (_s(xy) - 1.0)   # dunkle Fläche liegt tiefer
     sv, sf, sharp = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp,
-                barrel_verts=bv, barrel_faces=bf, dish=dish,
+                barrel_verts=bv, barrel_faces=bf, dish=dish, tone_info=tone_info,
                 hub_back=(z_rim - dish / 1000.0 - p.hub_thickness / 1000.0) * 1000.0)
 
 

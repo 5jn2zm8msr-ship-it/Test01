@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 9, 0),
+    "version": (0, 10, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -141,6 +141,10 @@ class Felge3DSettings(PropertyGroup):
     ])
     ai_depth: FloatProperty(name="Relief (mm)", default=15.0, min=0, max=60, update=_update_rebuild,
                             description="Stärke der KI-Details: gewölbte Speichen, Kanten, Stufen glanzgedreht/schwarz, Nabe")
+    tone_step: FloatProperty(name="Kante (mm)", default=3.0, min=0, max=15, update=_update_rebuild,
+                             description="Stufe der glanzgedrehten Fläche gegenüber dem dunklen Bereich "
+                                         "(nur bei zweifarbigen Felgen, 0 = aus)")
+    tone_info: StringProperty(default="")
     ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
                                description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
     min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
@@ -267,7 +271,7 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "tone_step", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -412,7 +416,8 @@ def build_wheel(context, s, new_collection=True):
     p = make_params(s)
     depth = ai_depth(s, cx, cy, rx, ry)
     hub_n = hub_symmetry(s, gray, cx, cy, rx, ry, n)
-    res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth, hub_n=hub_n)
+    res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth, hub_n=hub_n, gray=gray)
+    s["tone_info"] = res.get("tone_info", "")
     if not res["star_faces"]:
         raise RuntimeError("Keine Speichen erkannt – Erkennung/Schwellwert prüfen (Maske anzeigen).")
 
@@ -782,6 +787,10 @@ class FELGE3D_PT_main(Panel):
             row.prop(s, "use_ai")
             if s.use_ai:
                 self.layout.prop(s, "ai_depth", slider=True)
+        row2 = self.layout.row(align=True)
+        row2.prop(s, "tone_step", slider=True)
+        if s.tone_info:
+            self.layout.label(text="Kante: " + s.tone_info, icon="MOD_BEVEL")
         else:
             row.operator("felge3d.install_ai", icon="IMPORT")
         row.prop(s, "ai_quality", text="")
