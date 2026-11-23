@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 8, 0),
+    "version": (0, 9, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -100,10 +100,11 @@ class Felge3DSettings(PropertyGroup):
                           subtype="NONE", update=_update_rebuild,
                           description="Durchmesser der Felge in Zoll (19–24)")
     width: FloatProperty(name="Breite (Zoll, J)", default=8.0, min=4, max=14)
-    use_et: BoolProperty(name="Konkavität aus ET", default=True,
+    use_et: BoolProperty(name="Konkavität aus ET", default=False, update=_update_rebuild,
                          description="Konkavität aus der Einpresstiefe berechnen")
     et: FloatProperty(name="ET (mm)", default=45.0, min=-50, max=120)
-    dish: FloatProperty(name="Konkavität (mm)", default=35.0, min=0, max=150)
+    dish: FloatProperty(name="Konkavität (mm)", default=40.0, min=0, max=150, update=_update_rebuild,
+                        description="Wie viel tiefer die Mitte als der Felgenrand liegt (Schüsselform)")
     dish_power: FloatProperty(name="Wölbungsform", default=1.5, min=0.5, max=4,
                               description="1 = gerader Kegel, größer = runder")
     face_inset: FloatProperty(name="Stern-Rücksprung (mm)", default=12.0, min=0, max=60,
@@ -138,8 +139,8 @@ class Felge3DSettings(PropertyGroup):
         ("HIGH", "Hoch (DA3 Large)", "Depth Anything 3 Mono-Large – saubere Flächen, ~5–20 s pro Bild"),
         ("FAST", "Schnell (DA2 Small)", "Depth Anything V2 Small – unter 1 s, etwas rauschiger"),
     ])
-    ai_depth: FloatProperty(name="Tiefe (mm)", default=50.0, min=5, max=150, update=_update_rebuild,
-                            description="Wie tief die KI-Form ist: vom vordersten Punkt (Speichen) bis zum tiefsten (Nabe/Mitte)")
+    ai_depth: FloatProperty(name="Relief (mm)", default=15.0, min=0, max=60, update=_update_rebuild,
+                            description="Stärke der KI-Details: gewölbte Speichen, Kanten, Stufen glanzgedreht/schwarz, Nabe")
     ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
                                description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
     min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
@@ -154,8 +155,8 @@ class Felge3DSettings(PropertyGroup):
                                 description="Das Felgenfoto von vorn auf die Felge projizieren (Farben, Logo, Glanz wie im Bild)")
 
     # --- Qualität
-    res_radial: IntProperty(name="Ringe", default=160, min=40, max=600)
-    res_angular: IntProperty(name="Segmente Stern", default=720, min=120, max=3600)
+    res_radial: IntProperty(name="Ringe", default=240, min=40, max=600, update=_update_rebuild)
+    res_angular: IntProperty(name="Segmente Stern", default=1080, min=120, max=3600, update=_update_rebuild)
     sections: IntProperty(name="Segmente Bett", default=128, min=32, max=512)
 
 
@@ -774,6 +775,8 @@ class FELGE3D_PT_main(Panel):
         col.scale_y = 1.4
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
         self.layout.prop(s, "diameter", slider=True)
+        if not s.use_et:
+            self.layout.prop(s, "dish", slider=True)
         row = self.layout.row(align=True)
         if ai.is_ready(s.ai_quality):
             row.prop(s, "use_ai")
