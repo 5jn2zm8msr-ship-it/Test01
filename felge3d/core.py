@@ -402,6 +402,35 @@ def _components(B):
     return comps
 
 
+def _is_thin(ii, jj, shape, radii, half_mm=1.6):
+    """Erodiert die Lücke um half_mm in Millimetern (radial und tangential); bleibt <10 % übrig -> dünn."""
+    n_r, n_t = shape
+    i0, i1 = ii.min(), ii.max() + 1
+    m = np.zeros((i1 - i0, n_t), bool)
+    m[ii - i0, jj] = True
+    dr = max(float(np.mean(np.diff(radii))) * 1000.0, 1e-3)
+    kr = max(1, int(round(half_mm / dr)))
+    e = m.copy()
+    for k in range(1, kr + 1):                          # radial
+        up = np.zeros_like(m)
+        dn = np.zeros_like(m)
+        up[:-k] = m[k:]
+        dn[k:] = m[:-k]
+        e &= up & dn
+    dth = 2 * np.pi / n_t
+    for row in range(e.shape[0]):                       # tangential, je Radius andere Zellbreite
+        r_mm = max(radii[i0 + row] * 1000.0, 1.0)
+        kt = max(1, int(round(half_mm / (r_mm * dth))))
+        if kt >= n_t // 2:
+            continue
+        mr = m[row]
+        acc = mr.copy()
+        for k in range(1, kt + 1):
+            acc &= np.roll(mr, k) & np.roll(mr, -k)
+        e[row] &= acc
+    return e.sum() < 0.1 * len(ii)
+
+
 def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.07, lug_zone=0.45):
     """
     - Material, das nicht mit dem Außenring verbunden ist, entfernen (würde lose herumfliegen)
@@ -425,7 +454,12 @@ def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.07, lug_zone=0.45):
             continue
         holes.append((ii, jj, cell_mm2[ii, 0].sum(), radii[ii].mean() / radii[-1]))
     biggest = max([h[2] for h in holes], default=0.0)
+    hole_mask = out < 0.5
     for ii, jj, area, r_mean in holes:
+        # dünne Schlitze (z.B. Fugen zwischen Rahmen und Einsatz): schmaler als ~3 mm -> füllen
+        if _is_thin(ii, jj, F.shape, radii, half_mm=1.6):
+            out[ii, jj] = 1.0
+            continue
         # kleine Störungen immer füllen; außerhalb der Radschrauben-Zone auch Flecken
         # (z.B. Spiegelungen auf silbernen Einsätzen), die viel kleiner als ein Fenster sind
         if area < min_hole_mm2 or (r_mean > lug_zone and area < rel_spot * biggest):
@@ -494,7 +528,8 @@ def edge_distance_fn(F, radii, r_face, max_mm, grid_mm=1.0):
     return at
 
 
-def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None):
+def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_override_fn=None,
+               min_thick=0.006):
     """
     Geschlossener Felgenstern: Vorderfläche (Wölbung), Rückfläche, Seitenwände
     exakt parallel zur Radachse (3-Achs-fräsbar von vorn).
@@ -505,6 +540,9 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None):
     r = np.hypot(fv[:, 0], fv[:, 1])
     zb = z_front_fn(r) - thick_fn(r)
     zf = z_front_fn(r) + (front_offset_fn(fv[:, :2]) if front_offset_fn else 0.0)
+    if front_override_fn is not None:
+        zf = front_override_fn(fv[:, :2], zf)
+    zf = np.maximum(zf, zb + min_thick)          # Mindestwandstärke (fräsbar)
     n = len(fv)
     verts = np.vstack([np.column_stack([fv[:, :2], zf]), np.column_stack([fv[:, :2], zb])])
     bnd = boundary_edges_directed(ff)
@@ -516,6 +554,40 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None):
         for x, y in ((a, b), (a + n, b + n)):
             sharp.append((x, y) if x < y else (y, x))
     return verts, faces, sharp
+
+
+def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None):
+    """
+    depth: Tiefenkarte der KI im Arbeitsbild (größer = näher an der Kamera), NaN = unbekannt.
+    Gibt f(xy, z_analytisch) -> z zurück. Die relative KI-Tiefe wird per Ausgleichsgerade
+    auf die analytische Form (Horn vorn, Nabe an ET) in Millimeter umgerechnet;
+    die Details (Speichenform, Kanten, Nabe) kommen aus der KI.
+    """
+    dsm = blur(np.nan_to_num(depth, nan=float(np.nanmin(depth))), 3, 3)
+
+    def sample(xy):
+        vals = []
+        for k in range(max(1, n)):
+            a = 2 * np.pi * k / max(1, n)
+            ca, sa = np.cos(a), np.sin(a)
+            x = xy[:, 0] * ca - xy[:, 1] * sa
+            y = xy[:, 0] * sa + xy[:, 1] * ca
+            vals.append(bilinear(dsm, cx + x / R_out * rx, cy + y / R_out * ry))
+        return np.median(np.stack(vals), axis=0)   # über alle Speichen -> robust
+
+    def f(xy, z_ana):
+        d = sample(xy)
+        t = edge_t(xy) if edge_t is not None else np.ones(len(xy))
+        sel = t > 0.5                                # nur sicher innerhalb des Materials kalibrieren
+        if sel.sum() < 100:
+            return z_ana
+        A = np.column_stack([d[sel], np.ones(sel.sum())])
+        (a, b), *_ = np.linalg.lstsq(A, z_ana[sel], rcond=None)
+        if not np.isfinite(a) or a <= 0:            # KI widerspricht der Grundform -> nicht verwenden
+            return z_ana
+        z_ai = a * d + b
+        return z_ana + strength * (z_ai - z_ana)
+    return f
 
 
 def apply_dish(verts, z_front, dish, power, r_face):
@@ -592,6 +664,8 @@ class Params:
     boss_radius = 75.0    # mm
     boss_slope = 15.0     # mm, Breite der Flanke
     min_hole = 60.0       # mm², kleinere Lücken werden gefüllt
+    ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
+    min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
     wall = 5.0            # mm
     drop = 22.0           # mm
@@ -616,7 +690,7 @@ def dimensions(p):
     return R, W, flange, wall, R_out, r_face, dish
 
 
-def build(mask, cx, cy, rx, ry, p, symmetry_n=1):
+def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None):
     """
     mask: Materialmaske (Bildpixel, y nach oben), cx..ry in Pixeln (Felgenhorn außen).
     Gibt dict mit star_verts, star_faces, star_sharp, barrel_verts, barrel_faces, dish.
@@ -647,8 +721,10 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1):
         return (p.spoke_thickness + (p.hub_thickness - p.spoke_thickness) * s_of(r)) / 1000.0
 
     offset = None
+    dist = None
+    if (p.relief > 0 and p.relief_width > 0) or depth is not None:
+        dist = edge_distance_fn(F, radii, r_face, max(p.relief_width, 10.0))
     if p.relief > 0 and p.relief_width > 0:
-        dist = edge_distance_fn(F, radii, r_face, p.relief_width)
 
         def offset(xy):
             t = np.clip(dist(xy), 0.0, 1.0)           # 0 = Kante, 1 = Speichenmitte
@@ -664,7 +740,10 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1):
             u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
             return p.boss_height / 1000.0 * u * u * (3 - 2 * u)
 
-    sv, sf, sharp = star_solid(F, radii, z_front, thick, offset)
+    override = None
+    if depth is not None and p.ai_strength > 0:
+        override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist)
+    sv, sf, sharp = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp,
                 barrel_verts=bv, barrel_faces=bf, dish=dish,

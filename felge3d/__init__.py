@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -31,8 +31,9 @@ if "core" in locals():
     import importlib
     core = importlib.reload(core)
     updater = importlib.reload(updater)
+    ai = importlib.reload(ai)
 else:
-    from . import core, updater
+    from . import ai, core, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -92,6 +93,7 @@ class Felge3DSettings(PropertyGroup):
     sym_n: IntProperty(name="Ordnung", default=5, min=2, max=36)
     detected_n: IntProperty(name="Erkannt", default=0)
     method_used: StringProperty(name="Methode", default="")
+    ai_used: BoolProperty(name="KI verwendet", default=False)
 
     # --- Maße
     diameter: IntProperty(name="Felgengröße (Zoll)", default=20, min=19, max=24,
@@ -128,6 +130,11 @@ class Felge3DSettings(PropertyGroup):
     min_hole: FloatProperty(name="Kleine Löcher füllen (mm²)", default=60.0, min=0, max=2000,
                             update=_update_rebuild,
                             description="Lücken kleiner als diese Fläche gelten als Störung (Spiegelung) und werden gefüllt")
+    use_ai: BoolProperty(name="KI-Tiefe", default=True, update=_update_rebuild,
+                         description="Tiefe der Felge (Speichenform, Wölbung, Nabe) per KI aus dem Foto schätzen")
+    ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
+                               description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
+    min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
     one_body: BoolProperty(name="Ein Körper (fräsfertig)", default=True,
                            description="Stern und Felgenbett per Boolean zu einem geschlossenen Mesh vereinen")
     flange: FloatProperty(name="Hornhöhe (mm)", default=17.0, min=5, max=30)
@@ -194,6 +201,21 @@ def prepare(s):
     return gray, cx, cy, rx, ry
 
 
+_depth_cache = {}
+
+
+def ai_depth(s, cx, cy, rx, ry):
+    """KI-Tiefenkarte im Arbeitsbild – oder None, wenn KI aus/nicht installiert."""
+    if not s.use_ai or not ai.is_ready():
+        return None
+    key = (s.image.name, s.proc_size, round(cx, 1), round(cy, 1), round(rx, 1), round(ry, 1))
+    if key not in _depth_cache:
+        _depth_cache.clear()
+        rgb = _rgb_cache[next(iter(_rgb_cache))]
+        _depth_cache[key] = ai.depth_map(rgb, cx, cy, rx, ry)
+    return _depth_cache[key]
+
+
 def symmetry_order(s, gray, cx, cy, rx, ry):
     if s.sym_mode == "AUTO":
         n, _ = core.detect_symmetry_gray(gray, cx, cy, rx, ry)
@@ -228,7 +250,7 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "ai_strength", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -371,7 +393,8 @@ def build_wheel(context, s, new_collection=True):
         s["threshold"] = thr          # anzeigen, ohne Update-Callback auszulösen
 
     p = make_params(s)
-    res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n)
+    depth = ai_depth(s, cx, cy, rx, ry)
+    res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth)
     if not res["star_faces"]:
         raise RuntimeError("Keine Speichen erkannt – Erkennung/Schwellwert prüfen (Maske anzeigen).")
 
@@ -433,7 +456,8 @@ def build_wheel(context, s, new_collection=True):
             bpy.data.meshes.remove(me)
 
     nf = sum(len(ob.data.polygons) for ob in col.objects if ob.type == "MESH")
-    info = "Felge erzeugt: %d-fach symmetrisch, Konkavität %.0f mm, Nabenanlage bei %.1f mm, %d Flächen" % (
+    s["ai_used"] = depth is not None
+    info = "Felge erzeugt" + (" mit KI-Tiefe" if depth is not None else "") + ": %d-fach symmetrisch, Konkavität %.0f mm, Nabenanlage bei %.1f mm, %d Flächen" % (
         n, res["dish"], res["hub_back"], nf)
     return col, info
 
@@ -602,6 +626,32 @@ class FELGE3D_OT_export_obj(Operator, ExportHelper):
 
 
 
+class FELGE3D_OT_install_ai(Operator):
+    """KI-Tiefenschätzung einmalig einrichten: ONNX Runtime (~50 MB) und Depth-Anything-V2-Small-Modell (~27 MB)"""
+    bl_idname = "felge3d.install_ai"
+    bl_label = "KI-Tiefe einrichten (einmalig)"
+
+    def execute(self, context):
+        try:
+            if not ai.runtime_available():
+                self.report({"INFO"}, "Installiere ONNX Runtime …")
+                ai.install_runtime()
+                if not ai.runtime_available():
+                    raise RuntimeError("ONNX Runtime installiert, lässt sich aber nicht laden. "
+                                       "Intel-Mac: macOS 13 oder neuer nötig.")
+            if not os.path.isfile(ai.model_path()):
+                self.report({"INFO"}, "Lade KI-Modell …")
+                ai.download_model()
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, "KI-Einrichtung fehlgeschlagen: %s" % updater.describe_error(e))
+            return {"CANCELLED"}
+        self.report({"INFO"}, "KI-Tiefe ist bereit.")
+        s = context.scene.felge3d
+        if s.image and s.collection:
+            bpy.ops.felge3d.rebuild()
+        return {"FINISHED"}
+
+
 # ============================================================ Update von GitHub
 _update_state = {"remote": None, "msg": ""}
 
@@ -698,6 +748,10 @@ class FELGE3D_PT_main(Panel):
         col.scale_y = 1.4
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
         self.layout.prop(s, "diameter", slider=True)
+        if ai.is_ready():
+            self.layout.prop(s, "use_ai")
+        else:
+            self.layout.operator("felge3d.install_ai", icon="IMPORT")
         if s.collection:
             info = "%d Speichen-Symmetrie" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
             self.layout.label(text=info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
@@ -736,6 +790,9 @@ class FELGE3D_PT_dims(Panel):
         c = self.layout.column(align=True)
         c.prop(s, "boss_height")
         c.prop(s, "boss_radius")
+        c = self.layout.column(align=True)
+        c.prop(s, "ai_strength")
+        c.prop(s, "min_thick")
         self.layout.prop(s, "one_body")
         self.layout.prop(s, "photo_texture")
 
@@ -820,6 +877,7 @@ classes = (
     Felge3DPreferences,
     Felge3DSettings,
     FELGE3D_OT_check_update,
+    FELGE3D_OT_install_ai,
     FELGE3D_OT_install_update,
     FELGE3D_OT_import_image,
     FELGE3D_OT_rebuild,

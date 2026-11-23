@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "felge3d"
-version = "0.4.0"
+version = "0.5.0"
 name = "Felge3D"
 tagline = "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell"
 maintainer = "Felge3D"
@@ -13,4 +13,4 @@ license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
 files = "Lädt Felgenbilder, exportiert OBJ-Dateien, schreibt Add-on-Updates"
-network = "Sucht auf GitHub nach Updates des Add-ons (nur auf Knopfdruck)"
+network = "Updates von GitHub und einmaliger Download des KI-Tiefenmodells (nur auf Knopfdruck)"
