@@ -1,0 +1,559 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""
+Rechenkern von Felge3D – nur numpy, kein bpy. Damit auch ohne Blender testbar.
+
+Koordinaten: Bilder liegen wie in Blender vor (Zeile 0 = unten, y nach oben).
+Winkel theta = 0 zeigt nach oben (+y), läuft im Uhrzeigersinn.
+Geometrie in Metern, Radachse = Z, Felgenfront zeigt nach +Z.
+"""
+import math
+import numpy as np
+
+INCH = 0.0254
+
+
+# ============================================================ Bildverarbeitung
+def rgba_to_gray(rgba):
+    return (rgba[..., 0] * 0.299 + rgba[..., 1] * 0.587 + rgba[..., 2] * 0.114).astype(np.float32)
+
+
+def downscale(a, max_size):
+    """Blockmittel-Verkleinerung, bis die längere Seite <= max_size ist."""
+    h, w = a.shape
+    f = max(1, int(math.ceil(max(h, w) / float(max_size))))
+    if f == 1:
+        return a.astype(np.float32)
+    h2, w2 = h // f, w // f
+    return a[:h2 * f, :w2 * f].reshape(h2, f, w2, f).mean(axis=(1, 3)).astype(np.float32)
+
+
+def _box1d(a, r, axis):
+    if r < 1:
+        return a
+    pad = [(0, 0)] * a.ndim
+    pad[axis] = (r + 1, r)
+    c = np.cumsum(np.pad(a, pad, mode="edge"), axis=axis, dtype=np.float64)
+    n = a.shape[axis]
+    hi = np.take(c, np.arange(2 * r + 1, 2 * r + 1 + n), axis=axis)
+    lo = np.take(c, np.arange(0, n), axis=axis)
+    return ((hi - lo) / (2 * r + 1)).astype(np.float32)
+
+
+def blur(a, r, passes=2):
+    out = a.astype(np.float32)
+    for _ in range(passes):
+        out = _box1d(_box1d(out, r, 0), r, 1)
+    return out
+
+
+def otsu(values, bins=256):
+    hist, edges = np.histogram(values, bins=bins, range=(0.0, 1.0))
+    hist = hist.astype(np.float64)
+    centers = (edges[:-1] + edges[1:]) / 2
+    w0 = np.cumsum(hist)
+    w1 = w0[-1] - w0
+    m0 = np.cumsum(hist * centers)
+    mu0 = m0 / np.maximum(w0, 1)
+    mu1 = (m0[-1] - m0) / np.maximum(w1, 1)
+    between = w0 * w1 * (mu0 - mu1) ** 2
+    return float(centers[int(np.argmax(between))])
+
+
+def norm_radius(shape, cx, cy, rx, ry):
+    """Normierter Radius jedes Pixels (1 = Felgenhorn außen). Ellipse erlaubt leichte Perspektive."""
+    h, w = shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    return np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2)
+
+
+def segment(gray, cx, cy, rx, ry, mode="AUTO", auto_threshold=True,
+            thr=0.5, thr_hi=0.7, invert=False, clean=2):
+    """
+    Liefert (maske 0/1 float32, benutzter Schwellwert).
+    mode: AUTO   – Otsu, Material = Klasse, die am Felgenrand dominiert
+          BRIGHT – hell = Material
+          DARK   – dunkel = Material
+          BAND   – Grauwerte zwischen thr und thr_hi sind Lücke (z.B. grauer Hintergrund
+                   hinter schwarz/silbernen Speichen)
+    """
+    rn = norm_radius(gray.shape, cx, cy, rx, ry)
+    inside = rn < 1.0
+    g = blur(gray, 1, passes=1)
+    if auto_threshold and mode != "BAND":
+        thr = otsu(g[inside]) if inside.any() else 0.5
+
+    if mode == "BAND":
+        mat = (g < thr) | (g > thr_hi)
+    else:
+        bright = g > thr
+        if mode == "BRIGHT":
+            mat = bright
+        elif mode == "DARK":
+            mat = ~bright
+        else:
+            ring = (rn > 0.94) & (rn < 0.99)   # Felgenhorn = immer Material
+            mat = bright if (bright[ring].mean() if ring.any() else 1) > 0.5 else ~bright
+    if invert:
+        mat = ~mat
+    m = (mat & inside).astype(np.float32)
+    if clean > 0:
+        # Öffnen (Störpunkte weg) und Schließen (kleine Löcher zu) über Box-Filter
+        m = (blur((blur(m, clean, 1) > 0.999).astype(np.float32), clean, 1) > 0.001).astype(np.float32)
+        m = (blur((blur(m, clean, 1) > 0.001).astype(np.float32), clean, 1) > 0.999).astype(np.float32)
+        m *= inside
+    return m, float(thr)
+
+
+# ============================================================ Polarraster
+def bilinear(img, x, y):
+    h, w = img.shape
+    x = np.clip(x, 0, w - 1.001)
+    y = np.clip(y, 0, h - 1.001)
+    x0 = np.floor(x).astype(np.int64)
+    y0 = np.floor(y).astype(np.int64)
+    fx, fy = x - x0, y - y0
+    a = img[y0, x0]
+    b = img[y0, x0 + 1]
+    c = img[y0 + 1, x0]
+    d = img[y0 + 1, x0 + 1]
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
+
+
+def sample_polar(mask, cx, cy, rx, ry, rn_values, n_t):
+    """Feld F[i, j] = Maske bei normiertem Radius rn_values[i] und Winkel j*2pi/n_t."""
+    th = np.arange(n_t) * (2 * np.pi / n_t)
+    R, T = np.meshgrid(rn_values, th, indexing="ij")
+    x = cx + R * rx * np.sin(T)
+    y = cy + R * ry * np.cos(T)
+    return bilinear(mask, x, y).astype(np.float32)
+
+
+def detect_symmetry(mask, cx, cy, rx, ry, n_max=24, min_iou=0.80):
+    """Größte Ordnung N (3..n_max), unter deren Drehung die Maske gleich bleibt; 1 = keine."""
+    n_t = 5040  # durch fast alle üblichen Speichenzahlen teilbar
+    rn = np.linspace(0.25, 0.85, 40)
+    F = sample_polar(mask, cx, cy, rx, ry, rn, n_t) > 0.5
+    best, scores = 1, {}
+    for n in range(3, n_max + 1):
+        s = int(round(n_t / n))
+        G = np.roll(F, s, axis=1)
+        iou = (F & G).sum() / max(1, (F | G).sum())
+        scores[n] = float(iou)
+        if iou >= min_iou:
+            best = n
+    return best, scores
+
+
+def detect_symmetry_gray(gray, cx, cy, rx, ry, n_max=24, rel=0.8, min_corr=0.3):
+    """
+    Speichenordnung über die Korrelation des GRAUBILDS mit sich selbst, gedreht um 360/N.
+    Robuster als die Maske, weil Schattierungen an den Speichen mitgemessen werden.
+    Gibt das größte N zurück, dessen Korrelation >= rel * bestes ist (10 statt 5 bei 10 Speichen).
+    """
+    n_t = 5040
+    F = sample_polar(gray, cx, cy, rx, ry, np.linspace(0.3, 0.85, 40), n_t)
+    F = F - F.mean(axis=1, keepdims=True)
+    den = (F * F).sum()
+    corr = {}
+    for n in range(3, n_max + 1):
+        G = np.roll(F, int(round(n_t / n)), axis=1)
+        corr[n] = float((F * G).sum() / max(den, 1e-9))
+    best = max(corr.values())
+    if best < min_corr:
+        return 1, corr
+    return max(n for n, c in corr.items() if c >= rel * best), corr
+
+
+def symmetrize_polar(F, n):
+    n_r, n_t = F.shape
+    if n <= 1 or n_t % n:
+        return F
+    return np.tile(F.reshape(n_r, n, n_t // n).mean(axis=1), (1, n))
+
+
+# ============================================================ Felgenstern-Mesh
+def star_mesh(F, radii, iso=0.5):
+    """
+    Gefülltes Marching-Squares auf dem Polarraster F (n_r x n_t, in theta zyklisch).
+    radii: Radien der Rasterzeilen in Metern.
+    Gibt (verts (N,3) mit z=0, faces: Liste von Index-Listen, CCW von +Z gesehen) zurück.
+    """
+    n_r, n_t = F.shape
+    dth = 2 * np.pi / n_t
+    inside = F >= iso
+
+    rows, cols, kinds, ts = [], [], [], []  # Kanten-Punkte: (i, j, art, t)
+    edge_id = {}
+    n_corner = n_r * n_t
+
+    def corner(i, j):
+        return i * n_t + (j % n_t)
+
+    def edge_pt(i, j, kind, fa, fb):
+        # kind 0: radiale Kante (i,j)-(i+1,j); kind 1: Winkelkante (i,j)-(i,j+1)
+        key = (i, j % n_t, kind)
+        v = edge_id.get(key)
+        if v is None:
+            v = n_corner + len(rows)
+            edge_id[key] = v
+            rows.append(i)
+            cols.append(j % n_t)
+            kinds.append(kind)
+            ts.append((iso - fa) / (fb - fa) if fb != fa else 0.5)
+        return v
+
+    I, J = np.meshgrid(np.arange(n_r - 1), np.arange(n_t), indexing="ij")
+    Jn = (J + 1) % n_t
+    # CCW (theta läuft im Uhrzeigersinn): (i,j) -> (i,j+1) -> (i+1,j+1) -> (i+1,j)
+    c_in = np.stack([inside[I, J], inside[I, Jn], inside[I + 1, Jn], inside[I + 1, J]], axis=-1)
+    cnt = c_in.sum(axis=-1)
+
+    faces = []
+    full = np.argwhere(cnt == 4)
+    if len(full):
+        i, j = full[:, 0], full[:, 1]
+        jn = (j + 1) % n_t
+        quad = np.stack([i * n_t + j, i * n_t + jn, (i + 1) * n_t + jn, (i + 1) * n_t + j], axis=1)
+        faces.extend(quad.tolist())
+
+    for i, j in np.argwhere((cnt > 0) & (cnt < 4)):
+        i, j = int(i), int(j)
+        cs = [(i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j)]
+        # Kanten zwischen aufeinanderfolgenden Ecken: (Basis-i, Basis-j, Art)
+        es = [(i, j, 1), (i, j + 1, 0), (i + 1, j, 1), (i, j, 0)]
+        vals = [F[a, b % n_t] for a, b in cs]
+        ins = [v >= iso for v in vals]
+        poly = []
+        for k in range(4):
+            k2 = (k + 1) % 4
+            if ins[k]:
+                poly.append(corner(*cs[k]))
+            if ins[k] != ins[k2]:
+                ei, ej, kind = es[k]
+                # t immer von der Basisecke (ei,ej) aus messen
+                fa = F[ei, ej % n_t]
+                fb = F[ei + 1, ej % n_t] if kind == 0 else F[ei, (ej + 1) % n_t]
+                poly.append(edge_pt(ei, ej, kind, fa, fb))
+        if len(poly) >= 3:
+            faces.append(poly)
+
+    # Vertex-Positionen
+    th = np.arange(n_t) * dth
+    rr, tt = np.meshgrid(radii, th, indexing="ij")
+    corner_xy = np.stack([rr * np.sin(tt), rr * np.cos(tt)], axis=-1).reshape(-1, 2)
+    if rows:
+        ri = np.array(rows)
+        ci = np.array(cols)
+        kd = np.array(kinds)
+        t = np.clip(np.array(ts), 0.0, 1.0)
+        r_e = np.where(kd == 0, radii[ri] + t * (radii[np.minimum(ri + 1, n_r - 1)] - radii[ri]), radii[ri])
+        th_e = np.where(kd == 1, (ci + t) * dth, ci * dth)
+        edge_xy = np.stack([r_e * np.sin(th_e), r_e * np.cos(th_e)], axis=-1)
+        all_xy = np.vstack([corner_xy, edge_xy])
+    else:
+        all_xy = corner_xy
+
+    # Unbenutzte Vertices entfernen
+    used = np.zeros(len(all_xy), bool)
+    for f in faces:
+        used[f] = True
+    remap = -np.ones(len(all_xy), np.int64)
+    remap[used] = np.arange(used.sum())
+    faces = [remap[f].tolist() for f in faces]
+    verts = np.zeros((int(used.sum()), 3))
+    verts[:, :2] = all_xy[used]
+    return verts, faces
+
+
+def boundary_edges(faces):
+    """Kanten, die nur zu einer Fläche gehören (Außen- und Lochkonturen)."""
+    count = {}
+    for f in faces:
+        n = len(f)
+        for k in range(n):
+            a, b = f[k], f[(k + 1) % n]
+            key = (a, b) if a < b else (b, a)
+            count[key] = count.get(key, 0) + 1
+    return [k for k, c in count.items() if c == 1]
+
+
+def boundary_edges_directed(faces):
+    """Randkanten in Umlaufrichtung ihrer Fläche (a -> b)."""
+    count = {}
+    directed = []
+    for f in faces:
+        n = len(f)
+        for k in range(n):
+            a, b = f[k], f[(k + 1) % n]
+            key = (a, b) if a < b else (b, a)
+            count[key] = count.get(key, 0) + 1
+            directed.append((a, b))
+    return [(a, b) for a, b in directed if count[(a, b) if a < b else (b, a)] == 1]
+
+
+def _erode(m, square):
+    p = np.pad(m, 1, mode="edge")
+    out = m & p[:-2, 1:-1] & p[2:, 1:-1] & p[1:-1, :-2] & p[1:-1, 2:]
+    if square:
+        out &= p[:-2, :-2] & p[:-2, 2:] & p[2:, :-2] & p[2:, 2:]
+    return out
+
+
+def edge_distance_fn(F, radii, r_face, max_mm, grid_mm=1.0):
+    """
+    Abstand (mm) jedes Punktes zur nächsten Fenster-/Lochkante, aus dem Polarfeld F.
+    Gibt eine Funktion xy(N,2 in m) -> Abstand in mm zurück.
+    """
+    n_r, n_t = F.shape
+    g = grid_mm / 1000.0
+    N = int(np.ceil(2 * r_face / g)) + 3
+    ax = (np.arange(N) - (N - 1) / 2.0) * g
+    X, Y = np.meshgrid(ax, ax)
+    R = np.hypot(X, Y)
+    TH = np.mod(np.arctan2(X, Y), 2 * np.pi)
+    fi = np.interp(R, radii, np.arange(n_r))
+    fj = TH / (2 * np.pi / n_t)
+    i0 = np.clip(np.floor(fi).astype(int), 0, n_r - 2)
+    j0 = np.floor(fj).astype(int) % n_t
+    ti, tj = np.clip(fi - i0, 0, 1), fj - np.floor(fj)
+    j1 = (j0 + 1) % n_t
+    val = ((F[i0, j0] * (1 - tj) + F[i0, j1] * tj) * (1 - ti)
+           + (F[i0 + 1, j0] * (1 - tj) + F[i0 + 1, j1] * tj) * ti)
+    M = (val >= 0.5) | (R >= r_face)          # außerhalb = Felgenbett (keine Rundung zum Bett hin)
+    M &= R >= radii[0]                         # Mittelbohrung ist eine Kante
+    D = np.zeros(M.shape, np.float32)
+    cur = M.copy()
+    steps = int(np.ceil(max_mm / grid_mm)) + 2
+    for k in range(steps):                     # abwechselnd Kreuz/Quadrat ~ Achteck-Abstand
+        D += cur
+        cur = _erode(cur, k % 2 == 1)
+        if not cur.any():
+            break
+    D = blur(D * grid_mm, 1, 2)
+
+    def at(xy):
+        px = xy[:, 0] / g + (N - 1) / 2.0
+        py = xy[:, 1] / g + (N - 1) / 2.0
+        return bilinear(D, px, py)
+    return at
+
+
+def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None):
+    """
+    Geschlossener Felgenstern: Vorderfläche (Wölbung), Rückfläche, Seitenwände
+    exakt parallel zur Radachse (3-Achs-fräsbar von vorn).
+    """
+    fv, ff = star_mesh(F, radii)
+    if not ff:
+        return fv, ff, []
+    r = np.hypot(fv[:, 0], fv[:, 1])
+    zb = z_front_fn(r) - thick_fn(r)
+    zf = z_front_fn(r) + (front_offset_fn(fv[:, :2]) if front_offset_fn else 0.0)
+    n = len(fv)
+    verts = np.vstack([np.column_stack([fv[:, :2], zf]), np.column_stack([fv[:, :2], zb])])
+    bnd = boundary_edges_directed(ff)
+    faces = list(ff)
+    faces += [[v + n for v in f[::-1]] for f in ff]
+    faces += [[a, a + n, b + n, b] for a, b in bnd]
+    sharp = []
+    for a, b in bnd:
+        for x, y in ((a, b), (a + n, b + n)):
+            sharp.append((x, y) if x < y else (y, x))
+    return verts, faces, sharp
+
+
+def apply_dish(verts, z_front, dish, power, r_face):
+    r = np.hypot(verts[:, 0], verts[:, 1])
+    s = np.clip(1.0 - r / r_face, 0.0, 1.0)
+    out = verts.copy()
+    out[:, 2] = z_front - dish * s ** power
+    return out
+
+
+# ============================================================ Felgenbett
+def barrel_profile(R, W, wall, flange, drop):
+    """Geschlossener Querschnitt (r, z), Front bei z=0, Rückseite bei z=-W."""
+    outer = [
+        (R + flange, 0.0),
+        (R + flange, -0.006),
+        (R + 0.002, -0.014),
+        (R, -0.020),
+        (R, -0.18 * W),
+        (R - drop, -0.30 * W),
+        (R - drop, -0.62 * W),
+        (R, -0.74 * W),
+        (R, -W + 0.020),
+        (R + 0.002, -W + 0.014),
+        (R + flange, -W + 0.006),
+        (R + flange, -W),
+    ]
+    inner = [(r - wall, z) for r, z in outer]
+    return np.array(outer + inner[::-1])
+
+
+def revolve(profile, sections):
+    """Profil (r, z) um Z drehen. Gibt (verts, faces) zurück, Normalen nach außen."""
+    P = len(profile)
+    phi = np.arange(sections) * (2 * np.pi / sections)
+    r, z = profile[:, 0], profile[:, 1]
+    verts = np.zeros((sections * P, 3))
+    verts[:, 0] = (np.sin(phi)[:, None] * r[None, :]).ravel()
+    verts[:, 1] = (np.cos(phi)[:, None] * r[None, :]).ravel()
+    verts[:, 2] = np.tile(z, sections)
+    k = np.arange(sections)[:, None]
+    p = np.arange(P)[None, :]
+    k2 = (k + 1) % sections
+    p2 = (p + 1) % P
+    faces = np.stack([k * P + p, k * P + p2, k2 * P + p2, k2 * P + p], axis=-1).reshape(-1, 4)
+    if signed_volume(verts, faces) < 0:
+        faces = faces[:, ::-1]
+    return verts, faces.tolist()
+
+
+def signed_volume(verts, faces):
+    f = np.asarray(faces)
+    tri = np.concatenate([f[:, [0, 1, 2]], f[:, [0, 2, 3]]]) if f.shape[1] == 4 else f
+    a, b, c = verts[tri[:, 0]], verts[tri[:, 1]], verts[tri[:, 2]]
+    return float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6.0)
+
+
+# ============================================================ Gesamt-Pipeline
+class Params:
+    """Alle Maße in den Einheiten der Oberfläche (Zoll / mm)."""
+    diameter = 18.0       # Zoll
+    width = 8.0           # Zoll
+    use_et = False
+    et = 45.0             # mm
+    face_inset = 12.0     # mm
+    dish = 35.0           # mm
+    dish_power = 1.5
+    spoke_thickness = 22.0  # mm, Dicke am Felgenrand
+    hub_thickness = 40.0  # mm, Dicke an der Nabe
+    hub_radius = 85.0     # mm, flache Nabenanlagefläche
+    relief = 10.0         # mm, Wölbung der Speichen (0 = flach)
+    relief_width = 30.0   # mm, Breite der Kantenrundung
+    flange = 17.0         # mm
+    wall = 5.0            # mm
+    drop = 22.0           # mm
+    ring = 12.0           # mm, Außenring des Sterns
+    res_radial = 160
+    res_angular = 720
+    sections = 128
+
+
+def dimensions(p):
+    R = p.diameter * INCH / 2.0
+    W = p.width * INCH
+    flange = p.flange / 1000.0
+    wall = p.wall / 1000.0
+    R_out = R + flange
+    r_face = R - wall + 0.002
+    dish = p.dish
+    if p.use_et:
+        # Nabenanlagefläche (Rückseite der Nabe) liegt ET mm vor der Felgenmitte
+        hub_back = -W / 2 * 1000.0 + p.et
+        dish = -p.face_inset - (hub_back + p.hub_thickness)   # negativ = konvex
+    return R, W, flange, wall, R_out, r_face, dish
+
+
+def build(mask, cx, cy, rx, ry, p, symmetry_n=1):
+    """
+    mask: Materialmaske (Bildpixel, y nach oben), cx..ry in Pixeln (Felgenhorn außen).
+    Gibt dict mit star_verts, star_faces, star_sharp, barrel_verts, barrel_faces, dish.
+    """
+    R, W, flange, wall, R_out, r_face, dish = dimensions(p)
+
+    n_t = int(p.res_angular)
+    if symmetry_n > 1:
+        n_t = max(symmetry_n, int(round(n_t / symmetry_n)) * symmetry_n)
+    n_r = int(p.res_radial)
+    radii = np.linspace(r_face / n_r * 0.5, r_face, n_r)
+    F = sample_polar(blur(mask, 1, 1), cx, cy, rx, ry, radii / R_out, n_t)
+    if symmetry_n > 1:
+        F = symmetrize_polar(F, symmetry_n)
+    F[radii > r_face - p.ring / 1000.0, :] = 1.0   # Außenring verbindet Stern mit Bett
+
+    r_hub = min(p.hub_radius / 1000.0, r_face * 0.8)
+    z_rim = -p.face_inset / 1000.0
+
+    def s_of(r):  # 1 an der Nabe (flach), 0 am Rand
+        return np.clip((r_face - r) / (r_face - r_hub), 0.0, 1.0)
+
+    def z_front(r):
+        return z_rim - dish / 1000.0 * s_of(r) ** p.dish_power
+
+    def thick(r):
+        return (p.spoke_thickness + (p.hub_thickness - p.spoke_thickness) * s_of(r)) / 1000.0
+
+    offset = None
+    if p.relief > 0 and p.relief_width > 0:
+        dist = edge_distance_fn(F, radii, r_face, p.relief_width)
+
+        def offset(xy):
+            t = np.clip(dist(xy) / p.relief_width, 0.0, 1.0)
+            return p.relief / 1000.0 * np.sqrt(1.0 - (1.0 - t) ** 2)   # Viertelkreis-Rundung
+
+    sv, sf, sharp = star_solid(F, radii, z_front, thick, offset)
+    bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
+    return dict(star_verts=sv, star_faces=sf, star_sharp=sharp,
+                barrel_verts=bv, barrel_faces=bf, dish=dish,
+                hub_back=(z_rim - dish / 1000.0 - p.hub_thickness / 1000.0) * 1000.0)
+
+
+# ============================================================ Felge im Bild finden
+def find_wheel(gray, work=256):
+    """
+    Sucht die Felgenkontur (Ellipse mit fast gleichen Achsen) über den Bildgradienten.
+    Gibt (cx, cy, rx, ry) in Pixeln des übergebenen Bildes zurück.
+    """
+    h, w = gray.shape
+    small = downscale(gray, work)
+    f = h / float(small.shape[0])
+    gy, gx = np.gradient(blur(small, 1, 2))
+    G = np.hypot(gx, gy)
+    sh, sw = G.shape
+    m = min(sh, sw)
+    ang = np.linspace(0, 2 * np.pi, 180, endpoint=False)
+    sa, ca = np.sin(ang), np.cos(ang)
+
+    def score(cx, cy, rx, ry):
+        x = cx + rx[:, None] * sa[None, :]
+        y = cy + ry[:, None] * ca[None, :]
+        ok = (x >= 0) & (x < sw - 1) & (y >= 0) & (y < sh - 1)
+        v = bilinear(G, x, y) * ok
+        # Kontrast über den ganzen Umfang: Mittel minus Streuung bestraft Teilbögen
+        return v.mean(axis=1) - 0.5 * v.std(axis=1)
+
+    radii = np.arange(int(m * 0.25), int(m * 0.505))
+    # bester Score je Radius (über alle Mittelpunkte)
+    best_r = np.full(len(radii), -1.0)
+    best_c = np.zeros((len(radii), 2))
+    for cy in np.arange(sh * 0.38, sh * 0.62, 2.0):
+        for cx in np.arange(sw * 0.38, sw * 0.62, 2.0):
+            sc = score(cx, cy, radii, radii)
+            upd = sc > best_r
+            best_r[upd] = sc[upd]
+            best_c[upd] = (cx, cy)
+    # Felgen haben mehrere konzentrische Kanten (Horn innen/außen, Bett).
+    # Die Außenkontur ist die GRÖSSTE deutliche Kante -> größter Radius mit gutem Score.
+    strong = np.where(best_r >= 0.40 * best_r.max())[0]
+    # lokales Maximum in der Nähe des größten starken Radius
+    k = int(strong.max())
+    lo = max(0, k - 4)
+    k = lo + int(np.argmax(best_r[lo:k + 1]))
+    best = (float(best_r[k]), best_c[k][0], best_c[k][1], float(radii[k]), float(radii[k]))
+    # Feinsuche inkl. leichter Perspektive (Ellipse)
+    _, cx0, cy0, r0, _ = best
+    best = (-1.0,) + best[1:]
+    for cy in np.arange(cy0 - 2, cy0 + 2.01, 0.5):
+        for cx in np.arange(cx0 - 2, cx0 + 2.01, 0.5):
+            for asp in np.linspace(0.85, 1.15, 13):
+                rr = np.arange(r0 - 2, r0 + 2.01, 0.5)
+                rx = rr / np.sqrt(asp)
+                ry = rr * np.sqrt(asp)
+                s = score(cx, cy, rx, ry)
+                k = int(np.argmax(s))
+                if s[k] > best[0]:
+                    best = (float(s[k]), cx, cy, float(rx[k]), float(ry[k]))
+    _, cx, cy, rx, ry = best
+    return cx * f, cy * f, rx * f, ry * f
