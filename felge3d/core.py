@@ -534,14 +534,22 @@ def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.07, lug_zone=0.45):
     out = F.copy()
     for cells in _components(M):
         ii = np.array([c[0] for c in cells])
-        if ii.max() < n_r - 1:                  # berührt den Außenring nicht -> lose
-            out[ii, [c[1] for c in cells]] = 0.0
+        jj = np.array([c[1] for c in cells])
+        touches_ring = ii.max() >= n_r - 1
+        touches_hub = radii[ii].min() < 0.30 * radii[-1]       # sitzt an der Nabe -> gehört dazu
+        big = cell_mm2[ii, 0].sum() > 300.0                    # größere Stücke sind echte Speichenteile
+        if not (touches_ring or touches_hub or big):           # kleiner, frei schwebender Rest -> entfernen
+            out[ii, jj] = 0.0
     M = out >= 0.5
     holes = []
     for cells in _components(~M):
         ii = np.array([c[0] for c in cells])
         jj = np.array([c[1] for c in cells])
-        if ii.min() == 0:                       # Mittelbohrung
+        if ii.min() == 0:
+            # Loch im Zentrum = Nabendeckel/Wappen wurde als Lücke erkannt -> füllen
+            # (nur wenn es klein bleibt; ein Leck bis zu den Fenstern wird nicht angefasst)
+            if radii[ii].max() < 0.45 * radii[-1]:
+                out[ii, jj] = 1.0
             continue
         holes.append((ii, jj, cell_mm2[ii, 0].sum(), radii[ii].mean() / radii[-1]))
     biggest = max([h[2] for h in holes], default=0.0)
@@ -1026,10 +1034,10 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     split_r = p.hub_zone * R_out
     F = symmetrize_zones(F, radii, split_r, hub_n, symmetry_n)
     F[radii > r_face - p.ring / 1000.0, :] = 1.0   # Außenring verbindet Stern mit Bett
-    if p.bore > 0:                                  # saubere Mittelbohrung (Deckel/Logo sind nicht Teil der Felge)
-        F[radii < p.bore / 2000.0, :] = 0.0
     F = polar_close(F, radii, 3.0)                  # Spalten < ~6 mm nach dem Angleichen schließen
     F = clean_polar(F, radii, p.min_hole)
+    if p.bore > 0:                                  # optional: runde Mittelbohrung (nach dem Aufräumen)
+        F[radii < p.bore / 2000.0, :] = 0.0
 
     r_hub = min(p.hub_radius / 1000.0, r_face * 0.8)
     z_rim = -p.face_inset / 1000.0
