@@ -703,7 +703,7 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
             off_band = smooth_on_mesh(off, ff, len(fv), edge_iters // 2)
             off = np.where(band, off_band, off)
         zf = z0 + off
-        zb = np.minimum(zb, zf - thick_fn(r))    # Rückseite folgt der KI-Vorderseite
+        zb = zf - thick_fn(r)                    # Rückseite folgt der Vorderseite: gleichmäßige Dicke
     zf = np.maximum(zf, zb + min_thick)          # Mindestwandstärke
     n = len(fv)
     verts = np.vstack([np.column_stack([fv[:, :2], zf]), np.column_stack([fv[:, :2], zb])])
@@ -884,8 +884,8 @@ class Params:
     face_inset = 12.0     # mm
     dish = 60.0           # mm
     dish_power = 1.5
-    spoke_thickness = 22.0  # mm, Dicke am Felgenrand
-    hub_thickness = 40.0  # mm, Dicke an der Nabe
+    spoke_thickness = 14.0  # mm, Dicke am Felgenrand
+    hub_thickness = 24.0  # mm, Dicke an der Nabe
     hub_radius = 85.0     # mm, flache Nabenanlagefläche
     relief = 10.0         # mm, Wölbung der Speichen (0 = flach)
     relief_width = 40.0   # mm, max. halbe Breite, über die gewölbt wird

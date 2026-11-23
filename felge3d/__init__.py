@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 14, 0),
+    "version": (0, 15, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -109,9 +109,9 @@ class Felge3DSettings(PropertyGroup):
                               description="1 = gerader Kegel, größer = runder")
     face_inset: FloatProperty(name="Stern-Rücksprung (mm)", default=12.0, min=0, max=60,
                               description="Wie weit der Stern außen hinter dem Felgenhorn liegt")
-    spoke_thickness: FloatProperty(name="Speichendicke Rand (mm)", default=22.0, min=4, max=80,
+    spoke_thickness: FloatProperty(name="Speichendicke Rand (mm)", default=14.0, min=4, max=80,
                                    update=_update_rebuild)
-    hub_thickness: FloatProperty(name="Nabendicke (mm)", default=40.0, min=10, max=120,
+    hub_thickness: FloatProperty(name="Nabendicke (mm)", default=24.0, min=10, max=120,
                                  update=_update_rebuild,
                                  description="Materialstärke an der Nabe (Speichen werden zur Mitte hin dicker)")
     hub_radius: FloatProperty(name="Nabenfläche Radius (mm)", default=85.0, min=30, max=150,
@@ -365,7 +365,7 @@ def clean_texture(img, mask, closed_mask=None):
     yi = np.minimum((np.arange(h) * mask.shape[0] / h).astype(int), mask.shape[0] - 1)
     xi = np.minimum((np.arange(w) * mask.shape[1] / w).astype(int), mask.shape[1] - 1)
     valid = mask[yi][:, xi] > 0.5
-    k = max(2, int(round(w / 400.0)))                      # Saum ~0,25 % der Bildbreite
+    k = max(3, int(round(w / 150.0)))                      # Saum ~0,7 % der Bildbreite (Kantenreflexe weg)
     valid = core.blur(valid.astype(np.float32), k, 1) > 0.999
     # Arbeitsauflösung für das Füllen (schnell), dann nur ungültige Pixel ersetzen
     f = max(1, int(np.ceil(max(w, h) / 1024.0)))
@@ -596,7 +596,7 @@ class FELGE3D_OT_reset_defaults(Operator):
 
     def execute(self, context):
         s = context.scene.felge3d
-        for k in ("dish", "ai_depth", "tone_step"):
+        for k in ("dish", "ai_depth", "tone_step", "spoke_thickness", "hub_thickness"):
             s.property_unset(k)
         if s.image and s.collection:
             bpy.ops.felge3d.rebuild()
