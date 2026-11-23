@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 18, 0),
+    "version": (0, 19, 1),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -25,6 +25,7 @@ from bpy.props import (BoolProperty, EnumProperty, FloatProperty, IntProperty,
                        PointerProperty, StringProperty)
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup
 from bpy_extras.io_utils import ExportHelper, ImportHelper
+from mathutils import Matrix
 
 # Beim Neu-Aktivieren/Update ohne Neustart lädt Blender Untermodule nicht neu -> selbst nachladen
 if "core" in locals():
@@ -32,8 +33,9 @@ if "core" in locals():
     core = importlib.reload(core)
     updater = importlib.reload(updater)
     ai = importlib.reload(ai)
+    car = importlib.reload(car)
 else:
-    from . import ai, core, updater
+    from . import ai, car, core, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -509,8 +511,12 @@ def unique_collection_name(base):
     return name
 
 
-def build_wheel(context, s, new_collection=True):
-    """Komplette Pipeline. Gibt (collection, info-text) zurück."""
+def make_rim_meshes(context, s, overrides=None):
+    """
+    Foto -> Felgenmeshes (Stern + Bett, mit Materialien und Foto-UV), noch ohne Objekte/Collection.
+    overrides: Maße überschreiben, z.B. dict(diameter=20.0, width=10.0, et=45.0, use_et=True) (für das Fahrzeug-Paket).
+    Gibt dict(star_me, barrel_me, res, n, depth, p, mask) zurück.
+    """
     gray, cx, cy, rx, ry = prepare(s)
     n = symmetry_order(s, gray, cx, cy, rx, ry)
     mask, thr = compute_mask(s, gray, cx, cy, rx, ry, n)
@@ -532,6 +538,8 @@ def build_wheel(context, s, new_collection=True):
         warn.append("Felgenkreis unplausibel (Reifen im Foto?)")
     s["warning"] = "; ".join(warn)
     p = make_params(s)
+    for k_, v_ in (overrides or {}).items():
+        setattr(p, k_, v_)
     depth = ai_depth(s, cx, cy, rx, ry)
     hub_n = hub_symmetry(s, gray, cx, cy, rx, ry, n)
     res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth, hub_n=hub_n, gray=gray)
@@ -539,7 +547,6 @@ def build_wheel(context, s, new_collection=True):
     if not res["star_faces"]:
         raise RuntimeError("Keine Speichen erkannt – Erkennung/Schwellwert prüfen (Maske anzeigen).")
 
-    img_name = os.path.splitext(s.image.name)[0]
     star_me = new_mesh("Felgenstern", res["star_verts"], res["star_faces"])
     set_smooth(star_me, 50, res["star_sharp"])
     barrel_me = new_mesh("Felgenbett", res["barrel_verts"], res["barrel_faces"])
@@ -576,6 +583,14 @@ def build_wheel(context, s, new_collection=True):
         star_me.materials.append(get_material("Felge3D_Stern", (0.05, 0.05, 0.055, 1), 0.6, 0.45))
         barrel_me.materials.append(get_material("Felge3D_Bett", (0.7, 0.7, 0.72, 1), 1.0, 0.25))
 
+    return dict(star_me=star_me, barrel_me=barrel_me, res=res, n=n, depth=depth, p=p, mask=mask)
+
+
+def build_wheel(context, s, new_collection=True):
+    """Komplette Pipeline für ein einzelnes Rad. Gibt (collection, info-text) zurück."""
+    rim = make_rim_meshes(context, s)
+    star_me, barrel_me, res, n, depth = rim["star_me"], rim["barrel_me"], rim["res"], rim["n"], rim["depth"]
+    img_name = os.path.splitext(s.image.name)[0]
     meshes = [("star", "Felgenstern", star_me), ("barrel", "Felgenbett", barrel_me)]
     if s.one_body:
         meshes = [("body", "Felge", union_meshes(barrel_me, star_me))]
@@ -1117,9 +1132,246 @@ class FELGE3D_PT_advanced(Panel):
             c.prop(s, k)
 
 
+# ============================================================ Schritt 2: Fahrzeug-Paket (4 Räder)
+class Felge3DCar(PropertyGroup):
+    """Maße vom Porsche 911 GT3 RS (992), Datenblatt MY P 08/2022 – alle Werte änderbar."""
+    wheelbase: FloatProperty(name="Radstand (mm)", default=2457, min=1500, max=4000)
+    front_track: FloatProperty(name="Spurweite vorn (mm)", default=1630, min=1200, max=2200)
+    rear_track: FloatProperty(name="Spurweite hinten (mm)", default=1582, min=1200, max=2200)
+    front_rim: FloatProperty(name="Felge vorn (Zoll)", default=20, min=14, max=24)
+    rear_rim: FloatProperty(name="Felge hinten (Zoll)", default=21, min=14, max=24)
+    front_rim_width: FloatProperty(name="Felgenbreite vorn (J)", default=10.0, min=5, max=14)
+    rear_rim_width: FloatProperty(name="Felgenbreite hinten (J)", default=13.0, min=5, max=14)
+    front_et: FloatProperty(name="Einpresstiefe vorn (ET mm)", default=45, min=-20, max=80)
+    rear_et: FloatProperty(name="Einpresstiefe hinten (ET mm)", default=31, min=-20, max=80)
+    front_width: IntProperty(name="Reifenbreite vorn (mm)", default=275, min=145, max=405)
+    rear_width: IntProperty(name="Reifenbreite hinten (mm)", default=335, min=145, max=405)
+    front_aspect: IntProperty(name="Querschnitt vorn (%)", default=35, min=20, max=85)
+    rear_aspect: IntProperty(name="Querschnitt hinten (%)", default=30, min=20, max=85)
+    front_camber: FloatProperty(name="Sturz vorn (Grad)", default=-1.5, min=-12, max=12)
+    rear_camber: FloatProperty(name="Sturz hinten (Grad)", default=-1.5, min=-12, max=12)
+    front_disc: FloatProperty(name="Scheibe vorn (mm)", default=408, min=250, max=450)
+    rear_disc: FloatProperty(name="Scheibe hinten (mm)", default=380, min=240, max=450)
+    front_disc_thickness: FloatProperty(name="Scheibendicke vorn (mm)", default=36, min=18, max=48)
+    rear_disc_thickness: FloatProperty(name="Scheibendicke hinten (mm)", default=30, min=18, max=48)
+
+    tire_rotation: FloatProperty(name="Reifentextur drehen (Grad)", default=0, min=-180, max=180,
+                                 description="Dreht die Reifentextur auf der Flanke (Beschriftung oben/unten)")
+    tire_flip: BoolProperty(name="Reifentextur spiegeln", default=False)
+    tread_grooves: IntProperty(name="Längsrillen", default=3, min=0, max=4)
+    decal_sidewall_top: StringProperty(name="Flanke oben (PNG)", subtype="FILE_PATH", default="")
+    decal_sidewall_bottom: StringProperty(name="Flanke unten (PNG)", subtype="FILE_PATH", default="")
+    decal_sidewall_scale: FloatProperty(name="Flanken-Decal Höhe", default=1.0, min=.2, max=1.2)
+    decal_sidewall_arc: FloatProperty(name="Flanken-Decal max. Bogen (Grad)", default=110, min=10, max=170)
+
+    disc_style: EnumProperty(name="Scheibentyp", default="GESCHLITZT", items=[
+        ("GESCHLITZT", "Geschlitzt", ""), ("GELOCHT", "Gelocht", ""), ("GLATT", "Glatt", "")])
+    caliper_angle: FloatProperty(name="Sattelposition (Grad)", default=90, min=-180, max=180,
+                                 description="0 = oben, 90 = Richtung Heck, -90 = Richtung Front")
+    caliper_color: bpy.props.FloatVectorProperty(name="Sattelfarbe", subtype="COLOR", size=3, min=0, max=1,
+                                                 default=(.55, .78, .02))
+    decal_caliper: StringProperty(name="Sattel (PNG)", subtype="FILE_PATH", default="")
+    decal_caliper_scale: FloatProperty(name="Sattel-Decal Größe", default=.7, min=.2, max=1.0)
+    use_bevel: BoolProperty(name="Kantenfasen (Bevel)", default=True)
+
+
+TIRE_TEXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures", "reifen.jpg")
+
+
+def tire_texture_params(c):
+    """
+    Feste Reifentextur (im Add-on gebündelt) laden und vermessen: Mittelpunkt, Außenkante der Flanke
+    und Innenkante (Wulst, heller Innenraum) werden aus dem Bild bestimmt.
+    Gibt (Bild, tex-dict) zurück, oder (None, None) falls die Datei fehlt.
+    """
+    if not os.path.isfile(TIRE_TEXTURE):
+        return None, None
+    img = bpy.data.images.load(TIRE_TEXTURE, check_existing=True)
+    gray = core.downscale(image_to_gray(img), 768)
+    h, w = gray.shape
+    cx, cy, rx, ry = core.find_wheel(gray, tire=False)      # äußerster Kreis = Reifenkante
+    # Radialprofil der Helligkeit (Mittel über alle Winkel): innen weiß (Loch), dann Reifen, außen weiß
+    ang = np.linspace(0, 2 * np.pi, 180, endpoint=False)
+    rr = np.linspace(0.05, 1.10, 220) * rx
+    xs = cx + rr[:, None] * np.sin(ang)[None, :]
+    ys = cy + rr[:, None] * np.cos(ang)[None, :] * (ry / rx)
+    ok = (xs >= 0) & (xs < w - 1) & (ys >= 0) & (ys < h - 1)
+    prof = np.where(ok, core.bilinear(gray, np.clip(xs, 0, w - 1.01), np.clip(ys, 0, h - 1.01)), np.nan)
+    prof = np.nanmedian(prof, axis=1)
+    dark = np.nonzero(prof < 0.55)[0]
+    r_in = rr[dark[0]] if dark.size else 0.62 * rx           # Wulst: erster dunkler Radius von innen
+    r_out = rx
+    return img, dict(cx=cx / w, cy=cy / h, r_in=r_in / w, r_out=r_out / w, asp=ry / rx, w_over_h=w / h,
+                     rot=c.tire_rotation, flip=c.tire_flip)
+
+
+def build_car(context, s, c):
+    if not s.image:
+        raise RuntimeError("Zuerst im Bereich ‚Felge3D‘ ein Felgenbild laden (Schritt 1).")
+    if context.object and context.object.mode != "OBJECT":
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except RuntimeError:
+            pass
+    car.clear_old()
+    col = bpy.data.collections.new(car.COLL_NAME)
+    context.scene.collection.children.link(col)
+
+    tire_img, tex = tire_texture_params(c)
+    mats, imgs = car.build_materials(c, tire_img)
+
+    axles = {}
+    for front in (True, False):
+        d = car.wheel_dims(c, front)
+        rim = make_rim_meshes(context, s, dict(diameter=float(d["rim_in"]), width=d["rim_width_in"],
+                                               et=d["et"] * 1000.0, use_et=True))
+        half = d["rim_width_in"] * 0.0254 / 2.0
+        back_fn = car.back_profile(rim["res"]["star_verts"], half)
+        r_well = d["r_rim"] - (rim["p"].drop + rim["p"].wall) / 1000.0
+        x_m = max(-d["b"] * 0.5, min(d["et"], d["rim_out"] - 0.045))
+        axles[front] = (d, rim, half, back_fn, r_well, x_m)
+
+    created = []
+    for front in (True, False):
+        d, rim, half, back_fn, r_well, x_m = axles[front]
+        axle = "Vorne" if front else "Hinten"
+        y = (-1 if front else 1) * c.wheelbase / 2000.0
+        half_track = (c.front_track if front else c.rear_track) / 2000.0
+        camber = math.radians(c.front_camber if front else c.rear_camber)
+        for sgn, side in ((1, "links"), (-1, "rechts")):
+            name = "%s %s" % (axle, side)
+            parent = bpy.data.objects.new("Rad " + name, None)
+            parent.empty_display_type = "PLAIN_AXES"
+            parent.empty_display_size = 0.2
+            parent.location = (sgn * half_track, y, d["R"])
+            parent.rotation_euler = (0.0, sgn * camber, 0.0)     # negativer Sturz: oben nach innen
+            col.objects.link(parent)
+            parent["Achse"], parent["Seite"] = axle, side
+            parent["Rad"] = "%sJ x %s ET%s" % (("%g" % d["j_in"]), ("%g" % d["rim_in"]), ("%g" % (d["et"] * 1000)))
+            parent["Reifen"] = "%d/%d ZR%s" % (round(d["W"] * 1000), round(d["h"] / d["W"] * 100), ("%g" % d["rim_in"]))
+            parent["Sturz Grad"] = math.degrees(camber)
+            created.append(parent)
+
+            m_rim = Matrix.Translation((sgn * half, 0, 0)) @ car.rim_matrix(sgn)
+            for label, me in (("Felgenstern", rim["star_me"]), ("Felgenbett", rim["barrel_me"])):
+                ob = bpy.data.objects.new("%s %s" % (label, name), me)
+                ob.matrix_basis = m_rim
+                ob.parent = parent
+                col.objects.link(ob)
+
+            me_t = car.build_tire(c, d, sgn, mats, imgs, "Reifen " + name, tex, r_well)
+            ob = bpy.data.objects.new("Reifen " + name, me_t)
+            ob.parent = parent
+            col.objects.link(ob)
+            # Bremsscheibe und Sattel: Code liegt in car.build_brake bereit, kommt später dazu
+    for o in context.view_layer.objects:
+        o.select_set(False)
+    context.view_layer.objects.active = created[0]
+    return col, ("4 Räder erzeugt: vorn %g×%gJ ET%g, hinten %g×%gJ ET%g%s" % (
+        c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et,
+        " · Reifentextur gemappt" if tex else " · Reifentextur fehlt (textures/reifen.jpg)"))
+
+
+class FELGE3D_OT_car_generate(Operator):
+    """Aus dem Felgenbild ein Paket mit 4 Rädern (Felge, Reifen, Bremse) nach Radstand/Spurweite erzeugen"""
+    bl_idname = "felge3d.car_generate"
+    bl_label = "4 Räder erzeugen"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            col, info = build_car(context, context.scene.felge3d, context.scene.felge3d_car)
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        self.report({"INFO"}, info)
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_car_reset(Operator):
+    """Alle Fahrzeugmaße auf die Werte des 911 GT3 RS (992) zurücksetzen"""
+    bl_idname = "felge3d.car_reset"
+    bl_label = "GT3-RS-Maße"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        c = context.scene.felge3d_car
+        for k in c.bl_rna.properties.keys():
+            if k != "rna_type":
+                c.property_unset(k)
+        return {"FINISHED"}
+
+
+class FELGE3D_PT_car(Panel):
+    bl_label = "Schritt 2: Fahrzeug-Paket"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        c = context.scene.felge3d_car
+        L = self.layout
+        if not s.image:
+            L.label(text="Erst oben ein Felgenbild laden", icon="INFO")
+        col = L.column(align=True)
+        col.scale_y = 1.5
+        col.operator("felge3d.car_generate", icon="AUTO")
+        box = L.box()
+        box.label(text="Fahrzeug (GT3 RS)", icon="AUTO")
+        col = box.column(align=True)
+        col.prop(c, "wheelbase")
+        col.prop(c, "front_track")
+        col.prop(c, "rear_track")
+        if not os.path.isfile(TIRE_TEXTURE):
+            L.label(text="Reifentextur fehlt (textures/reifen.jpg)", icon="ERROR")
+        L.operator("felge3d.car_reset", icon="LOOP_BACK")
+
+
+class FELGE3D_PT_car_axle(Panel):
+    bl_label = "Achsen: Felge und Reifen"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+    bl_parent_id = "FELGE3D_PT_car"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        c = context.scene.felge3d_car
+        for title, pre in (("Vorderachse", "front_"), ("Hinterachse", "rear_")):
+            box = self.layout.box()
+            box.label(text=title)
+            col = box.column(align=True)
+            for prop in ("rim", "rim_width", "et", "width", "aspect", "camber"):
+                col.prop(c, pre + prop)
+
+
+class FELGE3D_PT_car_extra(Panel):
+    bl_label = "Reifen: Profil, Textur, Decals"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+    bl_parent_id = "FELGE3D_PT_car"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        c = context.scene.felge3d_car
+        L = self.layout
+        row = L.row(align=True)
+        row.prop(c, "tire_rotation")
+        row.prop(c, "tire_flip", text="", icon="MOD_MIRROR")
+        L.prop(c, "tread_grooves")
+        for prop in ("decal_sidewall_top", "decal_sidewall_bottom", "decal_sidewall_scale", "decal_sidewall_arc"):
+            L.prop(c, prop)
+
+
+
 classes = (
     Felge3DPreferences,
     Felge3DSettings,
+    Felge3DCar,
+    FELGE3D_OT_car_generate,
+    FELGE3D_OT_car_reset,
     FELGE3D_OT_check_update,
     FELGE3D_OT_install_ai,
     FELGE3D_OT_install_update,
@@ -1137,6 +1389,9 @@ classes = (
     FELGE3D_PT_detect,
     FELGE3D_PT_advanced,
     FELGE3D_PT_update,
+    FELGE3D_PT_car,
+    FELGE3D_PT_car_axle,
+    FELGE3D_PT_car_extra,
 )
 
 
@@ -1144,9 +1399,11 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     bpy.types.Scene.felge3d = PointerProperty(type=Felge3DSettings)
+    bpy.types.Scene.felge3d_car = PointerProperty(type=Felge3DCar)
 
 
 def unregister():
+    del bpy.types.Scene.felge3d_car
     del bpy.types.Scene.felge3d
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
