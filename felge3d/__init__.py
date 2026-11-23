@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 15, 0),
+    "version": (0, 16, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -99,12 +99,15 @@ class Felge3DSettings(PropertyGroup):
     diameter: IntProperty(name="Felgengröße (Zoll)", default=20, min=19, max=24,
                           subtype="NONE", update=_update_rebuild,
                           description="Durchmesser der Felge in Zoll (19–24)")
-    width: FloatProperty(name="Breite (Zoll, J)", default=8.0, min=4, max=14)
-    use_et: BoolProperty(name="Konkavität aus ET", default=False, update=_update_rebuild,
-                         description="Konkavität aus der Einpresstiefe berechnen")
-    et: FloatProperty(name="ET (mm)", default=45.0, min=-50, max=120)
-    dish: FloatProperty(name="Konkavität (mm)", default=60.0, min=0, max=150, update=_update_rebuild,
-                        description="Wie viel tiefer die Mitte als der Felgenrand liegt (Schüsselform)")
+    width: FloatProperty(name="Breite (Zoll, J)", default=8.5, min=4, max=14, update=_update_rebuild,
+                         description="Felgenbreite in Zoll (J-Wert aus dem Datenblatt, z.B. 8,5J)")
+    use_et: BoolProperty(name="Form aus Breite + ET", default=True, update=_update_rebuild,
+                         description="Konkav/konvex und Schüsseltiefe aus Breite (J) und Einpresstiefe (ET) berechnen "
+                                     "– physikalisch eindeutig. Aus = Schüssel von Hand")
+    et: FloatProperty(name="ET (mm)", default=40.0, min=-50, max=120, update=_update_rebuild,
+                      description="Einpresstiefe aus dem Datenblatt (z.B. ET44)")
+    dish: FloatProperty(name="Schüssel (mm)", default=40.0, min=-80, max=150, update=_update_rebuild,
+                        description="Von Hand: Mitte liegt so viel tiefer als der Rand. Positiv = konkav, negativ = konvex")
     dish_power: FloatProperty(name="Wölbungsform", default=1.5, min=0.5, max=4,
                               description="1 = gerader Kegel, größer = runder")
     face_inset: FloatProperty(name="Stern-Rücksprung (mm)", default=12.0, min=0, max=60,
@@ -117,13 +120,15 @@ class Felge3DSettings(PropertyGroup):
     hub_radius: FloatProperty(name="Nabenfläche Radius (mm)", default=85.0, min=30, max=150,
                               update=_update_rebuild,
                               description="Radius der flachen Nabenanlagefläche")
-    relief: FloatProperty(name="Speichen-Wölbung (mm)", default=10.0, min=0, max=40,
+    relief: FloatProperty(name="Speichenrücken (mm)", default=4.0, min=0, max=20,
                           update=_update_rebuild,
-                          description="Wie stark die Speichen zur Mitte hin gewölbt sind (0 = flach)")
+                          description="Sanfte Wölbung der Speichenoberfläche (0 = flach)")
     relief_width: FloatProperty(name="Max. Rundungsbreite (mm)", default=40.0, min=2, max=120,
                                 update=_update_rebuild,
                                 description="Schmale Speichen werden über ihre ganze Breite gewölbt, breite Flächen höchstens über diese Breite")
-    boss_height: FloatProperty(name="Nabenbund Höhe (mm)", default=12.0, min=0, max=60,
+    edge_round: FloatProperty(name="Kantenverrundung (mm)", default=2.5, min=0, max=8, update=_update_rebuild,
+                              description="Verrundet alle Fensterkanten (fängt Glanzlichter wie echtes Material)")
+    boss_height: FloatProperty(name="Nabenbund Höhe (mm)", default=6.0, min=0, max=60,
                                update=_update_rebuild,
                                description="Erhabener Bund um den Zentralverschluss / die Nabe (0 = aus)")
     boss_radius: FloatProperty(name="Nabenbund Radius (mm)", default=75.0, min=20, max=200,
@@ -133,19 +138,19 @@ class Felge3DSettings(PropertyGroup):
     min_hole: FloatProperty(name="Kleine Löcher füllen (mm²)", default=60.0, min=0, max=2000,
                             update=_update_rebuild,
                             description="Lücken kleiner als diese Fläche gelten als Störung (Spiegelung) und werden gefüllt")
-    use_ai: BoolProperty(name="KI-Tiefe", default=True, update=_update_rebuild,
-                         description="Tiefe der Felge (Speichenform, Wölbung, Nabe) per KI aus dem Foto schätzen")
+    use_ai: BoolProperty(name="KI-Relief", default=True, update=_update_rebuild,
+                         description="Optional: feine Details (Speichenform, Kanten) aus der KI-Tiefe zusätzlich einrechnen")
     ai_quality: EnumProperty(name="KI-Qualität", default="HIGH", update=_update_rebuild, items=[
         ("HIGH", "Hoch (DA3 Large)", "Depth Anything 3 Mono-Large – saubere Flächen, ~5–20 s pro Bild"),
         ("FAST", "Schnell (DA2 Small)", "Depth Anything V2 Small – unter 1 s, etwas rauschiger"),
     ])
-    ai_depth: FloatProperty(name="Relief (mm)", default=25.0, min=0, max=60, update=_update_rebuild,
-                            description="Stärke der KI-Details: gewölbte Speichen, Kanten, Stufen glanzgedreht/schwarz, Nabe")
+    ai_depth: FloatProperty(name="KI-Relief (mm)", default=0.0, min=0, max=60, update=_update_rebuild,
+                            description="Stärke der KI-Details. 0 = aus (saubere, glatte Form – empfohlen)")
     relief_fade: FloatProperty(name="Relief-Auslauf zum Rand", default=0.35, min=0.05, max=1.0,
                                update=_update_rebuild, subtype="FACTOR",
                                description="Über welchen Anteil des Radius das Relief zum Felgenrand auf 0 ausläuft")
-    tone_step: FloatProperty(name="Kante (mm)", default=4.0, min=0, max=15, update=_update_rebuild,
-                             description="Stufe der glanzgedrehten Fläche gegenüber dem dunklen Bereich "
+    tone_step: FloatProperty(name="Stufe glanzgedreht (mm)", default=0.0, min=0, max=15, update=_update_rebuild,
+                             description="Optional: glanzgedrehte Fläche steht gegenüber dem dunklen Bereich vor "
                                          "(nur bei zweifarbigen Felgen, 0 = aus)")
     tone_info: StringProperty(default="")
     pocket_color: bpy.props.FloatVectorProperty(name="Taschen-Farbe", subtype="COLOR", size=3,
@@ -226,7 +231,7 @@ _depth_cache = {}
 
 def ai_depth(s, cx, cy, rx, ry):
     """KI-Tiefenkarte im Arbeitsbild – oder None, wenn KI aus/nicht installiert."""
-    if not s.use_ai or not ai.is_ready(s.ai_quality):
+    if s.ai_depth <= 0 or not s.use_ai or not ai.is_ready(s.ai_quality):
         return None
     key = (s.image.name, s.proc_size, s.ai_quality, round(cx, 1), round(cy, 1), round(rx, 1), round(ry, 1))
     if key not in _depth_cache:
@@ -275,10 +280,24 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
                         s.threshold, s.threshold_hi, s.invert, s.clean)
 
 
+def analysis_for(s):
+    """Aktuelle Formanalyse (live, unabhängig vom Bauen) aus den Einstellungen."""
+    p = make_params(s)
+    if s.use_et:
+        a = core.shape_analysis(p)
+        a["mode"] = "Felgendaten (J/ET)"
+    else:
+        d = s.dish
+        v = "KONKAV" if d > 6 else ("KONVEX" if d < -6 else "FLACH")
+        a = dict(verdict=v, dish_mm=d, hub_back_mm=None, warn="", mode="von Hand",
+                 text="%s - Schüssel %+.0f mm (von Hand)" % (v, d))
+    return a
+
+
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "relief_fade", "tone_step", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "relief_fade", "tone_step", "edge_round", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -547,8 +566,9 @@ def build_wheel(context, s, new_collection=True):
 
     nf = sum(len(ob.data.polygons) for ob in col.objects if ob.type == "MESH")
     s["ai_used"] = depth is not None
-    info = "Felge erzeugt" + (" mit KI-Tiefe" if depth is not None else "") + ": %d-fach symmetrisch, Konkavität %.0f mm, Nabenanlage bei %.1f mm, %d Flächen" % (
-        n, res["dish"], res["hub_back"], nf)
+    info = "Felge erzeugt: %s · %d-fach symmetrisch · %d Flächen%s" % (
+        res["analysis"]["text"] if s.use_et else "Schüssel %+.0f mm" % res["dish"], n, nf,
+        " · mit KI-Relief" if depth is not None else "")
     return col, info
 
 
@@ -596,7 +616,8 @@ class FELGE3D_OT_reset_defaults(Operator):
 
     def execute(self, context):
         s = context.scene.felge3d
-        for k in ("dish", "ai_depth", "tone_step", "spoke_thickness", "hub_thickness"):
+        for k in ("width", "et", "use_et", "dish", "ai_depth", "tone_step", "spoke_thickness", "hub_thickness",
+                  "relief", "edge_round", "boss_height", "boss_radius", "dish_power", "face_inset"):
             s.property_unset(k)
         if s.image and s.collection:
             bpy.ops.felge3d.rebuild()
@@ -857,30 +878,88 @@ class FELGE3D_PT_main(Panel):
 
     def draw(self, context):
         s = context.scene.felge3d
-        col = self.layout.column(align=True)
+        L = self.layout
+        col = L.column(align=True)
         col.scale_y = 1.4
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
-        self.layout.prop(s, "diameter", slider=True)
-        if not s.use_et:
-            self.layout.prop(s, "dish", slider=True)
-        row = self.layout.row(align=True)
+
+        box = L.box()
+        box.label(text="Felgendaten (Datenblatt)", icon="PREFERENCES")
+        box.prop(s, "diameter", slider=True)
+        box.prop(s, "width")
+        box.prop(s, "use_et")
+        if s.use_et:
+            box.prop(s, "et")
+        else:
+            box.prop(s, "dish", slider=True)
+
+        # --- klare Formanalyse
+        a = analysis_for(s)
+        box = L.box()
+        icon = {"KONKAV": "TRIA_DOWN", "KONVEX": "TRIA_UP", "FLACH": "REMOVE"}[a["verdict"]]
+        row = box.row()
+        row.label(text="Form: " + a["verdict"], icon=icon)
+        if a["hub_back_mm"] is not None:
+            box.label(text="Nabenanlage %.0f mm hinter dem Horn" % a["hub_back_mm"])
+        txt = {"KONKAV": "Mitte liegt %.0f mm tiefer als der Rand" % abs(a["dish_mm"]),
+               "KONVEX": "Mitte steht %.0f mm vor dem Rand" % abs(a["dish_mm"]),
+               "FLACH": "Mitte und Rand etwa auf einer Ebene"}[a["verdict"]]
+        box.label(text=txt)
+        if a["warn"]:
+            box.label(text=a["warn"], icon="ERROR")
+
+        if s.collection:
+            info = "%d Speichen" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
+            L.label(text="Erkannt: " + info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
+            L.operator("felge3d.export_obj", icon="EXPORT")
+
+
+class FELGE3D_PT_look(Panel):
+    bl_label = "Aussehen"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+    bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        L.prop(s, "photo_texture")
+        L.prop(s, "pocket_color")
+        c = L.column(align=True)
+        c.prop(s, "relief")
+        c.prop(s, "edge_round")
+        c.prop(s, "boss_height")
+        c.prop(s, "boss_radius")
+        L.operator("felge3d.reset_defaults", icon="LOOP_BACK")
+
+
+class FELGE3D_PT_ai(Panel):
+    bl_label = "KI-Relief (optional)"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+    bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        L.label(text="Standard aus: saubere, glatte Form.")
+        row = L.row(align=True)
         if ai.is_ready(s.ai_quality):
             row.prop(s, "use_ai")
-            if s.use_ai:
-                self.layout.prop(s, "ai_depth", slider=True)
-        row2 = self.layout.row(align=True)
-        row2.prop(s, "tone_step", slider=True)
-        self.layout.prop(s, "pocket_color")
-        self.layout.operator("felge3d.reset_defaults", icon="LOOP_BACK")
-        if s.tone_info:
-            self.layout.label(text="Kante: " + s.tone_info, icon="MOD_BEVEL")
         else:
             row.operator("felge3d.install_ai", icon="IMPORT")
         row.prop(s, "ai_quality", text="")
-        if s.collection:
-            info = "%d Speichen-Symmetrie" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
-            self.layout.label(text=info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
-            self.layout.operator("felge3d.export_obj", icon="EXPORT")
+        c = L.column(align=True)
+        c.prop(s, "ai_depth", slider=True)
+        c.prop(s, "ai_strength")
+        c.prop(s, "relief_fade")
+        L.prop(s, "tone_step", slider=True)
+        if s.tone_info:
+            L.label(text="Zweifarbigkeit: " + s.tone_info, icon="MOD_BEVEL")
 
 
 class FELGE3D_PT_dims(Panel):
@@ -897,30 +976,14 @@ class FELGE3D_PT_dims(Panel):
         row.operator("felge3d.rebuild", icon="FILE_REFRESH")
         row.operator("felge3d.rebuild", text="", icon="ADD").new_collection = True
         c = self.layout.column(align=True)
-        c.prop(s, "width")
-        c = self.layout.column(align=True)
-        c.prop(s, "use_et")
-        if s.use_et:
-            c.prop(s, "et")
-        else:
-            c.prop(s, "dish")
         c.prop(s, "dish_power")
         c.prop(s, "face_inset")
         c.prop(s, "spoke_thickness")
         c.prop(s, "hub_thickness")
         c.prop(s, "hub_radius")
-        c = self.layout.column(align=True)
-        c.prop(s, "relief")
         c.prop(s, "relief_width")
-        c = self.layout.column(align=True)
-        c.prop(s, "boss_height")
-        c.prop(s, "boss_radius")
-        c = self.layout.column(align=True)
-        c.prop(s, "ai_strength")
-        c.prop(s, "relief_fade")
         c.prop(s, "bore")
         self.layout.prop(s, "one_body")
-        self.layout.prop(s, "photo_texture")
 
 
 class FELGE3D_PT_detect(Panel):
@@ -1013,6 +1076,8 @@ classes = (
     FELGE3D_OT_mask_to_image,
     FELGE3D_OT_export_obj,
     FELGE3D_PT_main,
+    FELGE3D_PT_look,
+    FELGE3D_PT_ai,
     FELGE3D_PT_dims,
     FELGE3D_PT_detect,
     FELGE3D_PT_advanced,

@@ -469,8 +469,8 @@ def _is_thin(ii, jj, shape, radii, half_mm=1.6):
     return e.sum() < 0.1 * len(ii)
 
 
-def polar_close(F, radii, half_mm=1.6):
-    """Morphologisches Schließen auf dem Polarraster in Millimetern (radial + tangential)."""
+def _polar_morph(F, radii, half_mm, mode):
+    """Morphologisches Schließen ('close') / Öffnen ('open') auf dem Polarraster, in Millimetern."""
     n_r, n_t = F.shape
     M = F >= 0.5
     dr = max(float(np.mean(np.diff(radii))) * 1000.0, 1e-3)
@@ -503,10 +503,23 @@ def polar_close(F, radii, half_mm=1.6):
             res[i] = acc
         return res
 
-    closed = morph(morph(M, True), False)
-    out = F.copy()
-    out[closed & ~M] = 1.0
+    if mode == "close":
+        done = morph(morph(M, True), False)
+        out = F.copy()
+        out[done & ~M] = 1.0
+    else:
+        done = morph(morph(M, False), True)
+        out = F.copy()
+        out[M & ~done] = 0.0                              # dünne Auswüchse entfernen
     return out
+
+
+def polar_close(F, radii, half_mm=1.6):
+    return _polar_morph(F, radii, half_mm, "close")
+
+
+def polar_open(F, radii, half_mm=2.0):
+    return _polar_morph(F, radii, half_mm, "open")
 
 
 def clean_polar(F, radii, min_hole_mm2=60.0, rel_spot=0.07, lug_zone=0.45):
@@ -562,6 +575,40 @@ def _erode(m, square):
     if square:
         out &= p[:-2, :-2] & p[:-2, 2:] & p[2:, :-2] & p[2:, 2:]
     return out
+
+
+def edge_mm_fn(F, radii, r_face, max_mm=4.0, grid_mm=0.4):
+    """Abstand (mm, gedeckelt bei max_mm) jedes Punkts zur nächsten Fenster-/Lochkante, fein gerastert."""
+    n_r, n_t = F.shape
+    g = grid_mm / 1000.0
+    N = int(np.ceil(2 * r_face / g)) + 3
+    ax = (np.arange(N) - (N - 1) / 2.0) * g
+    X, Y = np.meshgrid(ax, ax)
+    R = np.hypot(X, Y)
+    TH = np.mod(np.arctan2(X, Y), 2 * np.pi)
+    fi = np.interp(R, radii, np.arange(n_r))
+    fj = TH / (2 * np.pi / n_t)
+    i0 = np.clip(np.floor(fi).astype(int), 0, n_r - 2)
+    j0 = np.floor(fj).astype(int) % n_t
+    ti, tj = np.clip(fi - i0, 0, 1), fj - np.floor(fj)
+    j1 = (j0 + 1) % n_t
+    val = ((F[i0, j0] * (1 - tj) + F[i0, j1] * tj) * (1 - ti)
+           + (F[i0 + 1, j0] * (1 - tj) + F[i0 + 1, j1] * tj) * ti)
+    M = (val >= 0.5) | (R >= r_face)
+    D = np.zeros(M.shape, np.float32)
+    cur = M.copy()
+    for k in range(int(np.ceil(max_mm / grid_mm)) + 1):
+        D += cur
+        cur = _erode(cur, k % 2 == 1)
+        if not cur.any():
+            break
+    D = blur(D * grid_mm, 1, 1)
+
+    def at(xy):
+        px = xy[:, 0] / g + (N - 1) / 2.0
+        py = xy[:, 1] / g + (N - 1) / 2.0
+        return bilinear(D, px, py)
+    return at
 
 
 def edge_distance_fn(F, radii, r_face, max_mm, grid_mm=1.0):
@@ -878,27 +925,28 @@ def signed_volume(verts, faces):
 class Params:
     """Alle Maße in den Einheiten der Oberfläche (Zoll / mm)."""
     diameter = 18.0       # Zoll
-    width = 8.0           # Zoll
-    use_et = False
-    et = 45.0             # mm
+    width = 8.5           # Zoll
+    use_et = True         # Schüsseltiefe aus Breite (J) + Einpresstiefe (ET)
+    et = 40.0             # mm
     face_inset = 12.0     # mm
     dish = 60.0           # mm
     dish_power = 1.5
     spoke_thickness = 14.0  # mm, Dicke am Felgenrand
     hub_thickness = 24.0  # mm, Dicke an der Nabe
     hub_radius = 85.0     # mm, flache Nabenanlagefläche
-    relief = 10.0         # mm, Wölbung der Speichen (0 = flach)
+    relief = 4.0          # mm, sanfte Wölbung (Speichenrücken), 0 = flach
     relief_width = 40.0   # mm, max. halbe Breite, über die gewölbt wird
-    boss_height = 12.0    # mm, Nabenbund um den Zentralverschluss
+    boss_height = 6.0     # mm, ruhiger Nabenbund um den Zentralverschluss
     boss_radius = 75.0    # mm
     boss_slope = 15.0     # mm, Breite der Flanke
     min_hole = 60.0       # mm², kleinere Lücken werden gefüllt
     bore = 0.0            # mm, Mittelbohrung (0 = wie im Bild: Deckel/Logo bleiben)
     hub_zone = 0.33       # Anteil des Radius, in dem die Nabensymmetrie gilt
     ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
-    ai_depth = 25.0       # mm, Stärke des KI-Reliefs (Details auf der Grundform)
+    ai_depth = 0.0        # mm, optionales KI-Relief (0 = aus, saubere Form)
     relief_fade = 0.35    # Anteil des Radius, über den das Relief zum Rand auf 0 ausläuft
-    tone_step = 4.0       # mm, Stufe der glanzgedrehten Fläche (nur bei zweifarbigen Felgen)
+    tone_step = 0.0       # mm, optionale Stufe glanzgedreht/schwarz (0 = aus)
+    edge_round = 2.5      # mm, Verrundung aller Fensterkanten (fängt Glanzlichter)
     min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
     wall = 5.0            # mm
@@ -907,6 +955,32 @@ class Params:
     res_radial = 240
     res_angular = 1080
     sections = 128
+
+
+def shape_analysis(p):
+    """
+    Klare Formanalyse aus den Felgendaten (physikalisch, kein Raten):
+    Die Nabenanlage liegt ET mm vor der Felgenmitte. Das Felgenhorn (Front) liegt J/2 vor der
+    Mitte. Also sitzt die Nabenanlage (J/2 - ET) hinter dem Horn. Davon gehen Nabendicke und der
+    Rücksprung des Sterns ab - der Rest ist die Schüsseltiefe.
+    Gibt dict: verdict 'KONKAV'|'KONVEX'|'FLACH', dish_mm (+ = konkav), hub_back_mm, text.
+    """
+    W = p.width * INCH * 1000.0
+    behind = W / 2.0 - p.et                      # Nabenanlage hinter dem Horn (mm)
+    dish = behind - p.hub_thickness - p.face_inset
+    if dish > 6.0:
+        verdict = "KONKAV"
+    elif dish < -6.0:
+        verdict = "KONVEX"
+    else:
+        verdict = "FLACH"
+    warn = ""
+    if behind < 0:
+        warn = "Nabenanlage läge VOR dem Horn - ET passt nicht zur Breite"
+    elif dish > 110:
+        warn = "sehr tiefe Schüssel - ET/Breite prüfen"
+    return dict(verdict=verdict, dish_mm=dish, hub_back_mm=behind, warn=warn,
+                text="%s - Nabenanlage %.0f mm hinter dem Horn, Schüssel %+.0f mm" % (verdict, behind, dish))
 
 
 def dimensions(p):
@@ -944,6 +1018,10 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     k = max(1, int(round(3.0 * px_per_mm)))
     mclosed = (blur((blur(mask, k, 1) > 0.02).astype(np.float32), k, 1) > 0.98).astype(np.float32)
     mask = np.maximum(mask, mclosed)
+    # dünne Auswüchse (< ~3 mm) im Bildraster entfernen: Öffnen mit gleichmäßigem Kern
+    ko = max(1, int(round(1.5 * px_per_mm)))
+    mopen = (blur((blur(mask, ko, 1) > 0.999).astype(np.float32), ko, 1) > 0.001).astype(np.float32)
+    mask = np.minimum(mask, mopen)
     F = sample_polar(blur(mask, 1, 1), cx, cy, rx, ry, radii / R_out, n_t)
     split_r = p.hub_zone * R_out
     F = symmetrize_zones(F, radii, split_r, hub_n, symmetry_n)
@@ -959,36 +1037,42 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     def s_of(r):  # 1 an der Nabe (flach), 0 am Rand
         return np.clip((r_face - r) / (r_face - r_hub), 0.0, 1.0)
 
+    q = max(1.2, p.dish_power + 0.5)
+
     def z_front(r):
-        return z_rim - dish / 1000.0 * s_of(r) ** p.dish_power
+        # glatte Schüssel: an der Nabe waagerecht (kein Knick), zum Rand sanft ansteigend
+        s = s_of(r)
+        return z_rim - dish / 1000.0 * (1.0 - (1.0 - s) ** q)
 
     def thick(r):
         return (p.spoke_thickness + (p.hub_thickness - p.spoke_thickness) * s_of(r)) / 1000.0
 
-    offset = None
+    # --- saubere Form: Speichenrücken + Nabenbund + verrundete Kanten (alles glatt, ohne Stufen)
     dist = None
-    use_ai = depth is not None and p.ai_strength > 0
-    if (p.relief > 0 and p.relief_width > 0) or use_ai:
+    if p.relief > 0 and p.relief_width > 0:
         dist = edge_distance_fn(F, radii, r_face, max(p.relief_width, 10.0))
-    # Mit KI kommt die Form allein aus der KI-Tiefe (keine künstliche Wölbung / kein Nabenbund)
-    if p.relief > 0 and p.relief_width > 0 and not use_ai:
+    fillet = edge_mm_fn(F, radii, r_face, max_mm=max(p.edge_round, 0.5) + 0.5) if p.edge_round > 0 else None
 
-        def offset(xy):
-            t = np.clip(dist(xy), 0.0, 1.0)           # 0 = Kante, 1 = Speichenmitte
-            off = p.relief / 1000.0 * np.sqrt(1.0 - (1.0 - t) ** 2)   # Viertelkreis-Rundung
-            if p.boss_height > 0:
-                r = np.hypot(xy[:, 0], xy[:, 1]) * 1000.0
-                u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
-                off = off + p.boss_height / 1000.0 * u * u * (3 - 2 * u)   # weicher Bund
-            return off
-    elif p.boss_height > 0 and not use_ai:
-        def offset(xy):
-            r = np.hypot(xy[:, 0], xy[:, 1]) * 1000.0
-            u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
-            return p.boss_height / 1000.0 * u * u * (3 - 2 * u)
+    def offset(xy):
+        off = np.zeros(len(xy))
+        r_mm = np.hypot(xy[:, 0], xy[:, 1]) * 1000.0
+        if dist is not None:
+            t = np.clip(dist(xy), 0.0, 1.0)                           # 0 = Kante, 1 = Speichenmitte
+            off += p.relief / 1000.0 * (1.0 - (1.0 - t) ** 2.2)       # sanfter Rücken
+        if p.boss_height > 0:
+            u = np.clip((p.boss_radius - r_mm) / max(p.boss_slope, 0.1), 0.0, 1.0)
+            off += p.boss_height / 1000.0 * u * u * (3 - 2 * u)       # weicher Bund
+        if fillet is not None:
+            b = p.edge_round / 1000.0
+            d = np.clip(fillet(xy) / 1000.0, 0.0, b)
+            off -= b - np.sqrt(np.maximum(b * b - (b - d) ** 2, 0.0))   # Viertelkreis-Verrundung
+        return off
 
+    # --- optional: KI-Relief als Zusatz (Standard aus)
     override = None
-    if depth is not None and p.ai_strength > 0:
+    if depth is not None and p.ai_strength > 0 and p.ai_depth > 0:
+        if dist is None:
+            dist = edge_distance_fn(F, radii, r_face, max(p.relief_width, 10.0))
         override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist,
                                hub_n=hub_n, split_r=split_r, relief_mm=p.ai_depth,
                                r_face=r_face, fade=p.relief_fade * r_face)
@@ -1007,6 +1091,7 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp, star_kinds=kinds,
                 barrel_verts=bv, barrel_faces=bf, dish=dish, tone_info=tone_info,
+                analysis=shape_analysis(p),
                 hub_back=(z_rim - dish / 1000.0 - p.hub_thickness / 1000.0) * 1000.0)
 
 
