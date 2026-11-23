@@ -138,9 +138,14 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     # Hintergrund je Richtung (Median über einen Ring außerhalb der Felge)
     nb = 720
     ang = np.linspace(-np.pi, np.pi, nb, endpoint=False)
-    ref = np.median(np.stack([_sample_rgb(rgb, cx + rr * rx * np.sin(ang), cy + rr * ry * np.cos(ang))
-                              for rr in np.linspace(1.06, 1.25, 12)]), axis=0)
+    ring_stack = np.stack([_sample_rgb(rgb, cx + rr * rx * np.sin(ang), cy + rr * ry * np.cos(ang))
+                           for rr in np.linspace(1.06, 1.25, 12)])
+    ref = np.median(ring_stack, axis=0)
     ref = np.stack([blur(np.tile(ref[:, c], 3)[None, :], 3, 2)[0, nb:2 * nb] for c in range(3)], -1)
+    # Ist der Hintergrund einfarbig (Studio-/Produktfoto)? Dann reicht ein klarer Farbabstand.
+    bg_sigma = float(np.median(np.std(ring_stack, axis=0)))
+    bg_ang_var = float(np.max(np.std(ref, axis=0)))
+    uniform_bg = bg_sigma < 0.03 and bg_ang_var < 0.06
     idx = ((th + np.pi) / (2 * np.pi) * nb).astype(np.int64) % nb
     bgd = np.abs(rgb - ref[idx]).sum(-1)
 
@@ -184,6 +189,14 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     sa = score(A) + (0 if plausible(A) else -10)
     sb = score(B) + (0 if plausible(B) else -10)
     M, method = (B, "Hintergrund") if sb >= sa else (A, "Helligkeit")
+    if uniform_bg:
+        # Einfarbiger Hintergrund: Material = jeder Pixel, der sich messbar vom Hintergrundton
+        # unterscheidet (auch helles Silber auf Weiß). Fenster = exakt Hintergrundfarbe.
+        maxd = blur(np.abs(rgb - ref[idx]).max(-1), 1, 1)
+        U = maxd > max(0.07, 5.0 * bg_sigma)
+        frac = U[inside & (rn > 0.15)].mean() if inside.any() else 0
+        if plausible(U) and 0.08 < frac < 0.85:
+            M, method = U, "Hintergrund (einfarbig)"
     m = (M & inside).astype(np.float32)
     if clean > 0:
         m = (blur((blur(m, clean, 1) > 0.999).astype(np.float32), clean, 1) > 0.001).astype(np.float32)

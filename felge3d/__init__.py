@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 16, 1),
+    "version": (0, 17, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -410,24 +410,47 @@ def clean_texture(img, mask, closed_mask=None):
 
 
 def get_photo_material(img, tex_img=None):
+    """
+    Fotomaterial mit zweifarbiger Steuerung: Helle (polierte/gedrehte) Flächen werden metallisch
+    und glänzend, dunkler Lack matter und weniger metallisch – direkt aus der Helligkeit der Textur.
+    """
     name = "Felge3D_Foto_" + img.name
     mat = bpy.data.materials.get(name)
+    if mat is not None and mat.get("felge3d_pbr") != 2:
+        bpy.data.materials.remove(mat)           # alte Version ohne Metall-Steuerung neu aufbauen
+        mat = None
     if mat is not None and tex_img is not None:
         for node in mat.node_tree.nodes:
             if node.type == "TEX_IMAGE":
                 node.image = tex_img
     if mat is None:
         mat = bpy.data.materials.new(name)
+        mat["felge3d_pbr"] = 2
         mat.use_nodes = True
         nt = mat.node_tree
         bsdf = nt.nodes.get("Principled BSDF")
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = tex_img or img
         tex.extension = "EXTEND"
-        tex.location = (-400, 300)
+        tex.location = (-700, 300)
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-        bsdf.inputs["Metallic"].default_value = 0.5
-        bsdf.inputs["Roughness"].default_value = 0.35
+        bw = nt.nodes.new("ShaderNodeRGBToBW")
+        bw.location = (-450, 80)
+        nt.links.new(tex.outputs["Color"], bw.inputs["Color"])
+
+        def remap(label, y, lo, hi, out_name):
+            mr = nt.nodes.new("ShaderNodeMapRange")
+            mr.label = label
+            mr.location = (-230, y)
+            mr.inputs["From Min"].default_value = 0.22
+            mr.inputs["From Max"].default_value = 0.62
+            mr.inputs["To Min"].default_value = lo
+            mr.inputs["To Max"].default_value = hi
+            nt.links.new(bw.outputs["Val"], mr.inputs["Value"])
+            nt.links.new(mr.outputs["Result"], bsdf.inputs[out_name])
+
+        remap("Metall (hell = poliert)", 120, 0.08, 0.92, "Metallic")
+        remap("Rauheit (hell = glänzend)", -120, 0.50, 0.24, "Roughness")
     return mat
 
 
