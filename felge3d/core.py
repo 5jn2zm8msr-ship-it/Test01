@@ -192,6 +192,24 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     return m, method
 
 
+def fill_background(rgb, valid, iters=12, radius=4):
+    """
+    Füllt alle ungültigen Pixel (Hintergrund, Kantensaum) mit der Farbe des benachbarten
+    gültigen Materials – damit die Fototextur an den Kanten nie Hintergrund (z.B. weiß) zeigt.
+    """
+    out = rgb[..., :3].astype(np.float32).copy()
+    w = valid.astype(np.float32)
+    for _ in range(iters):
+        if w.min() >= 1.0:
+            break
+        den = blur(w, radius, 1)
+        num = np.stack([blur(out[..., c] * w, radius, 1) for c in range(3)], -1)
+        fill = (w < 1.0) & (den > 1e-3)
+        out[fill] = num[fill] / den[fill][:, None]
+        w = np.where(fill, 1.0, w)
+    return out
+
+
 # ============================================================ Polarraster
 def bilinear(img, x, y):
     h, w = img.shape

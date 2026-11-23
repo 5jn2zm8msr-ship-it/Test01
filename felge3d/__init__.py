@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 13, 0),
+    "version": (0, 14, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -350,16 +350,60 @@ def mean_color(img, mask):
     return (float(col[0]), float(col[1]), float(col[2]), 1.0)
 
 
-def get_photo_material(img):
+def clean_texture(img, mask, closed_mask=None):
+    """
+    Bereinigte Fototextur: Hintergrund und ein schmaler Kantensaum werden mit der Farbe des
+    angrenzenden Felgenmaterials gefüllt (keine weißen Nähte an Speichenkanten / Löchern).
+    """
+    w, h = img.size
+    ch = img.channels
+    buf = np.empty(w * h * ch, dtype=np.float32)
+    img.pixels.foreach_get(buf)
+    buf = buf.reshape(h, w, ch)
+    rgb = buf[..., :3] if ch >= 3 else np.repeat(buf[..., :1], 3, axis=2)
+    # Maske (Arbeitsauflösung) auf volle Bildgröße, dann um einen Saum verkleinern
+    yi = np.minimum((np.arange(h) * mask.shape[0] / h).astype(int), mask.shape[0] - 1)
+    xi = np.minimum((np.arange(w) * mask.shape[1] / w).astype(int), mask.shape[1] - 1)
+    valid = mask[yi][:, xi] > 0.5
+    k = max(2, int(round(w / 400.0)))                      # Saum ~0,25 % der Bildbreite
+    valid = core.blur(valid.astype(np.float32), k, 1) > 0.999
+    # Arbeitsauflösung für das Füllen (schnell), dann nur ungültige Pixel ersetzen
+    f = max(1, int(np.ceil(max(w, h) / 1024.0)))
+    small = rgb[::f, ::f]
+    vs = valid[::f, ::f]
+    filled_small = core.fill_background(small, vs, iters=16, radius=3)
+    up = filled_small[np.minimum(np.arange(h) // f, filled_small.shape[0] - 1)][:, np.minimum(np.arange(w) // f, filled_small.shape[1] - 1)]
+    out = np.where(valid[..., None], rgb, up)
+    name = "Felge3D_Textur_" + img.name
+    tex = bpy.data.images.get(name)
+    if tex is None or tuple(tex.size) != (w, h):
+        if tex:
+            bpy.data.images.remove(tex)
+        tex = bpy.data.images.new(name, w, h)
+    rgba = np.concatenate([out, np.ones((h, w, 1), np.float32)], axis=2)
+    tex.pixels.foreach_set(rgba.astype(np.float32).ravel())
+    tex.update()
+    try:
+        tex.pack()                                         # mit der .blend-Datei speichern
+    except Exception:  # noqa: BLE001
+        pass
+    return tex
+
+
+def get_photo_material(img, tex_img=None):
     name = "Felge3D_Foto_" + img.name
     mat = bpy.data.materials.get(name)
+    if mat is not None and tex_img is not None:
+        for node in mat.node_tree.nodes:
+            if node.type == "TEX_IMAGE":
+                node.image = tex_img
     if mat is None:
         mat = bpy.data.materials.new(name)
         mat.use_nodes = True
         nt = mat.node_tree
         bsdf = nt.nodes.get("Principled BSDF")
         tex = nt.nodes.new("ShaderNodeTexImage")
-        tex.image = img
+        tex.image = tex_img or img
         tex.extension = "EXTEND"
         tex.location = (-400, 300)
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
@@ -442,7 +486,12 @@ def build_wheel(context, s, new_collection=True):
     kinds = np.array(res.get("star_kinds") or [0] * len(star_me.polygons), dtype=np.int32)
     if s.photo_texture:
         R_out = core.dimensions(p)[4]
-        photo = get_photo_material(s.image)
+        try:
+            tex_img = clean_texture(s.image, mask)
+        except Exception as e:  # noqa: BLE001
+            print("Felge3D: Textur-Bereinigung fehlgeschlagen:", e)
+            tex_img = None
+        photo = get_photo_material(s.image, tex_img)
         plain = get_material("Felge3D_Grund_" + s.image.name, mean_color(s.image, mask), 0.6, 0.4)
         for me in (star_me, barrel_me):
             project_photo_uv(me, s, R_out)
