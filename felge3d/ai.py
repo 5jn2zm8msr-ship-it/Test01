@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-KI-Tiefenschätzung mit Depth Anything V2 Small (Apache-2.0) über ONNX Runtime.
+Lokale KI-Tiefenschätzung über ONNX Runtime – keine Cloud, keine Kosten pro Felge.
 
-- Laufzeit: onnxruntime 1.23.2 – letzte Version mit Intel-Mac-Paketen (macOS >= 13).
-  Installation per pip in einen eigenen Ordner (ohne Abhängigkeiten, Blenders numpy bleibt).
-- Modell: onnx-community/depth-anything-v2-small, quantisiert (~27 MB), einmaliger Download.
+Modelle (beide Apache-2.0, einmaliger Download):
+- HIGH: Depth Anything 3 Mono-Large (q4f16, ~350 MB) – deutlich sauberere Flächen und Kanten
+- FAST: Depth Anything V2 Small (quantisiert, ~27 MB) – schnell, etwas rauschiger
+
+Laufzeit: onnxruntime 1.23.2 – letzte Version mit Intel-Mac-Paketen (macOS >= 13),
+per pip in einen eigenen Ordner (ohne Abhängigkeiten, Blenders numpy bleibt).
 """
 import os
 import subprocess
@@ -13,12 +16,17 @@ import sys
 import numpy as np
 
 ORT_VERSION = "1.23.2"
-MODEL_URL = ("https://huggingface.co/onnx-community/depth-anything-v2-small/"
-             "resolve/main/onnx/model_quantized.onnx")
-MODEL_NAME = "depth_anything_v2_small_q.onnx"
+MODELS = {
+    "HIGH": ("https://huggingface.co/Jens-Duttke/Depth-Anything-3-MONO-ONNX/resolve/main/"
+             "da-v3-mono-large_q4f16_opset21_optimized.onnx",
+             "depth_anything_3_mono_large_q4f16.onnx", np.float16),
+    "FAST": ("https://huggingface.co/onnx-community/depth-anything-v2-small/"
+             "resolve/main/onnx/model_quantized.onnx",
+             "depth_anything_v2_small_q.onnx", np.float32),
+}
 INPUT = 518  # Vielfaches von 14
 
-_session = None
+_sessions = {}
 
 
 def data_dir():
@@ -39,8 +47,8 @@ def libs_dir():
     return d
 
 
-def model_path():
-    return os.path.join(data_dir(), MODEL_NAME)
+def model_path(kind="HIGH"):
+    return os.path.join(data_dir(), MODELS[kind][1])
 
 
 def runtime_available():
@@ -52,8 +60,8 @@ def runtime_available():
         return False
 
 
-def is_ready():
-    return runtime_available() and os.path.isfile(model_path())
+def is_ready(kind="HIGH"):
+    return runtime_available() and os.path.isfile(model_path(kind))
 
 
 def install_runtime():
@@ -71,27 +79,39 @@ def install_runtime():
     return r.stdout[-300:]
 
 
-def download_model():
-    from . import updater  # gleiche SSL-/Download-Logik
-    data = updater._get(MODEL_URL, timeout=300)
-    if len(data) < 1_000_000:
-        raise RuntimeError("Modell-Download unvollständig (%d Bytes)." % len(data))
-    tmp = model_path() + ".tmp"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, model_path())
-    return len(data)
+def download_model(kind="HIGH", progress=None):
+    """Modell in Blöcken herunterladen (große Datei, nicht komplett im Speicher)."""
+    import urllib.request
+    from . import updater  # gleiche SSL-Logik
+    url = MODELS[kind][0]
+    req = urllib.request.Request(url, headers={"User-Agent": "Felge3D"})
+    tmp = model_path(kind) + ".tmp"
+    total = 0
+    with urllib.request.urlopen(req, timeout=60, context=updater._ssl_context()) as r, open(tmp, "wb") as f:
+        size = int(r.headers.get("Content-Length") or 0)
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+            total += len(chunk)
+            if progress and size:
+                progress(total / size)
+    if total < 1_000_000 or (size and total != size):
+        os.remove(tmp)
+        raise RuntimeError("Modell-Download unvollständig (%d von %d Bytes)." % (total, size))
+    os.replace(tmp, model_path(kind))
+    return total
 
 
-def _get_session():
-    global _session
-    if _session is None:
+def _get_session(kind):
+    if kind not in _sessions:
         libs_dir()
         import onnxruntime as ort
         opts = ort.SessionOptions()
         opts.log_severity_level = 3
-        _session = ort.InferenceSession(model_path(), opts, providers=["CPUExecutionProvider"])
-    return _session
+        _sessions[kind] = ort.InferenceSession(model_path(kind), opts, providers=["CPUExecutionProvider"])
+    return _sessions[kind]
 
 
 def _resize(img, h, w):
@@ -115,7 +135,7 @@ def _resize(img, h, w):
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
 
 
-def depth_map(rgb, cx, cy, rx, ry, margin=1.08):
+def depth_map(rgb, cx, cy, rx, ry, margin=1.08, kind="HIGH"):
     """
     rgb: Arbeitsbild (Zeile 0 = unten, wie in Blender), cx..ry: Felge in Pixeln.
     Gibt Tiefenkarte gleicher Größe zurück (größer = näher), außerhalb des Ausschnitts NaN.
@@ -128,9 +148,11 @@ def depth_map(rgb, cx, cy, rx, ry, margin=1.08):
     crop = rgb[y0:y1, x0:x1, :3][::-1]            # für die KI: oben = oben
     x = _resize(crop.astype(np.float32), INPUT, INPUT)
     x = (x - np.array([0.485, 0.456, 0.406], np.float32)) / np.array([0.229, 0.224, 0.225], np.float32)
-    sess = _get_session()
-    out = sess.run(None, {sess.get_inputs()[0].name: x.transpose(2, 0, 1)[None].astype(np.float32)})[0][0]
-    d = _resize(out.astype(np.float32), y1 - y0, x1 - x0)[::-1]
+    sess = _get_session(kind)
+    dtype = MODELS[kind][2]
+    out = sess.run(None, {sess.get_inputs()[0].name: x.transpose(2, 0, 1)[None].astype(dtype)})[0]
+    out = np.asarray(out, np.float32).reshape(out.shape[-2:])   # beide Modelle: größer = näher
+    d = _resize(out, y1 - y0, x1 - x0)[::-1]
     full = np.full((h, w), np.nan, np.float32)
     full[y0:y1, x0:x1] = d
     return full

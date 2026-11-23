@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -132,6 +132,10 @@ class Felge3DSettings(PropertyGroup):
                             description="Lücken kleiner als diese Fläche gelten als Störung (Spiegelung) und werden gefüllt")
     use_ai: BoolProperty(name="KI-Tiefe", default=True, update=_update_rebuild,
                          description="Tiefe der Felge (Speichenform, Wölbung, Nabe) per KI aus dem Foto schätzen")
+    ai_quality: EnumProperty(name="KI-Qualität", default="HIGH", update=_update_rebuild, items=[
+        ("HIGH", "Hoch (DA3 Large)", "Depth Anything 3 Mono-Large – saubere Flächen, ~5–20 s pro Bild"),
+        ("FAST", "Schnell (DA2 Small)", "Depth Anything V2 Small – unter 1 s, etwas rauschiger"),
+    ])
     ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
                                description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
     min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
@@ -206,13 +210,13 @@ _depth_cache = {}
 
 def ai_depth(s, cx, cy, rx, ry):
     """KI-Tiefenkarte im Arbeitsbild – oder None, wenn KI aus/nicht installiert."""
-    if not s.use_ai or not ai.is_ready():
+    if not s.use_ai or not ai.is_ready(s.ai_quality):
         return None
-    key = (s.image.name, s.proc_size, round(cx, 1), round(cy, 1), round(rx, 1), round(ry, 1))
+    key = (s.image.name, s.proc_size, s.ai_quality, round(cx, 1), round(cy, 1), round(rx, 1), round(ry, 1))
     if key not in _depth_cache:
         _depth_cache.clear()
         rgb = _rgb_cache[next(iter(_rgb_cache))]
-        _depth_cache[key] = ai.depth_map(rgb, cx, cy, rx, ry)
+        _depth_cache[key] = ai.depth_map(rgb, cx, cy, rx, ry, kind=s.ai_quality)
     return _depth_cache[key]
 
 
@@ -627,7 +631,7 @@ class FELGE3D_OT_export_obj(Operator, ExportHelper):
 
 
 class FELGE3D_OT_install_ai(Operator):
-    """KI-Tiefenschätzung einmalig einrichten: ONNX Runtime (~50 MB) und Depth-Anything-V2-Small-Modell (~27 MB)"""
+    """KI-Tiefe einmalig einrichten: ONNX Runtime (~50 MB) und das gewählte Modell (Hoch ~350 MB, Schnell ~27 MB). Läuft danach komplett lokal"""
     bl_idname = "felge3d.install_ai"
     bl_label = "KI-Tiefe einrichten (einmalig)"
 
@@ -639,9 +643,14 @@ class FELGE3D_OT_install_ai(Operator):
                 if not ai.runtime_available():
                     raise RuntimeError("ONNX Runtime installiert, lässt sich aber nicht laden. "
                                        "Intel-Mac: macOS 13 oder neuer nötig.")
-            if not os.path.isfile(ai.model_path()):
-                self.report({"INFO"}, "Lade KI-Modell …")
-                ai.download_model()
+            kind = context.scene.felge3d.ai_quality
+            if not os.path.isfile(ai.model_path(kind)):
+                wm = context.window_manager
+                wm.progress_begin(0, 100)
+                try:
+                    ai.download_model(kind, progress=lambda f: wm.progress_update(int(f * 100)))
+                finally:
+                    wm.progress_end()
         except Exception as e:  # noqa: BLE001
             self.report({"ERROR"}, "KI-Einrichtung fehlgeschlagen: %s" % updater.describe_error(e))
             return {"CANCELLED"}
@@ -748,10 +757,12 @@ class FELGE3D_PT_main(Panel):
         col.scale_y = 1.4
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
         self.layout.prop(s, "diameter", slider=True)
-        if ai.is_ready():
-            self.layout.prop(s, "use_ai")
+        row = self.layout.row(align=True)
+        if ai.is_ready(s.ai_quality):
+            row.prop(s, "use_ai")
         else:
-            self.layout.operator("felge3d.install_ai", icon="IMPORT")
+            row.operator("felge3d.install_ai", icon="IMPORT")
+        row.prop(s, "ai_quality", text="")
         if s.collection:
             info = "%d Speichen-Symmetrie" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
             self.layout.label(text=info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
