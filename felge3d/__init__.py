@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 22, 0),
+    "version": (0, 22, 1),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -1114,15 +1114,31 @@ class FELGE3D_PT_detect(Panel):
 
 
 class FELGE3D_PT_update(Panel):
-    bl_label = "Update"
+    """Eigenes Top-Level-Panel, immer sichtbar und unabhängig vom Hauptpanel (Update-Knopf darf nie fehlen)."""
+    bl_label = "Felge3D · Update"
+    bl_idname = "FELGE3D_PT_update"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
-    bl_parent_id = "FELGE3D_PT_main"
-    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 0
 
     def draw(self, context):
-        draw_update_box(self.layout)
+        L = self.layout
+        row = L.row(align=True)
+        row.label(text="Version %d.%d.%d" % bl_info["version"], icon="INFO")
+        row.operator("felge3d.check_update", text="Nach Update suchen", icon="URL")
+        r = _update_state["remote"]
+        if r and r > tuple(bl_info["version"]):
+            col = L.column()
+            col.scale_y = 1.3
+            col.operator("felge3d.install_update", icon="IMPORT", text="Update %d.%d.%d installieren" % r)
+        if _update_state["msg"]:
+            L.label(text=_update_state["msg"])
+        try:
+            repo = get_prefs(context).repo
+            L.label(text="Quelle: " + (repo or "nicht eingestellt"), icon="URL")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class FELGE3D_PT_advanced(Panel):
@@ -1407,13 +1423,13 @@ classes = (
     FELGE3D_OT_preview,
     FELGE3D_OT_mask_to_image,
     FELGE3D_OT_export_obj,
+    FELGE3D_PT_update,
     FELGE3D_PT_main,
     FELGE3D_PT_look,
     FELGE3D_PT_ai,
     FELGE3D_PT_dims,
     FELGE3D_PT_detect,
     FELGE3D_PT_advanced,
-    FELGE3D_PT_update,
     FELGE3D_PT_car,
     FELGE3D_PT_car_axle,
     FELGE3D_PT_car_extra,
