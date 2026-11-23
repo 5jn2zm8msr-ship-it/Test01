@@ -135,17 +135,41 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     th = np.arctan2(u, v)
     inside = rn < 1.0
 
-    # Hintergrund je Richtung (Median über einen Ring außerhalb der Felge)
+    # Hintergrund je Richtung (Median über einen Ring außerhalb der Felge) – nur Punkte, die IM Bild liegen.
+    # Füllt die Felge das Bild (Produktfoto), kommen die Referenzen aus den Bildecken.
     nb = 720
     ang = np.linspace(-np.pi, np.pi, nb, endpoint=False)
-    ring_stack = np.stack([_sample_rgb(rgb, cx + rr * rx * np.sin(ang), cy + rr * ry * np.cos(ang))
-                           for rr in np.linspace(1.06, 1.25, 12)])
-    ref = np.median(ring_stack, axis=0)
-    ref = np.stack([blur(np.tile(ref[:, c], 3)[None, :], 3, 2)[0, nb:2 * nb] for c in range(3)], -1)
-    # Ist der Hintergrund einfarbig (Studio-/Produktfoto)? Dann reicht ein klarer Farbabstand.
-    bg_sigma = float(np.median(np.std(ring_stack, axis=0)))
+    samples = []
+    for rr in np.linspace(1.04, 1.30, 14):
+        X = cx + rr * rx * np.sin(ang)
+        Y = cy + rr * ry * np.cos(ang)
+        okp = (X >= 0) & (X <= w - 1) & (Y >= 0) & (Y <= h - 1)
+        s = _sample_rgb(rgb, np.clip(X, 0, w - 1), np.clip(Y, 0, h - 1))
+        s[~okp] = np.nan
+        samples.append(s)
+    ring_stack = np.stack(samples)                      # (R, nb, 3) mit NaN außerhalb des Bildes
+    n_ok = np.sum(~np.isnan(ring_stack[..., 0]), axis=0)  # gültige Messpunkte je Richtung
+    with np.errstate(all="ignore"):
+        ref = np.nanmedian(ring_stack, axis=0)
+    # globale Hintergrundfarbe aus allen Pixeln außerhalb des Kreises (v.a. Ecken)
+    outside = (rn > 1.03)
+    have_global = outside.sum() > 300
+    if have_global:
+        gcol = np.array([np.median(rgb[..., c_][outside]) for c_ in range(3)], np.float32)
+        gsig = float(np.mean([np.std(rgb[..., c_][outside]) for c_ in range(3)]))
+    else:
+        gcol, gsig = None, 1.0
+    bad = (n_ok < 3) | np.isnan(ref[:, 0])
+    if bad.any():
+        if have_global:
+            ref[bad] = gcol                             # Richtung ohne Messpunkte -> globale Farbe
+        else:
+            ref[bad] = np.nanmedian(ref[~bad], axis=0) if (~bad).any() else 0.5
+    ref = np.stack([blur(np.tile(ref[:, c_], 3)[None, :], 3, 2)[0, nb:2 * nb] for c_ in range(3)], -1)
+    # Ist der Hintergrund einfarbig (Studio-/Produktfoto)? Maßgeblich: Streuung außerhalb + entlang des Rings.
+    bg_sigma = gsig if have_global else float(np.nanmedian(np.nanstd(ring_stack, axis=0)))
     bg_ang_var = float(np.max(np.std(ref, axis=0)))
-    uniform_bg = bg_sigma < 0.03 and bg_ang_var < 0.06
+    uniform_bg = bg_sigma < 0.035 and bg_ang_var < 0.07
     idx = ((th + np.pi) / (2 * np.pi) * nb).astype(np.int64) % nb
     bgd = np.abs(rgb - ref[idx]).sum(-1)
 
@@ -1117,10 +1141,11 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
 
 
 # ============================================================ Felge im Bild finden
-def find_wheel(gray, work=256):
+def find_wheel(gray, work=256, tire=None):
     """
     Sucht die Felgenkontur (Ellipse mit fast gleichen Achsen) über den Bildgradienten.
     Gibt (cx, cy, rx, ry) in Pixeln des übergebenen Bildes zurück.
+    tire: None = automatisch, True = Reifen im Foto (inneren Kreis = Felgenhorn nehmen), False = nur Felge.
     """
     h, w = gray.shape
     small = downscale(gray, work)
@@ -1150,13 +1175,43 @@ def find_wheel(gray, work=256):
             upd = sc > best_r
             best_r[upd] = sc[upd]
             best_c[upd] = (cx, cy)
-    # Felgen haben mehrere konzentrische Kanten (Horn innen/außen, Bett).
+    # Felgen haben mehrere konzentrische Kanten (Horn innen/außen, Bett, bei Reifenfotos der Reifen).
     # Die Außenkontur ist die GRÖSSTE deutliche Kante -> größter Radius mit gutem Score.
     strong = np.where(best_r >= 0.40 * best_r.max())[0]
-    # lokales Maximum in der Nähe des größten starken Radius
     k = int(strong.max())
     lo = max(0, k - 4)
     k = lo + int(np.argmax(best_r[lo:k + 1]))
+
+    # Reifenfoto? Außen ein breiter, dunkler, gleichmäßiger Ring (Reifenflanke) und weiter innen
+    # noch ein deutlicher Kreis (Felgenhorn) -> innerer Kreis ist die Felge.
+    sg = blur(small, 1, 1)
+    k_out = k
+    cand = [i for i in range(len(radii))
+            if 0.50 * radii[k_out] <= radii[i] <= 0.93 * radii[k_out]
+            and best_r[i] >= 0.35 * best_r.max()
+            and best_r[i] >= best_r[max(0, i - 2)] and best_r[i] >= best_r[min(len(radii) - 1, i + 2)]]
+    if tire is True and cand:
+        # Nutzer sagt: Reifen im Foto -> äußerster deutlicher Kreis mit Reifenflanke (>= 9 % Radius) davor
+        wide = [j for j in cand if (radii[k_out] - radii[j]) / radii[k_out] >= 0.09]
+        k = max(wide, key=lambda j: radii[j]) if wide else max(cand, key=lambda j: best_r[j])
+        cand = []
+    if tire is False:
+        cand = []
+    for i in sorted(cand, key=lambda j: -radii[j]):              # vom äußeren zum inneren Kandidaten
+        cxo, cyo = best_c[k_out]
+        r_in, r_o = float(radii[i]), float(radii[k_out])
+        if (r_o - r_in) / r_o < 0.09:                           # Horn/Kante ist kein Reifen (zu schmal)
+            continue
+        rr = np.linspace(r_in + 3, r_o - 3, 6)
+        xs = cxo + rr[:, None] * sa[None, :]
+        ys = cyo + rr[:, None] * ca[None, :]
+        okp = (xs >= 0) & (xs < sw - 1) & (ys >= 0) & (ys < sh - 1)
+        vals = bilinear(sg, xs, ys)[okp]
+        if vals.size < 200:
+            continue
+        if np.mean(vals) < 0.24 and np.percentile(vals, 90) < 0.40:   # dunkel + gleichmäßig = Gummi
+            k = i
+            break
     best = (float(best_r[k]), best_c[k][0], best_c[k][1], float(radii[k]), float(radii[k]))
     # Feinsuche inkl. leichter Perspektive (Ellipse)
     _, cx0, cy0, r0, _ = best

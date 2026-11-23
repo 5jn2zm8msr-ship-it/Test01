@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 17, 0),
+    "version": (0, 18, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -58,6 +58,12 @@ class Felge3DSettings(PropertyGroup):
     collection: PointerProperty(name="Collection", type=bpy.types.Collection)
 
     # --- Lage der Felge im Bild
+    tire_mode: EnumProperty(name="Reifen im Foto", default="AUTO", items=[
+        ("AUTO", "Automatisch", "Reifen erkennen und Felgenhorn wählen"),
+        ("YES", "Ja – Reifen sichtbar", "Äußeren Kreis (Reifen) überspringen und das Felgenhorn davor nehmen"),
+        ("NO", "Nein – nur Felge", "Äußersten deutlichen Kreis als Felge nehmen"),
+    ])
+    warning: StringProperty(default="")
     auto_detect: BoolProperty(name="Felge automatisch finden", default=True,
                               description="Mittelpunkt und Radius beim Laden automatisch suchen")
     center_x: FloatProperty(name="Mitte X", default=0.5, min=0, max=1, precision=3,
@@ -181,7 +187,8 @@ def image_to_gray(img):
     """Blender-Bild -> Graustufen-numpy-Array (Zeile 0 = unten), Werte 0..1."""
     w, h = img.size
     if w == 0 or h == 0:
-        raise RuntimeError("Bild '%s' konnte nicht gelesen werden." % img.name)
+        raise RuntimeError("Bild '%s' konnte nicht gelesen werden (Format %s nicht unterstützt – bitte als JPG/PNG speichern)."
+                           % (img.name, os.path.splitext(img.filepath)[1].upper() or "?"))
     ch = img.channels
     buf = np.empty(w * h * ch, dtype=np.float32)
     img.pixels.foreach_get(buf)
@@ -202,6 +209,10 @@ def image_to_rgb(img, max_size):
     buf = buf.reshape(h, w, ch)
     if ch < 3:
         buf = np.repeat(buf[..., :1], 3, axis=2)
+    if ch == 4:
+        a = buf[..., 3:4]
+        if (a < 0.98).mean() > 0.02:                 # transparenter Hintergrund (PNG) -> auf Weiß setzen
+            buf = np.concatenate([buf[..., :3] * a + (1.0 - a), np.ones_like(a)], axis=2)
     return core.downscale_rgb(buf, max_size)
 
 
@@ -506,6 +517,20 @@ def build_wheel(context, s, new_collection=True):
     if thr is not None and s.auto_threshold:
         s["threshold"] = thr          # anzeigen, ohne Update-Callback auszulösen
 
+    # Plausibilität: Nabe muss Material sein, Materialanteil im üblichen Bereich, Symmetrie erkannt
+    rn = core.norm_radius(mask.shape, cx, cy, rx, ry)
+    frac = float(mask[rn < 0.97].mean()) if (rn < 0.97).any() else 0.0
+    hubfrac = float(mask[(rn > 0.12) & (rn < 0.30)].mean())
+    warn = []
+    if hubfrac < 0.5:
+        warn.append("Nabe nicht als Material erkannt")
+    if frac < 0.20 or frac > 0.88:
+        warn.append("Materialanteil %.0f %% ungewöhnlich" % (frac * 100))
+    if n <= 1 and s.sym_mode == "AUTO":
+        warn.append("keine Speichenordnung erkannt")
+    if rx > 0.5 * mask.shape[1] * 1.02 or rx < 0.28 * mask.shape[1]:
+        warn.append("Felgenkreis unplausibel (Reifen im Foto?)")
+    s["warning"] = "; ".join(warn)
     p = make_params(s)
     depth = ai_depth(s, cx, cy, rx, ry)
     hub_n = hub_symmetry(s, gray, cx, cy, rx, ry, n)
@@ -679,7 +704,7 @@ class FELGE3D_OT_detect(Operator):
             return {"CANCELLED"}
         gray = core.downscale(image_to_gray(s.image), s.proc_size)
         h, w = gray.shape
-        cx, cy, rx, ry = core.find_wheel(gray)
+        cx, cy, rx, ry = core.find_wheel(gray, tire={'AUTO': None, 'YES': True, 'NO': False}[s.tire_mode])
         s.center_x, s.center_y = cx / w, cy / h
         s.radius = rx / w
         s.aspect = ry / rx
@@ -915,6 +940,7 @@ class FELGE3D_PT_main(Panel):
             box.prop(s, "et")
         else:
             box.prop(s, "dish", slider=True)
+        box.prop(s, "tire_mode")
 
         # --- klare Formanalyse
         a = analysis_for(s)
@@ -931,6 +957,11 @@ class FELGE3D_PT_main(Panel):
         if a["warn"]:
             box.label(text=a["warn"], icon="ERROR")
 
+        if s.warning:
+            wb = L.box()
+            wb.label(text="Erkennung unsicher:", icon="ERROR")
+            wb.label(text=s.warning)
+            wb.label(text="→ Erkennung prüfen: ‚Maske anzeigen‘")
         if s.collection:
             info = "%d Speichen" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
             L.label(text="Erkannt: " + info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
@@ -1026,6 +1057,7 @@ class FELGE3D_PT_detect(Panel):
         c.prop(s, "center_y")
         c.prop(s, "radius")
         c.prop(s, "aspect")
+        L.prop(s, "tire_mode")
         L.operator("felge3d.detect", icon="VIEWZOOM")
         L.separator()
         L.prop(s, "seg_mode")
