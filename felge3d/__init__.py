@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 12, 0),
+    "version": (0, 13, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -141,6 +141,9 @@ class Felge3DSettings(PropertyGroup):
     ])
     ai_depth: FloatProperty(name="Relief (mm)", default=25.0, min=0, max=60, update=_update_rebuild,
                             description="Stärke der KI-Details: gewölbte Speichen, Kanten, Stufen glanzgedreht/schwarz, Nabe")
+    relief_fade: FloatProperty(name="Relief-Auslauf zum Rand", default=0.35, min=0.05, max=1.0,
+                               update=_update_rebuild, subtype="FACTOR",
+                               description="Über welchen Anteil des Radius das Relief zum Felgenrand auf 0 ausläuft")
     tone_step: FloatProperty(name="Kante (mm)", default=4.0, min=0, max=15, update=_update_rebuild,
                              description="Stufe der glanzgedrehten Fläche gegenüber dem dunklen Bereich "
                                          "(nur bei zweifarbigen Felgen, 0 = aus)")
@@ -275,7 +278,7 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "tone_step", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "relief_fade", "tone_step", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -865,6 +868,7 @@ class FELGE3D_PT_dims(Panel):
         c.prop(s, "boss_radius")
         c = self.layout.column(align=True)
         c.prop(s, "ai_strength")
+        c.prop(s, "relief_fade")
         c.prop(s, "bore")
         self.layout.prop(s, "one_body")
         self.layout.prop(s, "photo_texture")

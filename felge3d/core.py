@@ -613,8 +613,51 @@ def smooth_on_mesh(values, faces, n_verts, iters=6, lam=0.6):
     return v
 
 
+def _boundary_neighbors(bnd, n_verts):
+    """Für jeden Randpunkt seine zwei Nachbarn entlang der Kante (Vorgänger, Nachfolger)."""
+    prev = -np.ones(n_verts, np.int64)
+    nxt = -np.ones(n_verts, np.int64)
+    for a, b in bnd:
+        nxt[a] = b
+        prev[b] = a
+    on = (prev >= 0) & (nxt >= 0)
+    return prev, nxt, on
+
+
+def _smooth_along_boundary(vals, prev, nxt, on, iters, lam=0.5, mu=None):
+    """1D-Glättung entlang der Kanten-Linie (Taubin: ohne Schrumpfen, wenn mu gesetzt)."""
+    v = vals.astype(np.float64).copy()
+    idx = np.nonzero(on)[0]
+    p, q = prev[idx], nxt[idx]
+    for k in range(iters):
+        f = lam if (mu is None or k % 2 == 0) else mu
+        avg = 0.5 * (v[p] + v[q])
+        v[idx] = v[idx] + f * (avg - v[idx])
+    return v
+
+
+def _near_boundary(faces, n_verts, bnd, rings=3):
+    """Maske: Vertices bis zu 'rings' Kanten von der Fensterkante entfernt."""
+    m = np.zeros(n_verts, bool)
+    for a, b in bnd:
+        m[a] = m[b] = True
+    a_list, b_list = [], []
+    for f in faces:
+        k = len(f)
+        for i in range(k):
+            a_list.append(f[i])
+            b_list.append(f[(i + 1) % k])
+    A = np.array(a_list + b_list)
+    B = np.array(b_list + a_list)
+    for _ in range(rings):
+        grow = np.zeros(n_verts, bool)
+        grow[A[m[B]]] = True
+        m |= grow
+    return m
+
+
 def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_override_fn=None,
-               min_thick=0.006, smooth_iters=10):
+               min_thick=0.006, smooth_iters=10, edge_iters=100):
     """
     Geschlossener Felgenstern: Vorderfläche (Wölbung), Rückfläche, Seitenwände
     exakt parallel zur Radachse (3-Achs-fräsbar von vorn).
@@ -622,18 +665,30 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
     fv, ff = star_mesh(F, radii)
     if not ff:
         return fv, ff, [], []
+    bnd = boundary_edges_directed(ff)
+    prev, nxt, on = _boundary_neighbors(bnd, len(fv))
+    if edge_iters > 0:
+        # Kontur der Fenster in der Ebene glätten (Rasterstufen weg, Taubin = kein Schrumpfen)
+        for c in (0, 1):
+            fv[:, c] = _smooth_along_boundary(fv[:, c], prev, nxt, on, 40, 0.5, -0.53)
     r = np.hypot(fv[:, 0], fv[:, 1])
     zb = z_front_fn(r) - thick_fn(r)
     zf = z_front_fn(r) + (front_offset_fn(fv[:, :2]) if front_offset_fn else 0.0)
     if front_override_fn is not None:
         z0 = zf.copy()
         zf = front_override_fn(fv[:, :2], zf)
-        zf = z0 + smooth_on_mesh(zf - z0, ff, len(fv), smooth_iters)   # keine Sägezähne an den Kanten
+        off = smooth_on_mesh(zf - z0, ff, len(fv), smooth_iters)      # allgemeine Glättung
+        if edge_iters > 0:
+            # verstärkt an den Kanten: erst entlang der Kantenlinie, dann im Randstreifen
+            off = _smooth_along_boundary(off, prev, nxt, on, edge_iters, 0.5)
+            band = _near_boundary(ff, len(fv), bnd, rings=3)
+            off_band = smooth_on_mesh(off, ff, len(fv), edge_iters // 2)
+            off = np.where(band, off_band, off)
+        zf = z0 + off
         zb = np.minimum(zb, zf - thick_fn(r))    # Rückseite folgt der KI-Vorderseite
     zf = np.maximum(zf, zb + min_thick)          # Mindestwandstärke
     n = len(fv)
     verts = np.vstack([np.column_stack([fv[:, :2], zf]), np.column_stack([fv[:, :2], zb])])
-    bnd = boundary_edges_directed(ff)
     faces = list(ff)
     faces += [[v + n for v in f[::-1]] for f in ff]
     faces += [[a, a + n, b + n, b] for a, b in bnd]
@@ -645,8 +700,14 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
     return verts, faces, sharp, kinds
 
 
+def rim_fade(r, r_face, fade, ring=0.0):
+    """1 innen, läuft zum Felgenrand weich auf 0 aus (Speichen treffen das Bett auf Randhöhe)."""
+    u = np.clip((r_face - ring - r) / max(fade, 1e-6), 0.0, 1.0)
+    return u * u * (3 - 2 * u)
+
+
 def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_n=None, split_r=0.0,
-                relief_mm=15.0, detail_scale_px=None):
+                relief_mm=15.0, detail_scale_px=None, r_face=None, fade=None):
     """
     Relief aus der KI-Tiefe als ZUSATZ zur Grundform (Konkavität):
     Von vorn fotografiert kann die KI die großflächige Tiefe (Schüssel) kaum erkennen –
@@ -691,7 +752,10 @@ def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_
         if scale < 1e-9:
             return z_base
         rel = np.clip(d / scale, -1.2, 1.0)                    # -1..1 = tief..hoch
-        return z_base + strength * rel * relief_mm / 1000.0
+        w = 1.0
+        if r_face is not None:
+            w = rim_fade(np.hypot(xy[:, 0], xy[:, 1]), r_face, fade or 0.30 * r_face)
+        return z_base + strength * w * rel * relief_mm / 1000.0
     return f
 
 
@@ -815,6 +879,7 @@ class Params:
     hub_zone = 0.33       # Anteil des Radius, in dem die Nabensymmetrie gilt
     ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
     ai_depth = 25.0       # mm, Stärke des KI-Reliefs (Details auf der Grundform)
+    relief_fade = 0.35    # Anteil des Radius, über den das Relief zum Rand auf 0 ausläuft
     tone_step = 4.0       # mm, Stufe der glanzgedrehten Fläche (nur bei zweifarbigen Felgen)
     min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
@@ -907,7 +972,8 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     override = None
     if depth is not None and p.ai_strength > 0:
         override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist,
-                               hub_n=hub_n, split_r=split_r, relief_mm=p.ai_depth)
+                               hub_n=hub_n, split_r=split_r, relief_mm=p.ai_depth,
+                               r_face=r_face, fade=p.relief_fade * r_face)
     # feine Kante glanzgedreht/schwarz aus dem Foto
     tone_info = "aus"
     if gray is not None and p.tone_step > 0:
@@ -917,7 +983,8 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
 
             def override(xy, z, _b=base_override, _s=step):
                 z2 = _b(xy, z) if _b is not None else z
-                return z2 + p.tone_step / 1000.0 * (_s(xy) - 1.0)   # dunkle Fläche liegt tiefer
+                w = rim_fade(np.hypot(xy[:, 0], xy[:, 1]), r_face, 0.02, p.ring / 1000.0)
+                return z2 + w * p.tone_step / 1000.0 * (_s(xy) - 1.0)   # dunkle Fläche liegt tiefer
     sv, sf, sharp, kinds = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp, star_kinds=kinds,
