@@ -15,7 +15,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
-RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH = range(13)
+RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH, TRD = range(14)
 COLL_NAME = "Felge3D | Fahrzeug-Paket"
 PREFIX = "Felge3D | "
 
@@ -79,47 +79,45 @@ def decal_mat(name, filepath, fallback, rough, metal):
     return m, img
 
 
-def tire_photo_mat(img, bump=0.7):
-    """Reifenflanke: Foto als Farbe (mit etwas mehr Kontrast) und als Relief (Bump) – helle Schrift steht hervor."""
-    m = get_mat(PREFIX + "Reifenfoto", (.02, .02, .02), .82, 0.0)
+def photo_relief_mat(name, img, rough, contrast, bump, bump_dist, disp_scale, disp_mid, extension):
+    """Foto als Farbe (mit Kontrast), als Bump (hell = hoch) und als Shader-Displacement (Cycles)."""
+    m = get_mat(name, (.02, .02, .02), rough, 0.0)
     nt = m.node_tree
     bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
     for n in [n for n in nt.nodes if n.type in ('TEX_IMAGE', 'BUMP', 'BRIGHTCONTRAST', 'RGBTOBW', 'DISPLACEMENT')]:
         nt.nodes.remove(n)
     if img is not None and bsdf:
-        x0 = bsdf.location.x
+        x0, y0 = bsdf.location.x, bsdf.location.y
         tex = nt.nodes.new('ShaderNodeTexImage')
-        tex.image, tex.extension, tex.interpolation = img, 'EXTEND', 'Cubic'
-        tex.location = (x0 - 900, bsdf.location.y)
+        tex.image, tex.extension, tex.interpolation = img, extension, 'Cubic'
+        tex.location = (x0 - 900, y0)
         bc = nt.nodes.new('ShaderNodeBrightContrast')
-        bc.inputs["Contrast"].default_value = 0.35
-        bc.location = (x0 - 650, bsdf.location.y + 120)
+        bc.inputs["Contrast"].default_value = contrast
+        bc.location = (x0 - 650, y0 + 120)
         nt.links.new(tex.outputs["Color"], bc.inputs["Color"])
         nt.links.new(bc.outputs["Color"], bsdf.inputs["Base Color"])
         bw = nt.nodes.new('ShaderNodeRGBToBW')
-        bw.location = (x0 - 650, bsdf.location.y - 120)
+        bw.location = (x0 - 650, y0 - 120)
         nt.links.new(tex.outputs["Color"], bw.inputs["Color"])
         bp = nt.nodes.new('ShaderNodeBump')
         bp.inputs["Strength"].default_value = bump
-        bp.inputs["Distance"].default_value = 0.0015
-        bp.location = (x0 - 380, bsdf.location.y - 120)
+        bp.inputs["Distance"].default_value = bump_dist
+        bp.location = (x0 - 380, y0 - 120)
         nt.links.new(bw.outputs["Val"], bp.inputs["Height"])
         nt.links.new(bp.outputs["Normal"], bsdf.inputs["Normal"])
-        # echtes Displacement im Shader (Cycles); in Eevee wirkt der Displace-Modifier am Mesh
         out = next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL'), None)
         if out:
             dp = nt.nodes.new('ShaderNodeDisplacement')
-            dp.inputs["Scale"].default_value = 0.0012
-            dp.inputs["Midlevel"].default_value = 0.25
-            dp.location = (x0 - 380, bsdf.location.y - 330)
+            dp.inputs["Scale"].default_value = disp_scale
+            dp.inputs["Midlevel"].default_value = disp_mid
+            dp.location = (x0 - 380, y0 - 330)
             nt.links.new(bw.outputs["Val"], dp.inputs["Height"])
             nt.links.new(dp.outputs["Displacement"], out.inputs["Displacement"])
-            for attr, val in (("displacement_method", "BOTH"),):
-                if hasattr(m, attr):
-                    try:
-                        setattr(m, attr, val)
-                    except TypeError:
-                        pass
+            if hasattr(m, "displacement_method"):
+                try:
+                    m.displacement_method = 'BOTH'
+                except TypeError:
+                    pass
             if hasattr(m, "cycles") and hasattr(m.cycles, "displacement_method"):
                 try:
                     m.cycles.displacement_method = 'BOTH'
@@ -128,7 +126,17 @@ def tire_photo_mat(img, bump=0.7):
     return m
 
 
-def build_materials(c, tire_img=None):
+def tire_photo_mat(img):
+    """Reifenflanke: Beschriftung/Grafik steht hervor (hell = hoch)."""
+    return photo_relief_mat(PREFIX + "Reifenfoto", img, .82, 0.35, 0.7, 0.0015, 0.0012, 0.25, 'EXTEND')
+
+
+def tread_mat(img):
+    """Lauffläche: Profil aus dem Foto (dunkle Rillen liegen tiefer)."""
+    return photo_relief_mat(PREFIX + "Reifenprofil", img, .90, 0.25, 1.0, 0.002, 0.0012, 0.35, 'REPEAT')
+
+
+def build_materials(c, tire_img=None, tread_img=None):
     """Materialliste in der Reihenfolge RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH."""
     top, top_img = decal_mat(PREFIX + "Decal Flanke oben", c.decal_sidewall_top, (.8, .8, .8), .55, 0)
     bot, bot_img = decal_mat(PREFIX + "Decal Flanke unten", c.decal_sidewall_bottom, (.8, .8, .8), .55, 0)
@@ -146,6 +154,7 @@ def build_materials(c, tire_img=None):
         get_mat(PREFIX + "Emblem (unbenutzt)", (.5, .5, .52), .3, .7),
         top, bot, cal,
         tire_photo_mat(tire_img),
+        tread_mat(tread_img),
     ]
     return mats, imgs
 
@@ -289,14 +298,14 @@ def densify(points, step=0.005):
 
 def tire_profile(r_rim, W, h, b, ft, fh, k, grooves):
     R = r_rim + h
-    side = densify(tire_side(r_rim, W, h, b, ft, fh, k))
+    side = tire_side(r_rim, W, h, b, ft, fh, k)
     tw = W - 2.0 * k
     gd = min(0.007, 0.1 * h)
     tread = []
     for pos, wf in sorted(TREAD_LAYOUT[max(0, min(4, grooves))], key=lambda g: -g[0]):
         xg, gw = pos * tw, W * 0.018 * wf
         tread += [(R, xg + gw), (R - gd, xg + gw * 0.6), (R - gd, xg - gw * 0.6), (R, xg - gw)]
-    return side + tread + [(r, -x) for r, x in reversed(side)]
+    return densify(side + tread + [(r, -x) for r, x in reversed(side)], 0.005)
 
 
 def apply_smoothing(me, angle):
@@ -359,7 +368,7 @@ def back_profile(star_verts, half_width, n_front=None):
 
 
 # ---------------------------------------------------------------- Reifen
-def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None):
+def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None, tread=None):
     """
     Reifenmesh. tex: dict(cx, cy, r_in, r_out, asp, w_over_h, rot, flip) für das Reifenfoto auf den
     Flanken (Mitte/Radien normiert auf Bildbreite), oder None.
@@ -368,7 +377,7 @@ def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None):
     bm = bmesh.new()
     uv_lay = bm.loops.layers.uv.verify()
     tire_faces = revolve(bm, tire_profile(d["r_rim"], d["W"], d["h"], d["b"], d["ft"], d["fh"], d["k"],
-                                          c.tread_grooves), s, RUB, seg=256)
+                                          c.tread_grooves), s, RUB, seg=384)
     # Ventil (im Felgenbett)
     if r_well is not None:
         vb = math.pi + 0.5 * (2 * math.pi / 7.0)
@@ -387,7 +396,7 @@ def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None):
     arc_decal(bm, s, uv_lay, imgs.get("bottom"), DEC_BOT, rt, math.pi, hgt, max_len, flank, bottom=True)
 
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-    flank_verts = set()
+    flank_verts, tread_verts = set(), set()
 
     # Reifenfoto auf die Flanken (Flächen, die zur Achse zeigen), Lauffläche bleibt Gummi.
     # Radial angepasst: Bildring [r_in .. r_out] (Wulst .. Reifenkante) <-> Mesh [Felgenhorn .. Reifenkante],
@@ -415,6 +424,24 @@ def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None):
                 rn = tex["r_in"] + t * (tex["r_out"] - tex["r_in"])       # Bildradius, normiert auf Breite
                 loop[uv_lay].uv = (tex["cx"] + da * rn, tex["cy"] + db * rn * tex["asp"] * tex["w_over_h"])
 
+    # Laufflächenprofil: u quer über die Breite, v rund um den Umfang (ganzzahlige Wiederholungen -> nahtlos)
+    if tread is not None:
+        Rt = d["R"]
+        pitch = tread["aspect"] * d["W"]                          # Kachellänge in m (proportional zur Reifenbreite)
+        reps = max(1, int(round(2 * math.pi * Rt / pitch)))
+        for f in bm.faces:
+            if not f.is_valid or f.material_index != RUB:
+                continue
+            f.material_index = TRD
+            cs = sum((v.co for v in f.verts), Vector()) / len(f.verts)
+            phi_c = math.atan2(cs.y, cs.z)
+            tread_verts.update(v.index for v in f.verts)
+            for loop in f.loops:
+                co = loop.vert.co
+                u = (s * co.x + d["W"] / 2.0) / d["W"]
+                dphi = (math.atan2(co.y, co.z) - phi_c + math.pi) % (2 * math.pi) - math.pi
+                loop[uv_lay].uv = (u, reps * (phi_c + dphi) / (2 * math.pi))
+
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
@@ -422,34 +449,43 @@ def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None):
         me.materials.append(m)
     apply_smoothing(me, math.radians(35))
     me.update()
-    me["flank_verts"] = sorted(flank_verts)           # für die Vertexgruppe (Displacement nur auf der Flanke)
+    only_flank = flank_verts - tread_verts                  # gemeinsame Randpunkte bleiben unverschoben (keine Naht)
+    me["flank_verts"] = sorted(only_flank)
+    me["tread_verts"] = sorted(tread_verts - flank_verts)           # für die Vertexgruppe (Displacement nur auf der Flanke)
     me["uv_name"] = me.uv_layers[0].name if me.uv_layers else ""
     return me
 
 
-def add_relief(obj, tex_img, strength, level=1):
-    """Displacement auf der Flanke: Subdivision (einfach) + Displace-Modifier mit der Reifentextur (UV)."""
-    me = obj.data
-    verts = list(me.get("flank_verts", []))
-    if tex_img is None or not verts or strength <= 0:
-        return
-    vg = obj.vertex_groups.new(name="Flanke")
+def _displace(obj, name, group, verts, tex_img, tex_name, strength_mm, mid, uv_name):
+    vg = obj.vertex_groups.new(name=group)
     vg.add(verts, 1.0, 'REPLACE')
+    tx = bpy.data.textures.get(PREFIX + tex_name) or bpy.data.textures.new(PREFIX + tex_name, 'IMAGE')
+    tx.image = tex_img
+    tx.extension = 'REPEAT' if tex_name == "Profilrelief" else 'EXTEND'
+    dis = obj.modifiers.new(name, 'DISPLACE')
+    dis.texture, dis.texture_coords = tx, 'UV'
+    if uv_name:
+        dis.uv_layer = uv_name
+    dis.vertex_group, dis.direction = group, 'NORMAL'
+    dis.mid_level, dis.strength = mid, strength_mm / 1000.0
+
+
+def add_relief(obj, flank_img, flank_mm, tread_img=None, tread_mm=0.0, level=1):
+    """Displacement: Subdivision (einfach) + je ein Displace-Modifier für Flanke (Schrift) und Lauffläche (Profil)."""
+    me = obj.data
+    fv, tv = list(me.get("flank_verts", [])), list(me.get("tread_verts", []))
+    uv_name = me.get("uv_name", "")
+    do_f = flank_img is not None and fv and flank_mm > 0
+    do_t = tread_img is not None and tv and tread_mm > 0
+    if not (do_f or do_t):
+        return
     sub = obj.modifiers.new("Reifen-Unterteilung", 'SUBSURF')
     sub.subdivision_type = 'SIMPLE'
     sub.levels, sub.render_levels = level, level + 1
-    tx = bpy.data.textures.get(PREFIX + "Reifenrelief") or bpy.data.textures.new(PREFIX + "Reifenrelief", 'IMAGE')
-    tx.image = tex_img
-    tx.extension = 'EXTEND'
-    dis = obj.modifiers.new("Reifen-Relief", 'DISPLACE')
-    dis.texture = tx
-    dis.texture_coords = 'UV'
-    if me.get("uv_name"):
-        dis.uv_layer = me["uv_name"]
-    dis.vertex_group = "Flanke"
-    dis.direction = 'NORMAL'
-    dis.mid_level = 0.25                               # Gummi-Grau ~0,2: Schrift (heller) steht hervor
-    dis.strength = strength / 1000.0
+    if do_f:
+        _displace(obj, "Reifen-Relief", "Flanke", fv, flank_img, "Reifenrelief", flank_mm, 0.25, uv_name)
+    if do_t:
+        _displace(obj, "Profil-Relief", "Lauffläche", tv, tread_img, "Profilrelief", tread_mm, 0.35, uv_name)
 
 
 # ---------------------------------------------------------------- Bremse

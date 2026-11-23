@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 21, 0),
+    "version": (0, 22, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -1171,7 +1171,10 @@ class Felge3DCar(PropertyGroup):
     tire_flip: BoolProperty(name="Reifentextur spiegeln", default=False)
     tire_relief: FloatProperty(name="Schrift-Relief (mm)", default=1.2, min=0, max=4,
                                description="Wie weit die Beschriftung der Reifenflanke hervorsteht (Displacement). 0 = nur Bump")
-    tread_grooves: IntProperty(name="Längsrillen", default=3, min=0, max=4)
+    tread_relief: FloatProperty(name="Profil-Relief (mm)", default=1.5, min=0, max=5,
+                                description="Tiefe des Laufflächenprofils (Displacement). 0 = nur Bump")
+    tread_grooves: IntProperty(name="Zusätzliche Längsrillen", default=0, min=0, max=4,
+                               description="Zusätzlich zum Profil aus dem Foto (Standard 0: Profil kommt aus der Textur)")
     decal_sidewall_top: StringProperty(name="Flanke oben (PNG)", subtype="FILE_PATH", default="")
     decal_sidewall_bottom: StringProperty(name="Flanke unten (PNG)", subtype="FILE_PATH", default="")
     decal_sidewall_scale: FloatProperty(name="Flanken-Decal Höhe", default=1.0, min=.2, max=1.2)
@@ -1197,6 +1200,17 @@ def tire_texture_file():
         with open(path, "wb") as f:
             f.write(data)
     return path
+
+
+def tread_texture():
+    """Eingebettete Laufflächen-Kachel auspacken; gibt (Bild, meta) zurück."""
+    import base64
+    path = os.path.join(ai.data_dir(), "reifenprofil_kachel.jpg")
+    data = base64.b64decode("".join(tire_data.TREAD_B64))
+    if not (os.path.isfile(path) and os.path.getsize(path) == len(data)):
+        with open(path, "wb") as f:
+            f.write(data)
+    return bpy.data.images.load(path, check_existing=True), dict(tire_data.TREAD_META)
 
 
 def tire_texture_params(c):
@@ -1227,7 +1241,8 @@ def build_car(context, s, c):
     context.scene.collection.children.link(col)
 
     tire_img, tex = tire_texture_params(c)
-    mats, imgs = car.build_materials(c, tire_img)
+    tread_img, tread = tread_texture()
+    mats, imgs = car.build_materials(c, tire_img, tread_img)
 
     axles = {}
     for front in (True, False):
@@ -1268,12 +1283,11 @@ def build_car(context, s, c):
                 ob.parent = parent
                 col.objects.link(ob)
 
-            me_t = car.build_tire(c, d, sgn, mats, imgs, "Reifen " + name, tex, r_well)
+            me_t = car.build_tire(c, d, sgn, mats, imgs, "Reifen " + name, tex, r_well, tread)
             ob = bpy.data.objects.new("Reifen " + name, me_t)
             ob.parent = parent
             col.objects.link(ob)
-            if tex is not None and c.tire_relief > 0:
-                car.add_relief(ob, tire_img, c.tire_relief)
+            car.add_relief(ob, tire_img, c.tire_relief, tread_img, c.tread_relief)
             # Bremsscheibe und Sattel: Code liegt in car.build_brake bereit, kommt später dazu
     for o in context.view_layer.objects:
         o.select_set(False)
@@ -1370,6 +1384,7 @@ class FELGE3D_PT_car_extra(Panel):
         row.prop(c, "tire_rotation")
         row.prop(c, "tire_flip", text="", icon="MOD_MIRROR")
         L.prop(c, "tire_relief")
+        L.prop(c, "tread_relief")
         L.prop(c, "tread_grooves")
         for prop in ("decal_sidewall_top", "decal_sidewall_bottom", "decal_sidewall_scale", "decal_sidewall_arc"):
             L.prop(c, prop)

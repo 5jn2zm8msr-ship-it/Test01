@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "felge3d"
-version = "0.21.0"
+version = "0.22.0"
 name = "Felge3D"
 tagline = "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell"
 maintainer = "Felge3D"
