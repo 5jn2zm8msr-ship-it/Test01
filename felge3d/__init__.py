@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 7, 1),
+    "version": (0, 7, 2),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -648,13 +648,17 @@ class FELGE3D_OT_install_ai(Operator):
 
     def execute(self, context):
         try:
-            if not ai.runtime_available():
+            if not ai.runtime_available() or not ai.supports("HIGH"):
                 self.report({"INFO"}, "Installiere ONNX Runtime …")
-                ai.install_runtime()
+                ver = ai.install_runtime()
                 if not ai.runtime_available():
-                    raise RuntimeError("ONNX Runtime installiert, lässt sich aber nicht laden. "
-                                       "Intel-Mac: macOS 13 oder neuer nötig.")
-            kind = context.scene.felge3d.ai_quality
+                    raise RuntimeError("ONNX Runtime %s installiert – bitte Blender neu starten "
+                                       "und 'KI-Tiefe einrichten' erneut klicken." % ver)
+            s0 = context.scene.felge3d
+            if s0.ai_quality == "HIGH" and not ai.supports("HIGH"):
+                s0["ai_quality"] = 1   # FAST – ältere Laufzeit kann das große Modell nicht
+                self.report({"WARNING"}, "Nur ältere ONNX Runtime möglich – nutze das schnelle Modell.")
+            kind = s0.ai_quality
             if not os.path.isfile(ai.model_path(kind)):
                 wm = context.window_manager
                 wm.progress_begin(0, 100)

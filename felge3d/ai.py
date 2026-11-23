@@ -6,8 +6,10 @@ Modelle (beide Apache-2.0, einmaliger Download):
 - HIGH: Depth Anything 3 Mono-Large (q4f16, ~350 MB) – deutlich sauberere Flächen und Kanten
 - FAST: Depth Anything V2 Small (quantisiert, ~27 MB) – schnell, etwas rauschiger
 
-Laufzeit: onnxruntime 1.23.2 – letzte Version mit Intel-Mac-Paketen (macOS >= 13),
-per pip in einen eigenen Ordner (ohne Abhängigkeiten, Blenders numpy bleibt).
+Laufzeit: onnxruntime per pip in einen eigenen Ordner (ohne Abhängigkeiten, Blenders numpy bleibt).
+Blender 3.6 auf dem Mac meldet sich als "macOS 10.16" (altes SDK) – pip würde dann nur bis 1.16.3
+anbieten. Darum wird 1.19.2 (universal2, macOS >= 11, kann das DA3-Modell) mit expliziter
+Plattform installiert; klappt das Laden nicht, Rückfall auf 1.16.3 (nur das schnelle Modell).
 """
 import os
 import subprocess
@@ -15,7 +17,13 @@ import sys
 
 import numpy as np
 
-ORT_VERSION = "1.23.2"
+# (Version, erzwungene pip-Plattform oder None) – in dieser Reihenfolge versuchen
+ORT_CANDIDATES = [
+    ("1.19.2", "macosx_11_0_universal2"),
+    ("1.19.2", None),
+    ("1.16.3", None),
+]
+MIN_VERSION_FOR = {"HIGH": (1, 18), "FAST": (1, 12)}
 MODELS = {
     "HIGH": ("https://huggingface.co/Jens-Duttke/Depth-Anything-3-MONO-ONNX/resolve/main/"
              "da-v3-mono-large_q4f16_opset21_optimized.onnx",
@@ -60,23 +68,55 @@ def runtime_available():
         return False
 
 
+def runtime_version():
+    try:
+        import onnxruntime
+        return tuple(int(x) for x in onnxruntime.__version__.split(".")[:2])
+    except Exception:  # noqa: BLE001
+        return (0, 0)
+
+
+def supports(kind):
+    return runtime_available() and runtime_version() >= MIN_VERSION_FOR[kind]
+
+
 def is_ready(kind="HIGH"):
-    return runtime_available() and os.path.isfile(model_path(kind))
+    return supports(kind) and os.path.isfile(model_path(kind))
+
+
+def _import_ok(py, target):
+    """In einem eigenen Prozess testen, ob onnxruntime lädt (ein Absturz trifft dann nicht Blender)."""
+    code = ("import sys; sys.path.insert(0, %r); import onnxruntime as o; print(o.__version__)" % target)
+    r = subprocess.run([py, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return r.returncode == 0, r.stdout.strip()[-400:]
 
 
 def install_runtime():
-    """onnxruntime per pip in den Add-on-Datenordner installieren (Blender-Python)."""
+    """onnxruntime per pip in den Add-on-Datenordner installieren (Blender-Python). Gibt Version zurück."""
+    import shutil
     target = libs_dir()
     py = sys.executable
     subprocess.run([py, "-m", "ensurepip", "--upgrade"], check=False,
                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    r = subprocess.run([py, "-m", "pip", "install", "--no-deps", "--upgrade",
-                        "--target", target, "onnxruntime==" + ORT_VERSION, "flatbuffers", "packaging",
-                        "protobuf<6"],
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if r.returncode != 0:
-        raise RuntimeError("pip-Installation fehlgeschlagen:\n" + r.stdout[-1500:])
-    return r.stdout[-300:]
+    log = []
+    for version, plat in ORT_CANDIDATES:
+        shutil.rmtree(target, ignore_errors=True)
+        os.makedirs(target, exist_ok=True)
+        cmd = [py, "-m", "pip", "install", "--no-deps", "--upgrade", "--target", target,
+               "onnxruntime==" + version, "flatbuffers", "packaging", "protobuf<6"]
+        if plat:
+            cmd += ["--platform", plat, "--only-binary=:all:", "--python-version",
+                    "%d.%d" % sys.version_info[:2], "--implementation", "cp"]
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if r.returncode != 0:
+            log.append("%s/%s: pip: %s" % (version, plat, r.stdout.strip().splitlines()[-1:]))
+            continue
+        ok, out = _import_ok(py, target)
+        if ok:
+            return out
+        log.append("%s/%s: Laden: %s" % (version, plat, out.splitlines()[-1:] if out else "?"))
+    shutil.rmtree(target, ignore_errors=True)
+    raise RuntimeError("ONNX Runtime ließ sich nicht installieren:\n" + "\n".join(log))
 
 
 def download_model(kind="HIGH", progress=None):
