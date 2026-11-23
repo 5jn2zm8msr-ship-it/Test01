@@ -562,7 +562,8 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
     zf = z_front_fn(r) + (front_offset_fn(fv[:, :2]) if front_offset_fn else 0.0)
     if front_override_fn is not None:
         zf = front_override_fn(fv[:, :2], zf)
-    zf = np.maximum(zf, zb + min_thick)          # Mindestwandstärke (fräsbar)
+        zb = np.minimum(zb, zf - thick_fn(r))    # Rückseite folgt der KI-Vorderseite
+    zf = np.maximum(zf, zb + min_thick)          # Mindestwandstärke
     n = len(fv)
     verts = np.vstack([np.column_stack([fv[:, :2], zf]), np.column_stack([fv[:, :2], zb])])
     bnd = boundary_edges_directed(ff)
@@ -576,7 +577,8 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
     return verts, faces, sharp
 
 
-def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_n=None, split_r=0.0):
+def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_n=None, split_r=0.0,
+                depth_mm=50.0, z_top=-0.004):
     """
     depth: Tiefenkarte der KI im Arbeitsbild (größer = näher an der Kamera), NaN = unbekannt.
     Gibt f(xy, z_analytisch) -> z zurück. Die relative KI-Tiefe wird per Ausgleichsgerade
@@ -605,14 +607,14 @@ def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_
     def f(xy, z_ana):
         d = sample(xy)
         t = edge_t(xy) if edge_t is not None else np.ones(len(xy))
-        sel = t > 0.5                                # nur sicher innerhalb des Materials kalibrieren
+        sel = t > 0.5                                # sicher im Material (keine Hintergrund-Werte)
         if sel.sum() < 100:
             return z_ana
-        A = np.column_stack([d[sel], np.ones(sel.sum())])
-        (a, b), *_ = np.linalg.lstsq(A, z_ana[sel], rcond=None)
-        if not np.isfinite(a) or a <= 0:            # KI widerspricht der Grundform -> nicht verwenden
+        lo, hi = np.percentile(d[sel], [3, 99.5])
+        if hi - lo < 1e-6:
             return z_ana
-        z_ai = a * d + b
+        dn = np.clip((d - lo) / (hi - lo), -0.15, 1.05)   # 1 = vorderster Punkt, 0 = tiefster
+        z_ai = z_top - (1.0 - dn) * depth_mm / 1000.0
         return z_ana + strength * (z_ai - z_ana)
     return f
 
@@ -694,6 +696,7 @@ class Params:
     bore = 0.0            # mm, Mittelbohrung (0 = wie im Bild: Deckel/Logo bleiben)
     hub_zone = 0.33       # Anteil des Radius, in dem die Nabensymmetrie gilt
     ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
+    ai_depth = 50.0       # mm, Tiefenumfang der KI-Form (vorderster bis tiefster Punkt)
     min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
     wall = 5.0            # mm
@@ -779,7 +782,8 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None):
     override = None
     if depth is not None and p.ai_strength > 0:
         override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist,
-                               hub_n=hub_n, split_r=split_r)
+                               hub_n=hub_n, split_r=split_r, depth_mm=p.ai_depth,
+                               z_top=-p.face_inset / 1000.0 * 0.3)
     sv, sf, sharp = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp,

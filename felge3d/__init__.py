@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 7, 3),
+    "version": (0, 8, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -138,6 +138,8 @@ class Felge3DSettings(PropertyGroup):
         ("HIGH", "Hoch (DA3 Large)", "Depth Anything 3 Mono-Large – saubere Flächen, ~5–20 s pro Bild"),
         ("FAST", "Schnell (DA2 Small)", "Depth Anything V2 Small – unter 1 s, etwas rauschiger"),
     ])
+    ai_depth: FloatProperty(name="Tiefe (mm)", default=50.0, min=5, max=150, update=_update_rebuild,
+                            description="Wie tief die KI-Form ist: vom vordersten Punkt (Speichen) bis zum tiefsten (Nabe/Mitte)")
     ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
                                description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
     min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
@@ -264,7 +266,7 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -775,6 +777,8 @@ class FELGE3D_PT_main(Panel):
         row = self.layout.row(align=True)
         if ai.is_ready(s.ai_quality):
             row.prop(s, "use_ai")
+            if s.use_ai:
+                self.layout.prop(s, "ai_depth", slider=True)
         else:
             row.operator("felge3d.install_ai", icon="IMPORT")
         row.prop(s, "ai_quality", text="")

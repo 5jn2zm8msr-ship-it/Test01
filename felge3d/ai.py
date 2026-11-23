@@ -186,6 +186,16 @@ def depth_map(rgb, cx, cy, rx, ry, margin=1.08, kind="HIGH"):
     y0 = int(max(0, np.floor(cy - ry * margin)))
     y1 = int(min(h, np.ceil(cy + ry * margin)))
     crop = rgb[y0:y1, x0:x1, :3][::-1]            # für die KI: oben = oben
+    import hashlib
+    key = hashlib.sha1(np.ascontiguousarray(crop, np.float16).tobytes() + kind.encode()).hexdigest()[:20]
+    cache_dir = os.path.join(data_dir(), "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cfile = os.path.join(cache_dir, key + ".npy")
+    if os.path.isfile(cfile):
+        d = np.load(cfile)
+        full = np.full((h, w), np.nan, np.float32)
+        full[y0:y1, x0:x1] = d
+        return full
     x = _resize(crop.astype(np.float32), INPUT, INPUT)
     x = (x - np.array([0.485, 0.456, 0.406], np.float32)) / np.array([0.229, 0.224, 0.225], np.float32)
     sess = _get_session(kind)
@@ -193,6 +203,10 @@ def depth_map(rgb, cx, cy, rx, ry, margin=1.08, kind="HIGH"):
     out = sess.run(None, {sess.get_inputs()[0].name: x.transpose(2, 0, 1)[None].astype(dtype)})[0]
     out = np.asarray(out, np.float32).reshape(out.shape[-2:])   # beide Modelle: größer = näher
     d = _resize(out, y1 - y0, x1 - x0)[::-1]
+    try:
+        np.save(cfile, d.astype(np.float32))
+    except OSError:
+        pass
     full = np.full((h, w), np.nan, np.float32)
     full[y0:y1, x0:x1] = d
     return full
