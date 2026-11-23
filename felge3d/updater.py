@@ -108,7 +108,7 @@ def install_latest(repo, branch="main", token=""):
         if not name.startswith(prefix) or name.endswith("/"):
             continue
         rel = name[len(prefix):]
-        is_tex = rel.startswith("textures/") and rel.count("/") == 1 and rel.lower().endswith((".jpg", ".jpeg", ".png"))
+        is_tex = rel.startswith("textures/") and rel.count("/") == 1 and rel.lower().endswith((".jpg", ".jpeg", ".png", ".json"))
         if not is_tex and ("/" in rel or not rel.endswith((".py", ".toml"))):
             continue
         os.makedirs(os.path.dirname(os.path.join(ADDON_DIR, rel)), exist_ok=True)

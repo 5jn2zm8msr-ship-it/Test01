@@ -366,7 +366,7 @@ def build_tire(c, dims, s, mats, imgs, name, tex=None, r_well=None):
                     a = -a
                 da, db = a / rho, bb / rho
                 da, db = da * ct - db * st, da * st + db * ct
-                t = max(-0.15, min(1.05, (rho - r0) / (r1 - r0)))
+                t = max(0.0, min(1.0, (rho - r0) / (r1 - r0)))
                 rn = tex["r_in"] + t * (tex["r_out"] - tex["r_in"])       # Bildradius, normiert auf Breite
                 loop[uv_lay].uv = (tex["cx"] + da * rn, tex["cy"] + db * rn * tex["asp"] * tex["w_over_h"])
 

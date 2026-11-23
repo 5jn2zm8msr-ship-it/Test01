@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 19, 2),
+    "version": (0, 20, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -1175,34 +1175,32 @@ class Felge3DCar(PropertyGroup):
     use_bevel: BoolProperty(name="Kantenfasen (Bevel)", default=True)
 
 
-TIRE_TEXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures", "reifen.jpg")
+TEX_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "textures")
+TIRE_TEXTURE = os.path.join(TEX_DIR, "reifen.png")
 
 
 def tire_texture_params(c):
     """
-    Feste Reifentextur (im Add-on gebündelt) laden und vermessen: Mittelpunkt, Außenkante der Flanke
-    und Innenkante (Wulst, heller Innenraum) werden aus dem Bild bestimmt.
-    Gibt (Bild, tex-dict) zurück, oder (None, None) falls die Datei fehlt.
+    Feste Reifentextur (Michelin Pilot Sport Cup 2, im Add-on gebündelt) laden. Mittelpunkt und Radien
+    der Flanke stehen vorgemessen in textures/reifen.json. Gibt (Bild, tex-dict) oder (None, None) zurück.
     """
-    if not os.path.isfile(TIRE_TEXTURE):
+    jpath = os.path.join(TEX_DIR, "reifen.json")
+    if not (os.path.isfile(TIRE_TEXTURE) and os.path.isfile(jpath)):
         return None, None
+    import json
+    with open(jpath, encoding="utf-8") as f:
+        j = json.load(f)
     img = bpy.data.images.load(TIRE_TEXTURE, check_existing=True)
-    gray = core.downscale(image_to_gray(img), 768)
-    h, w = gray.shape
-    cx, cy, rx, ry = core.find_wheel(gray, tire=False)      # äußerster Kreis = Reifenkante
-    # Radialprofil der Helligkeit (Mittel über alle Winkel): innen weiß (Loch), dann Reifen, außen weiß
-    ang = np.linspace(0, 2 * np.pi, 180, endpoint=False)
-    rr = np.linspace(0.05, 1.10, 220) * rx
-    xs = cx + rr[:, None] * np.sin(ang)[None, :]
-    ys = cy + rr[:, None] * np.cos(ang)[None, :] * (ry / rx)
-    ok = (xs >= 0) & (xs < w - 1) & (ys >= 0) & (ys < h - 1)
-    prof = np.where(ok, core.bilinear(gray, np.clip(xs, 0, w - 1.01), np.clip(ys, 0, h - 1.01)), np.nan)
-    prof = np.nanmedian(prof, axis=1)
-    dark = np.nonzero(prof < 0.55)[0]
-    r_in = rr[dark[0]] if dark.size else 0.62 * rx           # Wulst: erster dunkler Radius von innen
-    r_out = rx
-    return img, dict(cx=cx / w, cy=cy / h, r_in=r_in / w, r_out=r_out / w, asp=ry / rx, w_over_h=w / h,
-                     rot=c.tire_rotation, flip=c.tire_flip)
+    try:
+        img.alpha_mode = "NONE"                    # Alpha der PNG nicht ins Material einrechnen
+    except (TypeError, AttributeError):
+        pass
+    W, H = j["width"], j["height"]
+    o = j["outer"]
+    r_out = o["a"] / W
+    return img, dict(cx=o["cx"] / W, cy=1.0 - o["cy"] / H,          # Blender-UV: y von unten
+                     r_in=r_out * j.get("map_inner_ratio", 0.75), r_out=r_out,
+                     asp=o["b"] / o["a"], w_over_h=W / H, rot=c.tire_rotation, flip=c.tire_flip)
 
 
 def build_car(context, s, c):
@@ -1269,7 +1267,7 @@ def build_car(context, s, c):
     context.view_layer.objects.active = created[0]
     return col, ("4 Räder erzeugt: vorn %g×%gJ ET%g, hinten %g×%gJ ET%g%s" % (
         c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et,
-        " · Reifentextur gemappt" if tex else " · Reifentextur fehlt (textures/reifen.jpg)"))
+        " · Reifentextur gemappt" if tex else " · Reifentextur fehlt (textures/reifen.png)"))
 
 
 class FELGE3D_OT_car_generate(Operator):
