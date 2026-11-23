@@ -800,7 +800,7 @@ class Params:
     use_et = False
     et = 45.0             # mm
     face_inset = 12.0     # mm
-    dish = 40.0           # mm
+    dish = 60.0           # mm
     dish_power = 1.5
     spoke_thickness = 22.0  # mm, Dicke am Felgenrand
     hub_thickness = 40.0  # mm, Dicke an der Nabe
@@ -814,8 +814,8 @@ class Params:
     bore = 0.0            # mm, Mittelbohrung (0 = wie im Bild: Deckel/Logo bleiben)
     hub_zone = 0.33       # Anteil des Radius, in dem die Nabensymmetrie gilt
     ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
-    ai_depth = 15.0       # mm, Stärke des KI-Reliefs (Details auf der Grundform)
-    tone_step = 3.0       # mm, Stufe der glanzgedrehten Fläche (nur bei zweifarbigen Felgen)
+    ai_depth = 25.0       # mm, Stärke des KI-Reliefs (Details auf der Grundform)
+    tone_step = 4.0       # mm, Stufe der glanzgedrehten Fläche (nur bei zweifarbigen Felgen)
     min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
     wall = 5.0            # mm

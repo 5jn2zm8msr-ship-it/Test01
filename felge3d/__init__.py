@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 11, 0),
+    "version": (0, 12, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -103,7 +103,7 @@ class Felge3DSettings(PropertyGroup):
     use_et: BoolProperty(name="Konkavität aus ET", default=False, update=_update_rebuild,
                          description="Konkavität aus der Einpresstiefe berechnen")
     et: FloatProperty(name="ET (mm)", default=45.0, min=-50, max=120)
-    dish: FloatProperty(name="Konkavität (mm)", default=40.0, min=0, max=150, update=_update_rebuild,
+    dish: FloatProperty(name="Konkavität (mm)", default=60.0, min=0, max=150, update=_update_rebuild,
                         description="Wie viel tiefer die Mitte als der Felgenrand liegt (Schüsselform)")
     dish_power: FloatProperty(name="Wölbungsform", default=1.5, min=0.5, max=4,
                               description="1 = gerader Kegel, größer = runder")
@@ -139,9 +139,9 @@ class Felge3DSettings(PropertyGroup):
         ("HIGH", "Hoch (DA3 Large)", "Depth Anything 3 Mono-Large – saubere Flächen, ~5–20 s pro Bild"),
         ("FAST", "Schnell (DA2 Small)", "Depth Anything V2 Small – unter 1 s, etwas rauschiger"),
     ])
-    ai_depth: FloatProperty(name="Relief (mm)", default=15.0, min=0, max=60, update=_update_rebuild,
+    ai_depth: FloatProperty(name="Relief (mm)", default=25.0, min=0, max=60, update=_update_rebuild,
                             description="Stärke der KI-Details: gewölbte Speichen, Kanten, Stufen glanzgedreht/schwarz, Nabe")
-    tone_step: FloatProperty(name="Kante (mm)", default=3.0, min=0, max=15, update=_update_rebuild,
+    tone_step: FloatProperty(name="Kante (mm)", default=4.0, min=0, max=15, update=_update_rebuild,
                              description="Stufe der glanzgedrehten Fläche gegenüber dem dunklen Bereich "
                                          "(nur bei zweifarbigen Felgen, 0 = aus)")
     tone_info: StringProperty(default="")
@@ -537,6 +537,20 @@ class FELGE3D_OT_import_image(Operator, ImportHelper):
         return {"FINISHED"}
 
 
+class FELGE3D_OT_reset_defaults(Operator):
+    """Konkavität, Relief und Kante auf die Standardwerte zurücksetzen und neu bauen"""
+    bl_idname = "felge3d.reset_defaults"
+    bl_label = "Standardwerte"
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        for k in ("dish", "ai_depth", "tone_step"):
+            s.property_unset(k)
+        if s.image and s.collection:
+            bpy.ops.felge3d.rebuild()
+        return {"FINISHED"}
+
+
 class FELGE3D_OT_rebuild(Operator):
     """Felge mit den aktuellen Einstellungen neu berechnen"""
     bl_idname = "felge3d.rebuild"
@@ -805,6 +819,7 @@ class FELGE3D_PT_main(Panel):
         row2 = self.layout.row(align=True)
         row2.prop(s, "tone_step", slider=True)
         self.layout.prop(s, "pocket_color")
+        self.layout.operator("felge3d.reset_defaults", icon="LOOP_BACK")
         if s.tone_info:
             self.layout.label(text="Kante: " + s.tone_info, icon="MOD_BEVEL")
         else:
@@ -939,6 +954,7 @@ classes = (
     FELGE3D_OT_install_update,
     FELGE3D_OT_import_image,
     FELGE3D_OT_rebuild,
+    FELGE3D_OT_reset_defaults,
     FELGE3D_OT_detect,
     FELGE3D_OT_preview,
     FELGE3D_OT_mask_to_image,
