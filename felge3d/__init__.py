@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -127,6 +127,8 @@ class Felge3DSettings(PropertyGroup):
                                description="Erhabener Bund um den Zentralverschluss / die Nabe (0 = aus)")
     boss_radius: FloatProperty(name="Nabenbund Radius (mm)", default=75.0, min=20, max=200,
                                update=_update_rebuild)
+    bore: FloatProperty(name="Mittelbohrung (mm)", default=0.0, min=0, max=200, update=_update_rebuild,
+                        description="0 = Zentrum wie im Foto (Deckel/Logo). >0 schneidet ein rundes Loch")
     min_hole: FloatProperty(name="Kleine Löcher füllen (mm²)", default=60.0, min=0, max=2000,
                             update=_update_rebuild,
                             description="Lücken kleiner als diese Fläche gelten als Störung (Spiegelung) und werden gefüllt")
@@ -139,7 +141,7 @@ class Felge3DSettings(PropertyGroup):
     ai_strength: FloatProperty(name="KI-Anteil", default=1.0, min=0, max=1.5, update=_update_rebuild,
                                description="0 = nur Formmodell, 1 = Vorderfläche komplett aus KI-Tiefe")
     min_thick: FloatProperty(name="Mindestwandstärke (mm)", default=6.0, min=2, max=30, update=_update_rebuild)
-    one_body: BoolProperty(name="Ein Körper (fräsfertig)", default=True,
+    one_body: BoolProperty(name="Ein Körper (Boolean)", default=False,
                            description="Stern und Felgenbett per Boolean zu einem geschlossenen Mesh vereinen")
     flange: FloatProperty(name="Hornhöhe (mm)", default=17.0, min=5, max=30)
     wall: FloatProperty(name="Wandstärke (mm)", default=5.0, min=2, max=15)
@@ -231,6 +233,14 @@ def symmetry_order(s, gray, cx, cy, rx, ry):
     return n
 
 
+def hub_symmetry(s, gray, cx, cy, rx, ry, n):
+    if s.sym_mode == "OFF":
+        return 1
+    if s.sym_mode == "MANUAL":
+        return n
+    return core.detect_hub_symmetry(gray, cx, cy, rx, ry, n)
+
+
 def compute_mask(s, gray, cx, cy, rx, ry, n=None):
     if s.mask_image:
         m = image_to_gray(s.mask_image)
@@ -254,7 +264,7 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
 def make_params(s):
     p = core.Params()
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "ai_strength", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -398,13 +408,14 @@ def build_wheel(context, s, new_collection=True):
 
     p = make_params(s)
     depth = ai_depth(s, cx, cy, rx, ry)
-    res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth)
+    hub_n = hub_symmetry(s, gray, cx, cy, rx, ry, n)
+    res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth, hub_n=hub_n)
     if not res["star_faces"]:
         raise RuntimeError("Keine Speichen erkannt – Erkennung/Schwellwert prüfen (Maske anzeigen).")
 
     img_name = os.path.splitext(s.image.name)[0]
     star_me = new_mesh("Felgenstern", res["star_verts"], res["star_faces"])
-    set_smooth(star_me, 30, res["star_sharp"])
+    set_smooth(star_me, 50, res["star_sharp"])
     barrel_me = new_mesh("Felgenbett", res["barrel_verts"], res["barrel_faces"])
     set_smooth(barrel_me, 35)
     if s.photo_texture:
@@ -803,7 +814,7 @@ class FELGE3D_PT_dims(Panel):
         c.prop(s, "boss_radius")
         c = self.layout.column(align=True)
         c.prop(s, "ai_strength")
-        c.prop(s, "min_thick")
+        c.prop(s, "bore")
         self.layout.prop(s, "one_body")
         self.layout.prop(s, "photo_texture")
 

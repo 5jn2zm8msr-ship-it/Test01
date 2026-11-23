@@ -232,14 +232,14 @@ def detect_symmetry(mask, cx, cy, rx, ry, n_max=24, min_iou=0.80):
     return best, scores
 
 
-def detect_symmetry_gray(gray, cx, cy, rx, ry, n_max=24, rel=0.8, min_corr=0.3):
+def detect_symmetry_gray(gray, cx, cy, rx, ry, n_max=24, rel=0.8, min_corr=0.3, band=(0.3, 0.85)):
     """
     Speichenordnung über die Korrelation des GRAUBILDS mit sich selbst, gedreht um 360/N.
     Robuster als die Maske, weil Schattierungen an den Speichen mitgemessen werden.
     Gibt das größte N zurück, dessen Korrelation >= rel * bestes ist (10 statt 5 bei 10 Speichen).
     """
     n_t = 5040
-    F = sample_polar(gray, cx, cy, rx, ry, np.linspace(0.3, 0.85, 40), n_t)
+    F = sample_polar(gray, cx, cy, rx, ry, np.linspace(band[0], band[1], 40), n_t)
     F = F - F.mean(axis=1, keepdims=True)
     den = (F * F).sum()
     corr = {}
@@ -250,6 +250,26 @@ def detect_symmetry_gray(gray, cx, cy, rx, ry, n_max=24, rel=0.8, min_corr=0.3):
     if best < min_corr:
         return 1, corr
     return max(n for n, c in corr.items() if c >= rel * best), corr
+
+
+def detect_hub_symmetry(gray, cx, cy, rx, ry, n_spoke):
+    """
+    Symmetrie der Nabe (Radschrauben) – oft anders als die Speichen (z.B. 10 Speichen, 5 Schrauben).
+    Muss ein Teiler der Speichenordnung sein oder wird separat erkannt.
+    """
+    n, corr = detect_symmetry_gray(gray, cx, cy, rx, ry, n_max=12, band=(0.12, 0.30), rel=0.85)
+    return n
+
+
+def symmetrize_zones(F, radii, split_r, n_hub, n_spoke):
+    """Innen (r < split_r) mit Nabensymmetrie, außen mit Speichensymmetrie angleichen."""
+    out = F.copy()
+    inner = radii < split_r
+    if n_spoke > 1:
+        out[~inner] = symmetrize_polar(F[~inner], n_spoke)
+    if n_hub > 1:
+        out[inner] = symmetrize_polar(F[inner], n_hub)
+    return out
 
 
 def symmetrize_polar(F, n):
@@ -556,7 +576,7 @@ def star_solid(F, radii, z_front_fn, thick_fn, front_offset_fn=None, front_overr
     return verts, faces, sharp
 
 
-def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None):
+def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None, hub_n=None, split_r=0.0):
     """
     depth: Tiefenkarte der KI im Arbeitsbild (größer = näher an der Kamera), NaN = unbekannt.
     Gibt f(xy, z_analytisch) -> z zurück. Die relative KI-Tiefe wird per Ausgleichsgerade
@@ -566,6 +586,13 @@ def ai_front_fn(depth, cx, cy, rx, ry, R_out, n, strength=1.0, edge_t=None):
     dsm = blur(np.nan_to_num(depth, nan=float(np.nanmin(depth))), 3, 3)
 
     def sample(xy):
+        outer = _sample_n(xy, n)
+        if hub_n is None or hub_n == n:
+            return outer
+        inner = _sample_n(xy, hub_n)
+        return np.where(np.hypot(xy[:, 0], xy[:, 1]) < split_r, inner, outer)
+
+    def _sample_n(xy, n):
         vals = []
         for k in range(max(1, n)):
             a = 2 * np.pi * k / max(1, n)
@@ -664,6 +691,8 @@ class Params:
     boss_radius = 75.0    # mm
     boss_slope = 15.0     # mm, Breite der Flanke
     min_hole = 60.0       # mm², kleinere Lücken werden gefüllt
+    bore = 0.0            # mm, Mittelbohrung (0 = wie im Bild: Deckel/Logo bleiben)
+    hub_zone = 0.33       # Anteil des Radius, in dem die Nabensymmetrie gilt
     ai_strength = 1.0     # 0 = nur Formmodell, 1 = Vorderfläche aus KI-Tiefe
     min_thick = 6.0       # mm, Mindestwandstärke
     flange = 17.0         # mm
@@ -690,22 +719,27 @@ def dimensions(p):
     return R, W, flange, wall, R_out, r_face, dish
 
 
-def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None):
+def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None):
     """
     mask: Materialmaske (Bildpixel, y nach oben), cx..ry in Pixeln (Felgenhorn außen).
     Gibt dict mit star_verts, star_faces, star_sharp, barrel_verts, barrel_faces, dish.
     """
     R, W, flange, wall, R_out, r_face, dish = dimensions(p)
 
+    if hub_n is None:
+        hub_n = symmetry_n
     n_t = int(p.res_angular)
-    if symmetry_n > 1:
-        n_t = max(symmetry_n, int(round(n_t / symmetry_n)) * symmetry_n)
+    lcm = int(np.lcm(max(1, symmetry_n), max(1, hub_n)))
+    if lcm > 1:
+        n_t = max(lcm, int(round(n_t / lcm)) * lcm)
     n_r = int(p.res_radial)
     radii = np.linspace(r_face / n_r * 0.5, r_face, n_r)
     F = sample_polar(blur(mask, 1, 1), cx, cy, rx, ry, radii / R_out, n_t)
-    if symmetry_n > 1:
-        F = symmetrize_polar(F, symmetry_n)
+    split_r = p.hub_zone * R_out
+    F = symmetrize_zones(F, radii, split_r, hub_n, symmetry_n)
     F[radii > r_face - p.ring / 1000.0, :] = 1.0   # Außenring verbindet Stern mit Bett
+    if p.bore > 0:                                  # saubere Mittelbohrung (Deckel/Logo sind nicht Teil der Felge)
+        F[radii < p.bore / 2000.0, :] = 0.0
     F = clean_polar(F, radii, p.min_hole)
 
     r_hub = min(p.hub_radius / 1000.0, r_face * 0.8)
@@ -722,9 +756,11 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None):
 
     offset = None
     dist = None
-    if (p.relief > 0 and p.relief_width > 0) or depth is not None:
+    use_ai = depth is not None and p.ai_strength > 0
+    if (p.relief > 0 and p.relief_width > 0) or use_ai:
         dist = edge_distance_fn(F, radii, r_face, max(p.relief_width, 10.0))
-    if p.relief > 0 and p.relief_width > 0:
+    # Mit KI kommt die Form allein aus der KI-Tiefe (keine künstliche Wölbung / kein Nabenbund)
+    if p.relief > 0 and p.relief_width > 0 and not use_ai:
 
         def offset(xy):
             t = np.clip(dist(xy), 0.0, 1.0)           # 0 = Kante, 1 = Speichenmitte
@@ -734,7 +770,7 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None):
                 u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
                 off = off + p.boss_height / 1000.0 * u * u * (3 - 2 * u)   # weicher Bund
             return off
-    elif p.boss_height > 0:
+    elif p.boss_height > 0 and not use_ai:
         def offset(xy):
             r = np.hypot(xy[:, 0], xy[:, 1]) * 1000.0
             u = np.clip((p.boss_radius - r) / max(p.boss_slope, 0.1), 0.0, 1.0)
@@ -742,7 +778,8 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None):
 
     override = None
     if depth is not None and p.ai_strength > 0:
-        override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist)
+        override = ai_front_fn(depth, cx, cy, rx, ry, R_out, symmetry_n, p.ai_strength, dist,
+                               hub_n=hub_n, split_r=split_r)
     sv, sf, sharp = star_solid(F, radii, z_front, thick, offset, override, p.min_thick / 1000.0)
     bv, bf = revolve(barrel_profile(R, W, wall, flange, p.drop / 1000.0), int(p.sections))
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp,
