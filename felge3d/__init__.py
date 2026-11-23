@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Felge3D",
     "author": "Felge3D",
-    "version": (0, 22, 1),
+    "version": (0, 23, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Felge",
     "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
@@ -941,57 +941,79 @@ class FELGE3D_OT_install_update(Operator):
 # ============================================================ Oberfläche
 class FELGE3D_PT_main(Panel):
     bl_label = "Felge3D"
+    bl_idname = "FELGE3D_PT_main"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
 
     def draw(self, context):
         s = context.scene.felge3d
+        c = context.scene.felge3d_car
         L = self.layout
         col = L.column(align=True)
         col.scale_y = 1.4
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
-
-        box = L.box()
-        box.label(text="Felgendaten (Datenblatt)", icon="PREFERENCES")
-        box.prop(s, "diameter", slider=True)
-        box.prop(s, "width")
-        box.prop(s, "use_et")
-        if s.use_et:
-            box.prop(s, "et")
-        else:
-            box.prop(s, "dish", slider=True)
-        box.prop(s, "tire_mode")
-
-        # --- klare Formanalyse
-        a = analysis_for(s)
-        box = L.box()
-        icon = {"KONKAV": "TRIA_DOWN", "KONVEX": "TRIA_UP", "FLACH": "REMOVE"}[a["verdict"]]
-        row = box.row()
-        row.label(text="Form: " + a["verdict"], icon=icon)
-        if a["hub_back_mm"] is not None:
-            box.label(text="Nabenanlage %.0f mm hinter dem Horn" % a["hub_back_mm"])
-        txt = {"KONKAV": "Mitte liegt %.0f mm tiefer als der Rand" % abs(a["dish_mm"]),
-               "KONVEX": "Mitte steht %.0f mm vor dem Rand" % abs(a["dish_mm"]),
-               "FLACH": "Mitte und Rand etwa auf einer Ebene"}[a["verdict"]]
-        box.label(text=txt)
-        if a["warn"]:
-            box.label(text=a["warn"], icon="ERROR")
-
+        row = L.row()
+        row.scale_y = 1.6
+        row.enabled = bool(s.image)
+        row.operator("felge3d.car_generate", icon="AUTO")
+        col = L.column(align=True)
+        col.prop(c, "wheelbase")
+        col.prop(c, "front_track")
+        col.prop(c, "rear_track")
         if s.warning:
-            wb = L.box()
-            wb.label(text="Erkennung unsicher:", icon="ERROR")
-            wb.label(text=s.warning)
-            wb.label(text="→ Erkennung prüfen: ‚Maske anzeigen‘")
-        if s.check_text:
-            cb = L.box()
-            cb.label(text="Selbstprüfung", icon="CHECKMARK" if not s.warning else "ERROR")
-            for ln in s.check_text.split("\n"):
-                cb.label(text=ln)
+            L.label(text="Erkennung unsicher – siehe ‚Erkennung & Prüfung‘", icon="ERROR")
+
+
+class FELGE3D_PT_shape(Panel):
+    bl_label = "Felge: Maße & Form"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+    bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        col = L.column(align=True)
+        col.prop(s, "diameter", slider=True)
+        col.prop(s, "width")
+        col.prop(s, "use_et")
+        if s.use_et:
+            col.prop(s, "et")
+        else:
+            col.prop(s, "dish", slider=True)
+        L.prop(s, "tire_mode")
+        a = analysis_for(s)
+        L.label(text="Form: " + a["verdict"].capitalize() + " (%+.0f mm)" % a["dish_mm"])
+        if a["warn"]:
+            L.label(text=a["warn"], icon="ERROR")
+
+
+class FELGE3D_PT_check(Panel):
+    bl_label = "Erkennung & Prüfung"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Felge"
+    bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        if s.warning:
+            L.label(text="Erkennung unsicher:", icon="ERROR")
+            L.label(text=s.warning)
+            L.label(text="→ ‚Maske anzeigen‘ in ‚Erkennung‘")
         if s.collection:
             info = "%d Speichen" % s.detected_n if s.detected_n > 1 else "keine Symmetrie"
             L.label(text="Erkannt: " + info + (" · " + s.method_used if s.method_used else ""), icon="INFO")
-            L.operator("felge3d.export_obj", icon="EXPORT")
+        for ln in (s.check_text or "").split("\n"):
+            if ln:
+                L.label(text=ln)
+        if not (s.warning or s.collection or s.check_text):
+            L.label(text="Noch kein Felgenbild geladen.")
 
 
 class FELGE3D_PT_look(Panel):
@@ -1043,7 +1065,7 @@ class FELGE3D_PT_ai(Panel):
 
 
 class FELGE3D_PT_dims(Panel):
-    bl_label = "Feinabstimmung: Maße & Form"
+    bl_label = "Form & Details"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
@@ -1067,7 +1089,7 @@ class FELGE3D_PT_dims(Panel):
 
 
 class FELGE3D_PT_detect(Panel):
-    bl_label = "Feinabstimmung: Erkennung"
+    bl_label = "Erkennung (Feinabstimmung)"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
@@ -1120,7 +1142,6 @@ class FELGE3D_PT_update(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
-    bl_order = 0
 
     def draw(self, context):
         L = self.layout
@@ -1157,6 +1178,7 @@ class FELGE3D_PT_advanced(Panel):
         c = self.layout.column(align=True)
         for k in ("res_radial", "res_angular", "sections", "proc_size"):
             c.prop(s, k)
+        self.layout.operator("felge3d.export_obj", icon="EXPORT")
 
 
 # ============================================================ Schritt 2: Fahrzeug-Paket (4 Räder)
@@ -1238,9 +1260,9 @@ def tire_texture_params(c):
     img = bpy.data.images.load(tire_texture_file(), check_existing=True)
     W, H = j["width"], j["height"]
     o = j["outer"]
-    r_out = o["a"] / W
+    R = o["a"] / W
     return img, dict(cx=o["cx"] / W, cy=1.0 - o["cy"] / H,          # Blender-UV: y von unten
-                     r_in=r_out * j.get("map_inner_ratio", 0.75), r_out=r_out,
+                     r_in=R * j.get("map_inner_ratio", 0.765), r_out=R * j.get("map_outer_ratio", 0.968),
                      asp=o["b"] / o["a"], w_over_h=W / H, rot=c.tire_rotation, flip=c.tire_flip)
 
 
@@ -1343,36 +1365,12 @@ class FELGE3D_OT_car_reset(Operator):
         return {"FINISHED"}
 
 
-class FELGE3D_PT_car(Panel):
-    bl_label = "Schritt 2: Fahrzeug-Paket"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Felge"
-
-    def draw(self, context):
-        s = context.scene.felge3d
-        c = context.scene.felge3d_car
-        L = self.layout
-        if not s.image:
-            L.label(text="Erst oben ein Felgenbild laden", icon="INFO")
-        col = L.column(align=True)
-        col.scale_y = 1.5
-        col.operator("felge3d.car_generate", icon="AUTO")
-        box = L.box()
-        box.label(text="Fahrzeug (GT3 RS)", icon="AUTO")
-        col = box.column(align=True)
-        col.prop(c, "wheelbase")
-        col.prop(c, "front_track")
-        col.prop(c, "rear_track")
-        L.operator("felge3d.car_reset", icon="LOOP_BACK")
-
-
 class FELGE3D_PT_car_axle(Panel):
     bl_label = "Achsen: Felge und Reifen"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
-    bl_parent_id = "FELGE3D_PT_car"
+    bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -1383,6 +1381,7 @@ class FELGE3D_PT_car_axle(Panel):
             col = box.column(align=True)
             for prop in ("rim", "rim_width", "et", "width", "aspect", "camber"):
                 col.prop(c, pre + prop)
+        self.layout.operator("felge3d.car_reset", icon="LOOP_BACK")
 
 
 class FELGE3D_PT_car_extra(Panel):
@@ -1390,7 +1389,7 @@ class FELGE3D_PT_car_extra(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Felge"
-    bl_parent_id = "FELGE3D_PT_car"
+    bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -1423,16 +1422,17 @@ classes = (
     FELGE3D_OT_preview,
     FELGE3D_OT_mask_to_image,
     FELGE3D_OT_export_obj,
-    FELGE3D_PT_update,
     FELGE3D_PT_main,
+    FELGE3D_PT_shape,
+    FELGE3D_PT_check,
     FELGE3D_PT_look,
     FELGE3D_PT_ai,
     FELGE3D_PT_dims,
     FELGE3D_PT_detect,
-    FELGE3D_PT_advanced,
-    FELGE3D_PT_car,
     FELGE3D_PT_car_axle,
     FELGE3D_PT_car_extra,
+    FELGE3D_PT_advanced,
+    FELGE3D_PT_update,
 )
 
 
