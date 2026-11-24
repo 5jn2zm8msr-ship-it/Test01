@@ -40,31 +40,72 @@ def import_file(filepath):
 
 
 def collect_points(objs, max_pts=300000):
-    pts = []
+    """Punkte gleichmäßig auf der Oberfläche (flächengewichtet, unabhängig von der Netzdichte)."""
+    rng = np.random.default_rng(1)
+    parts, areas = [], []
     for o in objs:
         me = o.data
+        M = np.array(o.matrix_world)
         n = len(me.vertices)
         co = np.empty(n * 3, np.float64)
         me.vertices.foreach_get("co", co)
-        co = co.reshape(-1, 3)
-        M = np.array(o.matrix_world)
-        pts.append(co @ M[:3, :3].T + M[:3, 3])
-    P = np.concatenate(pts)
-    if len(P) > max_pts:
-        P = P[np.random.default_rng(1).choice(len(P), max_pts, replace=False)]
-    return P
+        co = (co.reshape(-1, 3)) @ M[:3, :3].T + M[:3, 3]
+        me.calc_loop_triangles()
+        nt = len(me.loop_triangles)
+        if nt == 0:
+            parts.append((co, None))
+            areas.append(0.0)
+            continue
+        tri = np.empty(nt * 3, np.int32)
+        me.loop_triangles.foreach_get("vertices", tri)
+        tri = tri.reshape(-1, 3)
+        a, b, c = co[tri[:, 0]], co[tri[:, 1]], co[tri[:, 2]]
+        ar = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+        parts.append((co, (tri, ar)))
+        areas.append(float(ar.sum()))
+    total = sum(areas)
+    pts = []
+    for (co, t), A in zip(parts, areas):
+        if t is None or total <= 0 or A <= 0:
+            pts.append(co[:: max(1, len(co) // 2000)])
+            continue
+        tri, ar = t
+        k = max(100, int(max_pts * A / total))
+        sel = rng.choice(len(tri), k, p=ar / ar.sum())
+        u, v = rng.random(k), rng.random(k)
+        f = u + v > 1.0
+        u[f], v[f] = 1.0 - u[f], 1.0 - v[f]
+        T = tri[sel]
+        pts.append(co[T[:, 0]] + (co[T[:, 1]] - co[T[:, 0]]) * u[:, None] + (co[T[:, 2]] - co[T[:, 0]]) * v[:, None])
+    return np.concatenate(pts)
+
+
+def _pick_axis(P):
+    """
+    Achse der Felge: die Hauptachse, deren Querschnitt rund ist (die beiden anderen Streuungen sind fast gleich).
+    Das gilt unabhängig davon, ob die Felge schmal oder sehr breit ist; bei Gleichstand gewinnt die kleinste Streuung.
+    """
+    c0 = P.mean(axis=0)
+    w, V = np.linalg.eigh(np.cov((P - c0).T))
+    best, best_score = 0, None
+    for i in range(3):
+        j, k = [m for m in range(3) if m != i]
+        iso = abs(w[j] - w[k]) / max(w[j] + w[k], 1e-12)       # 0 = rund
+        score = iso + 0.02 * (w[i] / max(w.max(), 1e-12))       # kleine Streuung bevorzugen
+        if best_score is None or score < best_score:
+            best, best_score = i, score
+    return V[:, best], c0, float(best_score)
 
 
 def analyze(objs, flip=False):
     """
-    Findet Achse (kleinste Streuung), Mitte, Außenrichtung (Felgenhorn liegt bei konkaven Felgen vor der Nabe),
-    Radius und Breite. Gibt dict mit R (3x3 Welt -> Rad), center, r_max, t_lip, width, ... zurück.
+    Findet Achse (runder Querschnitt), Mitte, Außenrichtung, Radius und Breite. Gibt dict mit R (3x3 Welt -> Rad),
+    center, r_max, t_lip, width, ... zurück.
+    Außenrichtung: Die Nabe (Mitte der Felge) liegt bei positiver Einpresstiefe auf der Außenseite der Bettmitte;
+    also zeigt die Außenrichtung von der Mitte des Felgenbetts (zwischen den beiden Hörnern) zur Nabe.
     """
     P = collect_points(objs)
-    c0 = P.mean(axis=0)
-    cov = np.cov((P - c0).T)
-    w, V = np.linalg.eigh(cov)
-    axis = V[:, 0]                                    # kleinste Streuung = Felgenachse
+    axis, c0, roundness = _pick_axis(P)
     # Hochachse: Welt-Z senkrecht zur Achse (oder X, falls die Achse fast vertikal ist)
     up = np.array([0.0, 0.0, 1.0])
     if abs(axis @ up) > 0.95:
@@ -82,9 +123,16 @@ def analyze(objs, flip=False):
     r_max = float(np.percentile(r, 99.95))
     lip = r > 0.9 * r_max
     hub = r < 0.25 * r_max
-    lip_t = float(t[lip].mean()) if lip.any() else float(t.max())
+    if hub.sum() < 50:
+        hub = r < 0.4 * r_max
+    if lip.any():
+        bed_c = 0.5 * (float(np.percentile(t[lip], 1)) + float(np.percentile(t[lip], 99)))   # Mitte des Betts
+    else:
+        bed_c = 0.5 * float(t.min() + t.max())
     hub_t = float(t[hub].mean()) if hub.any() else float(t.mean())
-    sign = 1.0 if lip_t >= hub_t else -1.0            # Außenrichtung: Horn liegt vor der Nabe
+    sign = 1.0 if hub_t >= bed_c else -1.0            # Nabe sitzt bei ET > 0 außen von der Bettmitte
+    width_est = float(np.percentile(t, 99.95) - np.percentile(t, 0.05))
+    conf = abs(hub_t - bed_c) / max(width_est, 1e-9)  # klein = Einpresstiefe nahe 0: Richtung unsicher
     if flip:
         sign = -sign
     axis = axis * sign
@@ -95,7 +143,7 @@ def analyze(objs, flip=False):
     t_lip = float(np.percentile(t[lip], 98)) if lip.any() else float(t.max())
     width = float(t_lip - np.percentile(t, 0.05))
     return dict(R=R, center=c, r_max=r_max, t_lip=t_lip, width=width, axis=axis, sign=sign,
-                dish=float(lip_t - hub_t) * sign, n_points=len(P))
+                dish=float(hub_t - bed_c) * sign, n_points=len(P), roundness=roundness, confidence=conf)
 
 
 def fit_matrix(info, r_target, x_lip):

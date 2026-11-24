@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 29, 0),
+    "version": (0, 29, 1),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1661,8 +1661,9 @@ class FELGE3D_OT_import_fbx(Operator, ImportHelper):
         s.fbx_collection = col
         s.source = "COLLECTION"
         info = fbx.analyze(meshes, s.fbx_flip)
-        s["fbx_info"] = "%d Teile · Breite/Ø = %.2f · Schüssel %.0f %% (Größe wird auf die Zoll-Regler skaliert)" % (
-            len(meshes), info["width"] / (2.0 * info["r_max"]), abs(info["dish"]) / (2.0 * info["r_max"]) * 100.0)
+        warn = " · Richtung unsicher: bei Bedarf ‚Umdrehen‘" if info["confidence"] < 0.06 else ""
+        s["fbx_info"] = "%d Teile · Breite/Ø = %.2f · Außen erkannt (Nabe %+.0f %% der Breite außerhalb der Bettmitte)%s" % (
+            len(meshes), info["width"] / (2.0 * info["r_max"]), 100.0 * info["dish"] / max(info["width"], 1e-9), warn)
         self.report({"INFO"}, "3D-Felge geladen: " + s.fbx_info)
         return {"FINISHED"}
 
