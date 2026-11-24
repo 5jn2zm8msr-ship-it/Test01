@@ -831,11 +831,11 @@ def _blur_cyc(A, passes=2):
     return np.concatenate([c, c[:, :1]], axis=1)
 
 
-def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045):
+def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045, thr=0.0):
     """
-    Feines Zonenfeld (polierte Diamond-Cut-Fläche) auf dem Sektorgitter: helle Bereiche des Fotos (Median über alle N Sektoren,
-    nur bei klarer Zweifarbigkeit), ruhig geglättet und um den Rahmen border_m vom Rand zurückgenommen. Rückgabe (Zv, info);
-    Zv = None, wenn die Felge nicht zweifarbig ist.
+    Polierte Fläche (Blau) = einfaches Graustufen-Mapping: jeder Punkt des Fotos, dessen Helligkeit (relativ zur Felge: 0 = dunkelste, 1 = hellste Stelle) >= thr ist, ist hell/poliert.
+    Über die N Speichen wird das 70. Perzentil genommen (Licht und Spiegelungen sind je Speiche verschieden), leicht entrauscht.
+    Rückgabe (Zv, info); Zv = None, wenn (fast) nichts oder (fast) alles hell ist.
     """
     from . import core
     n_r, C = Fv.shape
@@ -847,47 +847,37 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
         th = theta_s + (Fg + k) * pitch
         vals[k] = core.bilinear(gray, photo["cx"] + R / photo["R_out"] * photo["rx"] * np.sin(th),
                                 photo["cy"] + R / photo["R_out"] * photo["ry"] * np.cos(th))
-    br = np.percentile(vals, 70, axis=0)                      # nicht Median: Spiegelungen/Licht sind je Speiche verschieden, die polierte Fläche soll vollständig erfasst werden
+    br = np.percentile(vals, 70, axis=0)
     mat = (Fv >= 0.5)
     solid = mat & (R > r_hub_solid + 0.008)
     if solid.sum() < 100:
         return None, dict(bimodal=False, bright=0.0)
-    lo, hi = np.percentile(br[solid], 5), np.percentile(br[solid], 95)
-    nrm = np.clip((br - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-    thr, var = _otsu(nrm[solid])
-    cls = nrm > thr
-    if (solid & ~cls).any():                                  # Hysterese: auch mittelgraue Ausläufer der hellen Fläche (Verlauf, Spiegelung) gehören dazu
-        dark_n = float(np.mean(nrm[solid & ~cls]))
-        low = (nrm > dark_n + 0.68 * (thr - dark_n)) & mat
-        for _ in range(5):
-            g = cls.copy()
-            g[1:] |= cls[:-1]
-            g[:-1] |= cls[1:]
-            g[:, 1:] |= cls[:, :-1]
-            g[:, :-1] |= cls[:, 1:]
-            g &= low
-            g |= cls
-            if (g == cls).all():
-                break
-            cls = g
+    lo, hi = float(np.percentile(br[solid], 10)), float(np.percentile(br[solid], 95))
+    if hi < 0.45 or hi - lo < 0.25:                                    # keine helle Fläche im Foto (schwarz/matt/einfarbig): kein Diamond Cut
+        return None, dict(bimodal=False, bright=float(np.mean(br[solid])), share=0.0)
+    nrm = np.clip((br - lo) / (hi - lo), 0.0, 1.0)                     # Graustufen relativ zur Felge: 0 % = dunkelste, 100 % = hellste Stelle
+    if thr <= 0:                                                       # 0 = automatisch: Schwelle zwischen den zwei Helligkeitsgruppen (Otsu)
+        thr = float(_otsu(nrm[solid])[0])
+    cls = _blur_cyc((nrm >= thr).astype(np.float32), 2) >= 0.5         # Entrauschen (einzelne Glanzpunkte im Schwarz)
+    share = float(np.mean(cls[solid]))
     b_raw = float(np.mean(br[solid & cls])) if (solid & cls).any() else 0.0
     d_raw = float(np.mean(br[solid & ~cls])) if (solid & ~cls).any() else 0.0
-    bimodal = bool(var > 0.03 and b_raw >= 0.5 and b_raw - d_raw >= 0.22)
-    if not bimodal:
-        return None, dict(bimodal=False, bright=float(np.mean(br[solid])))
-    B = _blur_cyc((nrm > thr).astype(np.float32), 3)                     # ruhige Kontur
-    E = _blur_cyc(_erode_material(mat, r_fine, pitch, border_m), 1)       # Rahmen: Abstand zur Silhouette
+    if b_raw < 0.5 or b_raw - d_raw < 0.25:                            # die „helle“ Fläche ist nur ein Glanzlicht (satinschwarz), kein Metall
+        return None, dict(bimodal=False, bright=float(np.mean(br[solid])), share=share)
+    if share < 0.03 or share > 0.92:                                   # nichts oder fast alles hell: keine Zweifarbigkeit
+        return None, dict(bimodal=False, bright=float(np.mean(br[solid])), share=share)
+    B = _blur_cyc(cls.astype(np.float32), 2)                          # ruhige Kontur
+    E = _blur_cyc(_erode_material(mat, r_fine, pitch, border_m), 1)
     Z = np.minimum(B, E)
     Z[R < r_hub_solid + 0.008] = 0.0
-    # Außenrand (Felgenhorn): ist der Ring außerhalb des Käfigs so hell wie die polierte Fläche, wird er mit poliert
+    # Außenrand (Felgenhorn): ist der Ring außerhalb des Käfigs hell (>= thr), wird er mit poliert
     ang = np.linspace(0.0, 2 * math.pi, 360, endpoint=False)
-    rr_ = np.linspace(r_fine[-1] + 0.004, photo["R_out"] + 0.02, 18)         # Randring liegt im Foto oft knapp außerhalb des gefundenen Kreises
+    rr_ = np.linspace(r_fine[-1] + 0.004, photo["R_out"] + 0.02, 18)
     RG, TG = np.meshgrid(rr_, ang, indexing="ij")
     ring = core.bilinear(gray, photo["cx"] + RG / photo["R_out"] * photo["rx"] * np.sin(TG),
                          photo["cy"] + RG / photo["R_out"] * photo["ry"] * np.cos(TG))
-    ring_b = float(np.max(np.median(ring, axis=1)))                           # hellster Ring (Median über alle Winkel)
-    horn = bool(ring_b >= d_raw + 0.6 * (b_raw - d_raw))
-    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=horn,
+    ring_b = float(np.max(np.median(ring, axis=1)))
+    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=bool((ring_b - lo) / (hi - lo) >= thr), share=share, thr=thr,
                                       raw=(cls & mat & (R > r_hub_solid + 0.008)))
 
 
@@ -1201,7 +1191,7 @@ def _band_zone(Zs, ea, eb, passes=24):
 
 def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_width_mm=40.0, boss_mm=6.0, boss_r_mm=75.0,
                spoke_t_mm=14.0, hub_t_mm=24.0, hub_r_mm=85.0, r_a=0.012, r_hub_solid=0.045, crease_top=1.0,
-               border_mm=6.0, max_area_err=0.05, zone_target=0.93):
+               border_mm=6.0, max_area_err=0.05, zone_target=0.93, diamond_thr=0.0):
     """
     Bearbeitbarer Käfig des Pizzastücks für Subdivision Surface (ohne KI-Mesh): grobes Netz entlang der Silhouette (Fenster, Löcher),
     Rücken/Bund aus dem Randabstand, Dicke aus Nabe/Speiche. Die Diamond-Cut-Fläche (Zweifarbigkeit aus dem Foto) ist eine eigene
@@ -1261,7 +1251,7 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     spoke_w = float(np.median((eb - ea)[r_fine > 0.09]))
     cell = 0.5 * (r_ref_face + r_a) * pitch * max(spoke_w, 0.2) / (Cc - 1)        # Zellbreite quer zur Speiche (m)
     margin = max(border_mm / 1000.0, 1.2 * cell)                         # Zone liegt in vollen Zellen (Rahmen um die polierte Fläche)
-    Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, 0.0)       # Blau = helle Fläche im Foto (1:1, keine Erosion)
+    Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, 0.0, thr=diamond_thr)       # Blau = helle Fläche im Foto (1:1, keine Erosion)
     if _DEBUG_BAND and Zv is not None:
         for i in range(0, len(r_fine), 8):
             print('ZDBG r=%.0f mat=%.2f raw=%.2f Z=%.2f' % (1000 * r_fine[i], np.mean(Fv[i] >= 0.5), np.mean(zinfo['raw'][i]), np.mean(Zv[i] >= 0.5)))

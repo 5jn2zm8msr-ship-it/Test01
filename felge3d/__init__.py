@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 37, 0),
+    "version": (0, 38, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -183,6 +183,10 @@ class Felge3DSettings(PropertyGroup):
                              description="Stufe am Außenring gegenüber der Schnittkurve (+ = nach vorn, - = nach hinten). Die Kurve bleibt die Leitlinie")
     boss_radius: FloatProperty(name="Nabenbund Radius (mm)", default=75.0, min=20, max=200,
                                update=_update_rebuild)
+    diamond_threshold: FloatProperty(name="Diamond Cut ab Helligkeit (%)", default=0.0, min=0.0, max=99.0,
+                                     description="Graustufen-Mapping relativ zur Felge (0 % = dunkelste, 100 % = hellste Stelle): alles, was heller ist, "
+                                                 "wird als polierte Fläche (Blau) gewertet. 0 = automatisch (Schwelle zwischen den zwei Helligkeitsgruppen). "
+                                                 "Mit ‚Schwellwert-Vorschau‘ sofort prüfen")
     bore: FloatProperty(name="Mittelbohrung (mm)", default=0.0, min=0, max=200, update=_update_rebuild,
                         description="0 = Zentrum wie im Foto (Deckel/Logo). >0 schneidet ein rundes Loch")
     min_hole: FloatProperty(name="Kleine Löcher füllen (mm²)", default=60.0, min=0, max=2000,
@@ -741,7 +745,8 @@ def build_wheel_edit(context, s, new_collection=True):
     r_ref_face = s.diameter * 0.0127 - s.wall / 1000.0 + 0.001
     cage = sector.build_cage(F, radii, dict(gray=gray, cx=cx, cy=cy, rx=rx, ry=ry, R_out=R_out), N, theta_s, r_ref_face,
                              relief_mm=s.relief, relief_width_mm=s.relief_width, boss_mm=s.boss_height, boss_r_mm=s.boss_radius,
-                             spoke_t_mm=s.spoke_thickness, hub_t_mm=s.hub_thickness, hub_r_mm=s.hub_radius)
+                             spoke_t_mm=s.spoke_thickness, hub_t_mm=s.hub_thickness, hub_r_mm=s.hub_radius,
+                             diamond_thr=s.diamond_threshold / 100.0)
     col = s.collection if (not new_collection and s.collection and s.collection.name in bpy.data.collections) else None
     if col is None:
         col = bpy.data.collections.new(paramui.next_rim_name())
@@ -1211,6 +1216,49 @@ class FELGE3D_OT_install_update(Operator):
 
 
 # ============================================================ Oberfläche
+class FELGE3D_OT_diamond_preview(Operator):
+    bl_idname = "felge3d.diamond_preview"
+    bl_label = "Schwellwert-Vorschau"
+    bl_description = ("Zeigt sofort (ohne Neubau), welche Teile des Fotos bei der eingestellten Helligkeits-Schwelle blau (poliert) werden. "
+                      "Das Bild ‚Schwellwert-Vorschau‘ liegt im Image Editor")
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        if s.image is None:
+            self.report({"WARNING"}, "Erst ein Foto laden.")
+            return {"CANCELLED"}
+        gray, cx, cy, rx, ry = prepare(s)
+        rgb = np.asarray(_rgb_cache[next(iter(_rgb_cache))], np.float32)
+        if rgb.max() <= 1.5:
+            rgb = rgb * 255.0
+        ov = rgb[..., :3].copy()
+        hh, ww = gray.shape
+        yy, xx = np.mgrid[0:hh, 0:ww]
+        inside = ((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2 <= 0.97 ** 2          # nur im Felgenkreis
+        g = np.asarray(gray)
+        lo, hi = float(np.percentile(g[inside], 10)), float(np.percentile(g[inside], 95))
+        nrm = np.clip((g - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+        thr = s.diamond_threshold / 100.0
+        if thr <= 0:
+            thr = float(sector._otsu(nrm[inside])[0])
+        m = (nrm >= thr) & inside
+        if hi < 0.45 or hi - lo < 0.25:
+            self.report({"WARNING"}, "Keine helle Fläche im Foto: Diamond Cut wird nicht angewendet.")
+        ov[m] = 0.45 * ov[m] + 0.55 * np.array([40.0, 110.0, 255.0])
+        nm = "Schwellwert-Vorschau"
+        im = bpy.data.images.get(nm)
+        if im is None or tuple(im.size) != (ww, hh):
+            if im is not None:
+                bpy.data.images.remove(im)
+            im = bpy.data.images.new(nm, ww, hh, alpha=False)
+        rgba = np.ones((hh, ww, 4), np.float32)
+        rgba[..., :3] = ov / 255.0
+        im.pixels.foreach_set(rgba.ravel())
+        im.use_fake_user = True
+        self.report({"INFO"}, "Bild ‚%s‘ im Image Editor ansehen: Schwelle %.0f %%, %.0f %% der Felge blau." % (nm, 100 * thr, 100 * float(m.sum()) / max(float(inside.sum()), 1.0)))
+        return {"FINISHED"}
+
+
 class FELGE3D_PT_main(Panel):
     bl_label = "2D to 3D Rim"
     bl_idname = "FELGE3D_PT_main"
@@ -1228,6 +1276,10 @@ class FELGE3D_PT_main(Panel):
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
         if s.image:
             L.label(text=s.image.name, icon="IMAGE_DATA")
+        if paramui.PARAM_OK and s.result_mode == "EDIT":
+            row = L.row(align=True)
+            row.prop(s, "diamond_threshold", slider=True)
+            row.operator("felge3d.diamond_preview", text="", icon="HIDE_OFF")
         if s.warning:
             L.label(text="Erkennung unsicher – siehe ‚Erkennung & Prüfung‘", icon="ERROR")
 
@@ -2119,6 +2171,7 @@ class FELGE3D_PT_update_pkg(Panel):
 
 
 classes = (
+    FELGE3D_OT_diamond_preview,
     Felge3DPreferences,
     Felge3DSettings,
     Felge3DCar,

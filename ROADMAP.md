@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.37.0)
+## Stand (Version 0.38.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -86,6 +86,12 @@ gleich gut (3, 6, 8, 10 schwach).
   das Weiß im Foto nicht zu 93 % abdeckt (schmale Streifen fielen sonst zwischen die Zellen). Haarlinien-Kanten (< 0,9 mm) werden zusammengezogen.
   Stand: Porsche 95 %, Volvo 87 % ⚠ (Käfig ~1150 Punkte/Sektor, 80 offene Kanten bei Stufe 2), 911 Turbo (10 Speichen) 73 % ⚠. Offen: Streifen nahe der Nabe beim Volvo,
   kleine blaue „Ohren“ am Ringübergang (Porsche), Volvo nicht wasserdicht.
+
+- 0.38.0: **Einfaches Graustufen-Mapping für Blau, schnell prüfbar.** Blau = Foto-Helligkeit relativ zur Felge (0 % dunkelste, 100 % hellste Stelle) >= Schwelle,
+  Regler „Diamond Cut ab Helligkeit (%)“ (0 = automatisch, Schwelle zwischen den zwei Helligkeitsgruppen), Knopf *Schwellwert-Vorschau* zeigt sofort (numpy, ohne Neubau)
+  das Foto mit blauem Bereich (Bild „Schwellwert-Vorschau“), *Neu bauen* dauert ~4 s. Ohne Metallfläche (nur Glanzlichter auf Satinschwarz, Audi) kein Diamond Cut.
+  Hysterese/Gerade-Anpassung entfernt. Feste 20 % absolut/relativ waren bei mattem Schwarz (Porsche) zu niedrig (viele Sprenkel, 300 offene Kanten), daher Auto als Standard.
+  Stand (Auto): Porsche 98 %, Volvo 91 %, 911 Turbo 83 % ⚠. Offen: Volvo 80 offene Kanten, Streifen nahe der Nabe.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).
