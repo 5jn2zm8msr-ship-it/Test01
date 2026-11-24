@@ -15,7 +15,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
-RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH, TRD = range(14)
+RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH, TRD, BRK, BRM = range(16)
 COLL_NAME = "Felge3D | Fahrzeug-Paket"
 PREFIX = "Felge3D | "
 
@@ -142,7 +142,21 @@ def tread_mat(img, height_img=None):
     return photo_relief_mat(PREFIX + "Reifenprofil", img, .94, 0.0, 2.2, 0.004, 0.0025, 0.5, 'REPEAT', height_img)
 
 
-def build_materials(c, tire_img=None, tread_img=None, tread_h=None):
+def brake_photo_mat(name, img):
+    m = get_mat(name, (.4, .4, .4), .5, .25)
+    nt = m.node_tree
+    bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    for n in [n for n in nt.nodes if n.type == 'TEX_IMAGE']:
+        nt.nodes.remove(n)
+    if img is not None and bsdf:
+        tex = nt.nodes.new('ShaderNodeTexImage')
+        tex.image, tex.extension, tex.interpolation = img, 'EXTEND', 'Cubic'
+        tex.location = (bsdf.location.x - 340, bsdf.location.y)
+        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    return m
+
+
+def build_materials(c, tire_img=None, tread_img=None, tread_h=None, brake_imgs=None, cal_color=None):
     """Materialliste in der Reihenfolge RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH."""
     top, top_img = decal_mat(PREFIX + "Decal Flanke oben", c.decal_sidewall_top, (.8, .8, .8), .55, 0)
     bot, bot_img = decal_mat(PREFIX + "Decal Flanke unten", c.decal_sidewall_bottom, (.8, .8, .8), .55, 0)
@@ -155,13 +169,18 @@ def build_materials(c, tire_img=None, tread_img=None, tread_h=None):
         get_mat(PREFIX + "Bremsscheibe Stahl", (.30, .31, .32), .28, .9),
         get_mat(PREFIX + "Bremstopf", (.55, .56, .57), .35, .8),
         get_mat(PREFIX + "Bohrung und Schlitz", (.02, .022, .024), .6, .3),
-        get_mat(PREFIX + "Bremssattel", tuple(c.caliper_color), .25, .1),
+        get_mat(PREFIX + "Bremssattel", (.45, .6, .01), .3, .15),
         get_mat(PREFIX + "Schrauben", (.32, .33, .34), .22, .9),
         get_mat(PREFIX + "Emblem (unbenutzt)", (.5, .5, .52), .3, .7),
         top, bot, cal,
         tire_photo_mat(tire_img),
         tread_mat(tread_img, tread_h),
+        brake_photo_mat(PREFIX + 'Bremse links', (brake_imgs or (None, None))[0]),
+        brake_photo_mat(PREFIX + 'Bremse rechts', (brake_imgs or (None, None))[1]),
     ]
+    if cal_color:
+        lin = tuple(max(0.0, v) ** 2.2 for v in cal_color)
+        mats[CAL] = get_mat(PREFIX + 'Bremssattel', lin, .3, .15)
     return mats, imgs
 
 
@@ -495,79 +514,136 @@ def add_relief(obj, flank_img, flank_mm, tread_img=None, tread_mm=0.0, level=1):
 
 
 # ---------------------------------------------------------------- Bremse
-def build_brake(c, dims, s, mats, imgs, name, x_m, back_fn, r_well):
-    d = dims
-    t, disc_d = d["disc_t"], d["disc_d"]
+def _face(bm, verts, want, axis='x'):
+    """Fläche anlegen und so drehen, dass die Normale in Richtung 'want' (Vorzeichen) zeigt."""
+    f = bm.faces.new(verts)
+    f.normal_update()
+    comp = f.normal.x if axis == 'x' else f.normal.dot(Vector((0.0, want[0], want[1])))
+    if (comp * (want if axis == 'x' else 1.0)) < 0:
+        f.normal_flip()
+    f.smooth = True
+    return f
+
+
+def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
+    """
+    Bremse als Mesh mit dem Bremsenfoto als Textur (planar von vorn):
+    Scheibe (Reibring) + Topf als Mesh 1, Sattel als Mesh 2 (Umriss aus dem Foto, extrudiert).
+    Rechte Seite (s<0): Geometrie wie links (Sattel hinten), Textur gespiegelt mit korrigierter Schrift.
+    Gibt (Scheibenmesh, Sattelmesh, x_d) zurück.
+    """
+    t = d["disc_t"]
+    dr = min(d["disc_d"] / 2.0, r_well - 0.024)
+    r_in, r_hat = bmeta["ring_in_ratio"] * dr, bmeta["hat_ratio"] * dr
+    cw = t / 2.0 + 0.024
+    cs = min(1.0, (r_well - 0.006) / (bmeta["cal_rmax"] * dr))
+    r_c0, r_c1 = bmeta["cal_rmin"] * dr * cs, bmeta["cal_rmax"] * dr * cs
+    rear = min(back_fn(r) for r in np.linspace(r_c0, r_c1, 6))
+    x_d = min(x_m - 0.045, rear - cw - 0.004)
+    mirror = s < 0
+    PH = BRM if mirror else BRK
+    seg = 160
+
+    def uv_of(dxr, dzr):
+        return (bmeta["cx"] + (-dxr if mirror else dxr) * bmeta["Rx"], bmeta["cy_up"] + dzr * bmeta["Ry"])
+
+    def vert(bm, x, y, z):
+        return bm.verts.new((s * x, y, z))
+
+    # ---------------- Scheibe + Topf
     bm = bmesh.new()
     uv_lay = bm.loops.layers.uv.verify()
-    dr = min(disc_d / 2.0, r_well - 0.024)
-    r_in = dr * 0.56
-    cw = t / 2.0 + 0.024
-    r_c0, r_c1 = dr * 0.60, min(dr + 0.018, r_well - 0.006)
 
-    # Platz hinter den Speichen: Bremse sitzt hinter dem rückwärtigsten Punkt des Sterns
-    rear = min(back_fn(r_c0), back_fn(r_c1), back_fn(0.5 * (r_c0 + r_c1)))
-    x_d = min(x_m - 0.045, rear - cw - 0.004)
+    def set_uv(f):
+        for loop in f.loops:
+            co = loop.vert.co
+            loop[uv_lay].uv = uv_of(co.y / dr, co.z / dr)
 
-    # Reibring, Trennfuge, Topf mit Verbindungsstiften
-    revolve(bm, [(r_in, x_d - t / 2), (dr, x_d - t / 2), (dr, x_d + t / 2), (r_in, x_d + t / 2)],
-            s, ROT, seg=128, closed=True)
-    revolve(bm, [(r_in - 0.006, x_d - t * .3), (r_in, x_d - t * .3),
-                 (r_in, x_d + t * .3), (r_in - 0.006, x_d + t * .3)], s, BLK, closed=True)
-    cylinder(bm, s, x_d - t * .3, x_m, r_in - 0.006, HAT, seg=96)
-    for i in range(12):
-        a = 2 * math.pi * i / 12
-        cylinder(bm, s, x_d + t / 2, x_d + t / 2 + 0.003, 0.0045, BOL,
-                 center=((r_in - 0.002) * math.sin(a), (r_in - 0.002) * math.cos(a)), seg=10)
+    def annulus(r0, r1, x, mat, want, photo=True):
+        ang = [2 * math.pi * i / seg for i in range(seg)]
+        A = [vert(bm, x, r0 * math.sin(a), r0 * math.cos(a)) for a in ang]
+        B = [vert(bm, x, r1 * math.sin(a), r1 * math.cos(a)) for a in ang]
+        for i in range(seg):
+            j = (i + 1) % seg
+            f = _face(bm, [A[i], A[j], B[j], B[i]], want * s)
+            f.material_index = mat
+            if photo:
+                set_uv(f)
 
-    if c.disc_style == "GELOCHT":
-        hr = min(0.0045, (dr - r_in) * 0.06)
-        for ring_i, fr in enumerate((0.3, 0.55, 0.8)):
-            rr = r_in + (dr - r_in) * fr
-            for i in range(18):
-                a = 2 * math.pi * i / 18 + ring_i * 2 * math.pi / 54
-                cylinder(bm, s, x_d - t / 2 - 0.0004, x_d + t / 2 + 0.0004, hr, BLK,
-                         center=(rr * math.sin(a), rr * math.cos(a)), seg=10)
-    elif c.disc_style == "GESCHLITZT":
-        rm, L = r_in + (dr - r_in) * 0.62, (dr - r_in) * 0.42
-        for side in (-1, 1):
-            xc = s * (x_d + side * (t / 2 + 0.0002))
-            for i in range(10):
-                a = 2 * math.pi * i / 10
-                box(bm, (xc, rm * math.sin(a), rm * math.cos(a)), (0.0006, L, 0.0028),
-                    Matrix.Rotation(math.pi / 2 - (a + 0.55), 4, 'X'), BLK)
+    def band(r, xa, xb, mat, outward):
+        ang = [2 * math.pi * i / seg for i in range(seg)]
+        A = [vert(bm, xa, r * math.sin(a), r * math.cos(a)) for a in ang]
+        B = [vert(bm, xb, r * math.sin(a), r * math.cos(a)) for a in ang]
+        for i in range(seg):
+            j = (i + 1) % seg
+            f = bm.faces.new([A[i], A[j], B[j], B[i]])
+            f.normal_update()
+            radial = Vector((0.0, A[i].co.y + A[j].co.y, A[i].co.z + A[j].co.z))
+            if (f.normal.dot(radial) > 0) != outward:
+                f.normal_flip()
+            f.material_index = mat
+            f.smooth = True
 
-    # Monobloc-Sattel: Körper, erhabene Deckplatte, Schrauben, Entlüfter
-    alpha = math.radians(c.caliper_angle)
-    half = math.radians(36)
-    revolve(bm, [(r_c0, x_d - cw), (r_c1, x_d - cw), (r_c1, x_d + cw), (r_c0, x_d + cw)],
-            s, CAL, seg=32, a0=alpha - half, a1=alpha + half, closed=True)
-    pr0, pr1 = r_c0 + 0.006, r_c1 - 0.006
-    revolve(bm, [(pr0, x_d + cw - 0.001), (pr1, x_d + cw - 0.001),
-                 (pr1, x_d + cw + 0.003), (pr0, x_d + cw + 0.003)],
-            s, CAL, seg=24, a0=alpha - half * 0.72, a1=alpha + half * 0.72, closed=True)
-    rc = (r_c0 + r_c1) / 2.0
-    for sign in (-1, 1):
-        a = s * (alpha + sign * half * 0.86)
-        cylinder(bm, s, x_d + cw, x_d + cw + 0.005, 0.0075, BOL,
-                 center=(rc * math.sin(a), rc * math.cos(a)), seg=12)
-    a = s * (alpha - half * 0.92)
-    cylinder(bm, s, x_d + cw, x_d + cw + 0.01, 0.0028, BOL,
-             center=((r_c1 - 0.006) * math.sin(a), (r_c1 - 0.006) * math.cos(a)), seg=8)
-    x_plate = x_d + cw + 0.003
-    arc_decal(bm, s, uv_lay, imgs.get("caliper"), DEC_CAL, rc, s * alpha,
-              (pr1 - pr0) * c.decal_caliper_scale, rc * 2 * half * 0.6 * c.decal_caliper_scale,
-              lambda r: x_plate, lift=0.0003, nu=24, nv=1)
-
-    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me)
+    annulus(r_in, dr, x_d + t / 2.0, PH, +1)                 # Reibring außen (Foto)
+    annulus(r_in, dr, x_d - t / 2.0, PH, -1)                 # Reibring innen
+    band(dr, x_d - t / 2.0, x_d + t / 2.0, ROT, True)        # Außenkante
+    band(r_in, x_d - t / 2.0, x_d + t / 2.0, ROT, False)     # Innenkante
+    annulus(r_hat, r_in, x_d - 0.2 * t, BLK, +1, photo=False)  # dunkle Fuge zwischen Topf und Ring
+    band(r_hat, x_d - 0.3 * t, x_m, HAT, True)               # Topfwand
+    ctr = vert(bm, x_m, 0.0, 0.0)                            # Topfdeckel (Foto)
+    rim_v = [vert(bm, x_m, r_hat * math.sin(a), r_hat * math.cos(a)) for a in [2 * math.pi * i / seg for i in range(seg)]]
+    for i in range(seg):
+        f = _face(bm, [ctr, rim_v[i], rim_v[(i + 1) % seg]], +1 * s)
+        f.material_index = PH
+        set_uv(f)
+    bm.normal_update()
+    me_d = bpy.data.meshes.new("Bremsscheibe " + name)
+    bm.to_mesh(me_d)
     bm.free()
     for m in mats:
-        me.materials.append(m)
-    apply_smoothing(me, math.radians(35))
-    me.update()
-    return me, x_d
+        me_d.materials.append(m)
+    apply_smoothing(me_d, math.radians(40))
+    me_d.update()
+
+    # ---------------- Sattel: Umriss aus dem Foto, extrudiert
+    bm = bmesh.new()
+    uv_lay = bm.loops.layers.uv.verify()
+    pts = bmeta["caliper"]
+    yz = [(dx * dr * cs, dy * dr * cs) for dx, dy in pts]       # +Y = Heck (Foto rechts), z = oben
+    cen = (sum(p[0] for p in yz) / len(yz), sum(p[1] for p in yz) / len(yz))
+    Fv = [vert(bm, x_d + cw, y, z) for y, z in yz]
+    Bv = [vert(bm, x_d - cw, y, z) for y, z in yz]
+    ff = bm.faces.new(Fv)
+    ff.normal_update()
+    if ff.normal.x * s < 0:
+        ff.normal_flip()
+    ff.material_index = PH
+    for loop, (dx, dy) in zip(ff.loops, [pts[Fv.index(l.vert)] for l in ff.loops]):
+        loop[uv_lay].uv = uv_of(dx, dy)
+    fb = bm.faces.new(Bv)
+    fb.normal_update()
+    if fb.normal.x * s > 0:
+        fb.normal_flip()
+    fb.material_index = CAL
+    n = len(yz)
+    for i in range(n):
+        j = (i + 1) % n
+        f = bm.faces.new([Fv[i], Fv[j], Bv[j], Bv[i]])
+        f.normal_update()
+        mid = Vector((0.0, (yz[i][0] + yz[j][0]) / 2 - cen[0], (yz[i][1] + yz[j][1]) / 2 - cen[1]))
+        if f.normal.dot(mid) < 0:
+            f.normal_flip()
+        f.material_index = CAL
+    bm.normal_update()
+    me_c = bpy.data.meshes.new("Bremssattel " + name)
+    bm.to_mesh(me_c)
+    bm.free()
+    for m in mats:
+        me_c.materials.append(m)
+    apply_smoothing(me_c, math.radians(35))
+    me_c.update()
+    me_c["r_max"] = max(math.hypot(y, z) for y, z in yz)
+    return me_d, me_c, x_d
 
 
 def clear_old():

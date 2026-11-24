@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 24, 1),
+    "version": (0, 25, 1),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Rim Generator",
     "description": "Rim Generator: Felge aus Foto (oder 3D) -> 4 Räder mit Reifen",
@@ -35,8 +35,9 @@ if "core" in locals():
     ai = importlib.reload(ai)
     car = importlib.reload(car)
     tire_data = importlib.reload(tire_data)
+    brake_data = importlib.reload(brake_data)
 else:
-    from . import ai, car, core, tire_data, updater
+    from . import ai, brake_data, car, core, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -980,6 +981,9 @@ class FELGE3D_PT_main(Panel):
         col.prop(c, "wheelbase")
         col.prop(c, "front_track")
         col.prop(c, "rear_track")
+        col = L.column(align=True)
+        col.prop(c, "front_rim", slider=True)
+        col.prop(c, "rear_rim", slider=True)
         if s.warning:
             L.label(text="Erkennung unsicher – siehe ‚Erkennung & Prüfung‘", icon="ERROR")
 
@@ -1207,8 +1211,8 @@ class Felge3DCar(PropertyGroup):
     wheelbase: FloatProperty(name="Radstand (mm)", default=2457, min=1500, max=4000)
     front_track: FloatProperty(name="Spurweite vorn (mm)", default=1630, min=1200, max=2200)
     rear_track: FloatProperty(name="Spurweite hinten (mm)", default=1582, min=1200, max=2200)
-    front_rim: FloatProperty(name="Felge vorn (Zoll)", default=20, min=14, max=24)
-    rear_rim: FloatProperty(name="Felge hinten (Zoll)", default=21, min=14, max=24)
+    front_rim: IntProperty(name="Zoll vorn", default=20, min=16, max=24, description="Felgengröße vorn in Zoll")
+    rear_rim: IntProperty(name="Zoll hinten", default=21, min=16, max=24, description="Felgengröße hinten in Zoll")
     front_rim_width: FloatProperty(name="Felgenbreite vorn (J)", default=10.0, min=5, max=14)
     rear_rim_width: FloatProperty(name="Felgenbreite hinten (J)", default=13.0, min=5, max=14)
     front_et: FloatProperty(name="Einpresstiefe vorn (ET mm)", default=45, min=-20, max=80)
@@ -1249,6 +1253,15 @@ class Felge3DCar(PropertyGroup):
     decal_caliper: StringProperty(name="Sattel (PNG)", subtype="FILE_PATH", default="")
     decal_caliper_scale: FloatProperty(name="Sattel-Decal Größe", default=.7, min=.2, max=1.0)
     use_bevel: BoolProperty(name="Kantenfasen (Bevel)", default=True)
+    use_brakes: BoolProperty(name="Bremsen mit Sattel", default=True,
+                             description="Bremsscheibe, Topf und Sattel (Mesh mit Foto-Textur) mit erzeugen")
+
+
+def brake_textures():
+    """Bremsenfoto (links/rechts) aus dem Code auspacken; gibt ((Bild links, Bild rechts), meta) zurück."""
+    left = _unpack_image(brake_data.FRONT_B64, "bremse_links_v1.jpg")
+    right = _unpack_image(brake_data.MIRROR_B64, "bremse_rechts_v1.jpg")
+    return (left, right), dict(brake_data.META)
 
 
 def tire_texture_file():
@@ -1315,7 +1328,8 @@ def build_car(context, s, c):
 
     tire_img, tex = tire_texture_params(c)
     tread_img, tread_h, tread = tread_texture()
-    mats, imgs = car.build_materials(c, tire_img, tread_img, tread_h)
+    bimgs, bmeta = brake_textures()
+    mats, imgs = car.build_materials(c, tire_img, tread_img, tread_h, bimgs, bmeta["cal_color"])
 
     axles = {}
     for front in (True, False):
@@ -1361,7 +1375,16 @@ def build_car(context, s, c):
             ob.parent = parent
             col.objects.link(ob)
             car.add_relief(ob, tire_img, c.tire_relief, tread_h, c.tread_relief)
-            # Bremsscheibe und Sattel: Code liegt in car.build_brake bereit, kommt später dazu
+            if c.use_brakes:
+                me_d, me_c, x_d = car.build_brake(c, d, sgn, mats, name, x_m, back_fn, r_well, bmeta)
+                for label, me in (("Bremsscheibe", me_d), ("Bremssattel", me_c)):
+                    bo = bpy.data.objects.new("%s %s" % (label, name), me)
+                    bo.parent = parent
+                    col.objects.link(bo)
+                    if label == "Bremssattel":
+                        mod = bo.modifiers.new("Kantenfasen", "BEVEL")
+                        mod.width, mod.segments = 0.0035, 3
+                        mod.limit_method, mod.angle_limit = "ANGLE", math.radians(50)
     for o in context.view_layer.objects:
         o.select_set(False)
     context.view_layer.objects.active = created[0]
@@ -1414,8 +1437,9 @@ class FELGE3D_PT_car_axle(Panel):
             box = self.layout.box()
             box.label(text=title)
             col = box.column(align=True)
-            for prop in ("rim", "rim_width", "et", "width", "aspect", "camber"):
+            for prop in ("rim", "rim_width", "et", "width", "aspect", "camber", "disc", "disc_thickness"):
                 col.prop(c, pre + prop)
+        self.layout.prop(c, "use_brakes")
         self.layout.operator("felge3d.car_reset", icon="LOOP_BACK")
 
 
