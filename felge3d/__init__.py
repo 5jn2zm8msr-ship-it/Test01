@@ -9,10 +9,10 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 25, 1),
+    "version": (0, 26, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Rim Generator",
-    "description": "Rim Generator: Felge aus Foto (oder 3D) -> 4 Räder mit Reifen",
+    "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
     "category": "Import-Export",
 }
 
@@ -36,8 +36,9 @@ if "core" in locals():
     car = importlib.reload(car)
     tire_data = importlib.reload(tire_data)
     brake_data = importlib.reload(brake_data)
+    fbx = importlib.reload(fbx)
 else:
-    from . import ai, brake_data, car, core, tire_data, updater
+    from . import ai, brake_data, car, core, fbx, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -67,6 +68,14 @@ class Felge3DSettings(PropertyGroup):
         ("YES", "Ja – Reifen sichtbar", "Äußeren Kreis (Reifen) überspringen und das Felgenhorn davor nehmen"),
         ("NO", "Nein – nur Felge", "Äußersten deutlichen Kreis als Felge nehmen"),
     ])
+    source: EnumProperty(name="Felge aus", default="PHOTO", items=[
+        ("PHOTO", "Foto", "Felge aus einem Foto (2D) erzeugen"),
+        ("FBX", "3D-Datei", "Fertige 3D-Felge (FBX/OBJ/glTF) laden und auf die 4 Räder übertragen"),
+    ])
+    fbx_collection: PointerProperty(name="3D-Felge", type=bpy.types.Collection)
+    fbx_flip: BoolProperty(name="Felge umdrehen", default=False, update=lambda self, ctx: None,
+                           description="Falls die Felge verkehrt herum sitzt (Vorderseite nach innen)")
+    fbx_info: StringProperty(default="")
     use_fusion: BoolProperty(name="Erkennung per Fusion", default=True,
                              description="Mehrere Methoden (Helligkeit, Hintergrund, KI-Tiefe) je Speiche bewerten; die besten "
                                          "Segmente werden auf alle Speichen kopiert (behebt fehlende Speichen, Löcher, Negativ)")
@@ -970,12 +979,20 @@ class FELGE3D_PT_main(Panel):
         s = context.scene.felge3d
         c = context.scene.felge3d_car
         L = self.layout
+        L.prop(s, "source", expand=True)
         col = L.column(align=True)
         col.scale_y = 1.4
-        col.operator("felge3d.import_image", icon="FILE_IMAGE")
+        if s.source == "FBX":
+            col.operator("felge3d.import_fbx", icon="FILE_3D")
+            if s.fbx_info:
+                L.label(text=s.fbx_info, icon="INFO")
+            ready = bool(_fbx_meshes(s))
+        else:
+            col.operator("felge3d.import_image", icon="FILE_IMAGE")
+            ready = bool(s.image)
         row = L.row()
         row.scale_y = 1.6
-        row.enabled = bool(s.image)
+        row.enabled = ready
         row.operator("felge3d.car_generate", icon="AUTO")
         col = L.column(align=True)
         col.prop(c, "wheelbase")
@@ -1008,6 +1025,7 @@ class FELGE3D_PT_shape(Panel):
         else:
             col.prop(s, "dish", slider=True)
         L.prop(s, "tire_mode")
+        L.prop(s, "fbx_flip")
         a = analysis_for(s)
         L.label(text="Form: " + a["verdict"].capitalize() + " (%+.0f mm)" % a["dish_mm"])
         if a["warn"]:
@@ -1314,9 +1332,21 @@ def tire_texture_params(c):
                      asp=o["b"] / o["a"], w_over_h=W / H, rot=c.tire_rotation, flip=c.tire_flip)
 
 
+def _fbx_meshes(s):
+    col = s.fbx_collection
+    if not col or col.name not in bpy.data.collections:
+        return []
+    return [o for o in col.all_objects if o.type == "MESH" and len(o.data.vertices) > 0]
+
+
 def build_car(context, s, c):
-    if not s.image:
-        raise RuntimeError("Zuerst im Bereich ‚Felge3D‘ ein Felgenbild laden (Schritt 1).")
+    use_fbx = s.source == "FBX"
+    if use_fbx:
+        src_meshes = _fbx_meshes(s)
+        if not src_meshes:
+            raise RuntimeError("Zuerst eine 3D-Felge laden (‚3D-Felge laden…‘).")
+    elif not s.image:
+        raise RuntimeError("Zuerst ein Felgenbild laden.")
     if context.object and context.object.mode != "OBJECT":
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -1330,21 +1360,32 @@ def build_car(context, s, c):
     tread_img, tread_h, tread = tread_texture()
     bimgs, bmeta = brake_textures()
     mats, imgs = car.build_materials(c, tire_img, tread_img, tread_h, bimgs, bmeta["cal_color"])
+    finfo = fbx.analyze(src_meshes, s.fbx_flip) if use_fbx else None
 
     axles = {}
     for front in (True, False):
         d = car.wheel_dims(c, front)
-        rim = make_rim_meshes(context, s, dict(diameter=float(d["rim_in"]), width=d["rim_width_in"],
-                                               et=d["et"] * 1000.0, use_et=True))
-        half = d["rim_width_in"] * 0.0254 / 2.0
-        back_fn = car.back_profile(rim["res"]["star_verts"], half)
-        r_well = d["r_rim"] - (rim["p"].drop + rim["p"].wall) / 1000.0
         x_m = max(-d["b"] * 0.5, min(d["et"], d["rim_out"] - 0.045))
-        axles[front] = (d, rim, half, back_fn, r_well, x_m)
+        r_well = d["r_rim"] - 0.027
+        if use_fbx:
+            M_fit, scale = fbx.fit_matrix(finfo, d["r_rim"] + 0.017, d["rim_out"])
+            parts = fbx.bake(src_meshes, M_fit, "FBX " + ("vorn" if front else "hinten"))
+            back_fn = fbx.back_profile(parts, d["rim_out"], finfo["width"] * scale)
+            base = lambda sgn: Matrix.Rotation(math.pi, 4, "Z") if sgn < 0 else Matrix.Identity(4)
+            rim_parts = [(label, me) for label, me in parts]
+        else:
+            rim = make_rim_meshes(context, s, dict(diameter=float(d["rim_in"]), width=d["rim_width_in"],
+                                                   et=d["et"] * 1000.0, use_et=True))
+            half = d["rim_width_in"] * 0.0254 / 2.0
+            back_fn = car.back_profile(rim["res"]["star_verts"], half)
+            r_well = d["r_rim"] - (rim["p"].drop + rim["p"].wall) / 1000.0
+            base = lambda sgn, half=half: Matrix.Translation((sgn * half, 0, 0)) @ car.rim_matrix(sgn)
+            rim_parts = [("Felgenstern", rim["star_me"]), ("Felgenbett", rim["barrel_me"])]
+        axles[front] = (d, rim_parts, base, back_fn, r_well, x_m)
 
     created = []
     for front in (True, False):
-        d, rim, half, back_fn, r_well, x_m = axles[front]
+        d, rim_parts, base, back_fn, r_well, x_m = axles[front]
         axle = "Vorne" if front else "Hinten"
         y = (-1 if front else 1) * c.wheelbase / 2000.0
         half_track = (c.front_track if front else c.rear_track) / 2000.0
@@ -1363,8 +1404,8 @@ def build_car(context, s, c):
             parent["Sturz Grad"] = math.degrees(camber)
             created.append(parent)
 
-            m_rim = Matrix.Translation((sgn * half, 0, 0)) @ car.rim_matrix(sgn)
-            for label, me in (("Felgenstern", rim["star_me"]), ("Felgenbett", rim["barrel_me"])):
+            m_rim = base(sgn)
+            for label, me in rim_parts:
                 ob = bpy.data.objects.new("%s %s" % (label, name), me)
                 ob.matrix_basis = m_rim
                 ob.parent = parent
@@ -1388,9 +1429,43 @@ def build_car(context, s, c):
     for o in context.view_layer.objects:
         o.select_set(False)
     context.view_layer.objects.active = created[0]
-    return col, ("4 Räder erzeugt: vorn %g×%gJ ET%g, hinten %g×%gJ ET%g%s" % (
-        c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et,
-        " · Reifendecal mit Relief"))
+    return col, ("4 Räder erzeugt (%s): vorn %g\"/%gJ ET%g, hinten %g\"/%gJ ET%g" % (
+        "3D-Felge" if use_fbx else "Foto", c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et))
+
+
+class FELGE3D_OT_import_fbx(Operator, ImportHelper):
+    """3D-Felge (FBX, OBJ oder glTF) laden: Achse, Vorderseite und Größe werden automatisch erkannt"""
+    bl_idname = "felge3d.import_fbx"
+    bl_label = "3D-Felge laden…"
+    bl_options = {"REGISTER", "UNDO"}
+    filter_glob: StringProperty(default="*.fbx;*.obj;*.glb;*.gltf", options={"HIDDEN"})
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        try:
+            new, meshes = fbx.import_file(self.filepath)
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        old = s.fbx_collection
+        if old and old.name in bpy.data.collections:
+            for o in list(old.all_objects):
+                bpy.data.objects.remove(o)
+            bpy.data.collections.remove(old)
+        col = bpy.data.collections.new("Rim Generator | 3D-Felge (Quelle)")
+        context.scene.collection.children.link(col)
+        for o in new:
+            for oc in list(o.users_collection):
+                oc.objects.unlink(o)
+            col.objects.link(o)
+        col.hide_viewport = True                      # Quelle ausblenden, die Räder entstehen separat
+        s.fbx_collection = col
+        s.source = "FBX"
+        info = fbx.analyze(meshes, s.fbx_flip)
+        s["fbx_info"] = "%d Teile · Breite/Ø = %.2f · Schüssel %.0f %% (Größe wird auf die Zoll-Regler skaliert)" % (
+            len(meshes), info["width"] / (2.0 * info["r_max"]), abs(info["dish"]) / (2.0 * info["r_max"]) * 100.0)
+        self.report({"INFO"}, "3D-Felge geladen: " + s.fbx_info)
+        return {"FINISHED"}
 
 
 class FELGE3D_OT_car_generate(Operator):
@@ -1471,6 +1546,7 @@ classes = (
     Felge3DSettings,
     Felge3DCar,
     FELGE3D_OT_car_generate,
+    FELGE3D_OT_import_fbx,
     FELGE3D_OT_car_reset,
     FELGE3D_OT_check_update,
     FELGE3D_OT_install_ai,

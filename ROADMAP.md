@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.24.1)
+## Stand (Version 0.26.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -8,13 +8,16 @@ Offen/unsicher: Felgenerkennung bei Fotos mit Reifen oder Schrägansicht (Felgen
 stimmt die Speichenzahl nicht); sehr feine Speichen/Netzfelgen (BBS); Fusion nicht an allen 20 Testfotos
 gleich gut (3, 6, 8, 10 schwach).
 
-## Nächste Schritte (Wünsche des Nutzers)
-1. **Bremsen + Sattel** (Foto `assets/bremse_foto.png`): Scheibe/Topf als Mesh mit Foto-Textur, Sattel als Mesh mit
-   Umriss aus dem Foto (Messung: Scheibenmitte 535.5/814.5 px, Radius 449 px, Sattel x 0.45–1.14 R, y −0.87…1.01 R;
-   Reibring innen ~0.62 R). Beidseitig hinten; Schrift auf der Gegenseite korrigieren. `car.build_brake` ist vorbereitet.
-2. **Zweiter Weg: FBX-Felge importieren** – eigener Reiter; die 3D-Felge wird auf die vier Räder übertragen
-   (Skalierung auf Zollgröße, ET/Breite, Ausrichtung/Achse).
-3. **Alle Maße als Regler**: Radstand, Spurweite vorn/hinten, **Zollgröße vorn/hinten** (Slider), Reifen- und Felgenbreite.
-4. **Felgenerkennung weiter verbessern**: Ellipse (Perspektive) statt Kreis, Reifen im Foto, Netzfelgen,
-   mehr Testfotos; Kontrolle mit `testfelgen/`.
-5. Reifen: Beschriftung/Profil feinjustieren (Regler `Beschriftung: Lage`, `Profil-Relief`).
+## Erledigt (0.25–0.26)
+- Bremsen: Scheibe + Topf + Sattel als Mesh mit Foto-Textur, beidseitig hinten, Schrift rechts korrigiert
+- Zoll-Regler vorn/hinten im Hauptpanel
+- Zweiter Weg: 3D-Felge (FBX/OBJ/glTF) laden -> Achse/Vorderseite/Größe automatisch, auf die 4 Räder übertragen
+  (Quelle umschalten: Foto | 3D-Datei im Hauptpanel)
+
+## Nächste Schritte
+1. FBX-Weg verfeinern: Nabe/ET der 3D-Felge an die Einpresstiefe anpassen, Breite an die Felgenbreite (J) koppeln,
+   mehrere Teile/Materialien prüfen, echte Kunden-FBX testen.
+2. **Felgenerkennung weiter verbessern**: Ellipse (Perspektive) statt Kreis, Reifen im Foto, Netzfelgen,
+   mehr Testfotos; Kontrolle mit `testfelgen/` (Fusion ist drin, an 3, 6, 8, 10 noch schwach).
+3. Alle Maße als Regler (Radstand, Spurweiten, Zoll vorn/hinten sind da; Reifenbreite/Querschnitt/ET liegen unter *Achsen*).
+4. Reifen: Beschriftung/Profil feinjustieren (Regler `Beschriftung: Lage`, `Profil-Relief`).
