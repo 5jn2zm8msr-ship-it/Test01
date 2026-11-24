@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.32.0)
+## Stand (Version 0.33.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -43,6 +43,14 @@ gleich gut (3, 6, 8, 10 schwach).
   IoU zur KI-Maske 0,56–0,85 (vorher 0,42–0,78). Zusätzlich: Speichenrücken wie im KI-Mesh (1-|u|^2,2), Nabenbund, feineres Gitter (128×11),
   zweifarbige Speichen (polierte Fläche + Rahmen in Grundfarbe, Regler „Diamond-Cut Rand“). Restfehler: vereinzelt kleine offene Nahtkanten
   (0–10 je Felge, bei Netzfelgen mit 20 Speichen bis 160), Doppel-/Y-Speichen werden als eine Hüllspeiche erfasst.
+- 0.33.0: **Bearbeitbare Geometrie direkt aus dem Foto, ohne KI-Mesh** (Ergebnis-Wahl: Bearbeitbar (SubD) | KI-Mesh (Textur)).
+  Pipeline: Felgenkreis (Reifen ausgeschlossen, sector.refine_circle) -> Maske -> Polarfeld -> Speichenzahl N (Rotations-Score) ->
+  Naht durch die Fenster -> Median über alle N Sektoren -> grober Käfig (Quads/Polygone, Randpunkte exakt auf der Kontur, 500-600
+  Punkte je Sektor) -> Instanzierung + Verschweißen -> Subdivision Surface (Stufe 0-4) mit Creases (Oberkante 0,7, Unterkante 1,
+  Regler „Kantenschärfe“). Fenster/Löcher/Y-/Doppelspeichen ergeben sich aus der Silhouette. Rücken/Bund aus Randabstand, Dicke aus
+  Nabe/Speiche, Zweifarbigkeit (weich) aus der Helligkeit des Fotos (zweifarbig nur bei hellem, deutlich abgesetztem Bereich).
+  Geprüft an Porsche/Audi/Volvo: 0 offene Kanten, 4-7 s. Offen: Zweifarbigkeit bei Volvo fleckig, dünne Speichen brauchen mehr
+  Käfigpunkte (Auflösung steigt automatisch), Felgenhorn-Farbe separat fehlt, Netzfelgen (BBS) ungeprüft.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

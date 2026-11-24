@@ -157,6 +157,8 @@ def ensure_param(context, s, col, root, defaults, detected=None, section_pts=Non
                 if rim.tmd is not None:
                     paramrim.set_param(rim.tmd, k, float(v))
                 paramrim.set_param(rim.md, k, float(v))
+        if tdata is None or "crease_top" not in tdata:      # alte Gitter-Muster sind schwer: ohne Unterteilung
+            paramrim.set_param(rim.md, "Unterteilung", 0)
         apply_detected(rim, detected, section_pts)
     hide_ai(col)
     return ob
@@ -203,7 +205,8 @@ def attach_modifiers(ob, src_md, cfg):
     vals.update(cfg)
     for nm, v in vals.items():
         paramrim.set_param(md, nm, v)
-    paramrim.add_finish_modifiers(ob)
+    if any(m.type == "BEVEL" for m in src_md.id_data.modifiers):      # nur Felgen ohne Käfig/Subdivision brauchen Bevel
+        paramrim.add_finish_modifiers(ob)
     return md
 
 
@@ -422,7 +425,7 @@ class FELGE3D_OT_template_regen(Operator):
         raw = rim.tob.get("felge3d_tdata")
         if raw:                                           # Muster aus dem KI-Mesh neu aufbauen
             import numpy as np
-            td = {k: (np.asarray(v) if isinstance(v, list) else v) for k, v in json.loads(raw).items()}
+            td = {k: (np.asarray(v) if isinstance(v, list) and k != "faces" else v) for k, v in json.loads(raw).items()}
             old = rim.tob.data
             rim.tob.data = paramrim.template_mesh_from_data(rim.tob.name, td)
             if old.users == 0:
@@ -518,6 +521,7 @@ GROUPS = [
     ("Nabe", ("Zentralverschluss", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)", "Nabenbund Höhe (mm)", "Nabenbund Radius (mm)")),
     ("Tiefe", ("Konkavität", "Schüsseltiefe (mm)", "Front-Einzug (mm)")),
     ("Felgenbett", ("Flansch (mm)", "Wandstärke (mm)", "Tiefbett (mm)", "Auflösung")),
+    ("Unterteilung", ("Unterteilung", "Kantenschärfe")),
     ("Material", ("Diamond Cut", "Diamond-Cut Rand (%)")),
 ]
 

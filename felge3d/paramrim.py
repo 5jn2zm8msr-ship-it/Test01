@@ -47,6 +47,8 @@ INPUTS = [
     ("Tiefbett (mm)", "FLOAT", 22.0, 8.0, 40.0, ""),
     ("Auflösung", "INT", 96, 24, 256, "Segmente um die Achse (Bett)"),
     ("Diamond Cut", "BOOL", True, 0, 1, "Speichen-Frontflächen als eigenes Material (glanzgedreht); aus = alles in der Grundfarbe"),
+    ("Unterteilung", "INT", 2, 0, 4, "Subdivision Surface: Stufe (0 = grober Käfig)"),
+    ("Kantenschärfe", "FLOAT", 1.0, 0.0, 1.0, "Multiplikator auf die Creases (Kanten des Musters); 0 = alles weich"),
     ("Referenz-Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Größe des Musters (nicht ändern)"),
     ("Referenz-Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, "Wandstärke des Musters (nicht ändern)"),
 ]
@@ -480,7 +482,14 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
     B.ng.links.new(nt.outputs[0], sw.inputs["True"])
 
     # ---------------- Schnittkurve: ein Float-Curve-Knoten hebt/senkt den ganzen Stern (Muster + Schrauben)
-    flat = B.join([weld.outputs[0], sw.outputs[0]])
+    # Subdivision Surface auf dem verschweißten Käfig (Schrauben bleiben unverändert); Creases aus dem Kantenattribut „crease_edge“
+    ca = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
+    ca.inputs["Name"].default_value = "crease_edge"
+    sd = B.node("GeometryNodeSubdivisionSurface")
+    B.ng.links.new(weld.outputs[0], sd.inputs["Mesh"])
+    B.ng.links.new(I("Unterteilung").s, sd.inputs["Level"])
+    B.ng.links.new((Ref(B, ca.outputs["Attribute"]) * I("Kantenschärfe")).s, sd.inputs["Edge Crease"])
+    flat = B.join([sd.outputs[0], sw.outputs[0]])
     zx, zy, _zz = B.sep(B.position())
     depth = B.curve(CURVE_SECTION, B.clamp01(B.sqrt(zx * zx + zy * zy) / r_face), default_section_points(hub_x))
     szp = B.node("GeometryNodeSetPosition")
@@ -488,7 +497,7 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
     B.ng.links.new(B.comb(0.0, 0.0, z_rim - dish * depth), szp.inputs["Offset"])
     star_geo = szp.outputs[0]
     PARTS.clear()
-    PARTS.update(barrel=barrel, star=star_geo, flat=flat, welded=weld.outputs[0], bolts=sw.outputs[0])
+    PARTS.update(barrel=barrel, star=star_geo, flat=flat, welded=weld.outputs[0], subd=sd.outputs[0], bolts=sw.outputs[0])
 
     # ---------------- Materialien (Front über die Normale), Glätten
     mfront, mbody = _materials(mat_suffix)
@@ -594,6 +603,115 @@ def template_mesh_from_data(name, td):
     return me
 
 
+def template_mesh_from_sector(name, td):
+    """
+    Pizzastück aus dem Sektor-Mesh (paramdetect/sector.build_sector_template): beliebig viele Fenster und Löcher in den Speichen.
+    Oberseite (Polygone, meist Quads), Unterseite, Seitenwände an allen Randkanten AUSSER auf den Nähten (dort schließt der
+    Nachbar). Lokales System: Keilmitte bei phi = 0, Nähte bei ±180°/N. Attribut „zone“ = polierte Fläche (1) / Rahmen (0).
+    """
+    import numpy as np
+    r = np.asarray(td["r"], np.float64)
+    f = np.asarray(td["f"], np.float64)
+    top = np.asarray(td["top"], np.float64)
+    bot = np.asarray(td["bot"], np.float64)
+    zone = np.asarray(td["zone"], np.float64)
+    seam = np.asarray(td["seam"], bool)
+    faces = [list(map(int, fc)) for fc in td["faces"]]
+    pitch = float(td["pitch"])
+    n = len(r)
+    phi = 0.5 * pitch - f * pitch                      # theta läuft im Uhrzeigersinn, phi dagegen: Winkelrichtung kehrt sich um
+    xs, ys = r * np.cos(phi), r * np.sin(phi)
+    verts = [(xs[i], ys[i], top[i]) for i in range(n)] + [(xs[i], ys[i], bot[i]) for i in range(n)]
+    fl = []
+    for fc in faces:                                   # Oberseite: Umlaufsinn über die Polygonfläche (Shoelace) auf CCW von +Z bringen
+        px, py = xs[fc], ys[fc]
+        area2 = float(np.sum(px * np.roll(py, -1) - np.roll(px, -1) * py))
+        fl.append(fc if area2 > 0 else fc[::-1])
+    out = list(fl)
+    out += [[v + n for v in fc[::-1]] for fc in fl]    # Unterseite
+    # Randkanten (nur eine Fläche) -> Wände, außer Nahtkanten
+    cnt = {}
+    for fc in fl:
+        for k in range(len(fc)):
+            a, b = fc[k], fc[(k + 1) % len(fc)]
+            cnt[(a, b) if a < b else (b, a)] = cnt.get((a, b) if a < b else (b, a), 0) + 1
+    for fc in fl:
+        for k in range(len(fc)):
+            a, b = fc[k], fc[(k + 1) % len(fc)]
+            if cnt[(a, b) if a < b else (b, a)] != 1:
+                continue
+            if seam[a] and seam[b] and abs(f[a] - f[b]) < 1e-9:       # Naht: Nachbar schließt
+                continue
+            out.append([b, a, a + n, b + n])           # Fläche läuft a->b (CCW, Innen links): Wand nach außen
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(float(c) for c in v) for v in verts], [], out)
+    me.update()
+    attr = me.attributes.new("zone", "FLOAT", "POINT")
+    attr.data.foreach_set("value", [float(v) for v in zone] * 2)
+    for p in me.polygons:
+        p.use_smooth = True
+    return me
+
+
+def template_mesh_from_cage(name, td):
+    """
+    Käfig des Pizzastücks für Subdivision Surface: Oberseite (Polygone), Unterseite, Seitenwände an den Randkanten außer den Nähten.
+    Kantenattribut „crease_edge“: Oberkante der Speichen td["crease_top"], Unterkante 1.0, Nähte/Innenkanten 0. Punktattribut „zone“
+    (weich 0..1) = polierte Fläche aus dem Foto (wird mit unterteilt, die Grenze wird dadurch glatt).
+    """
+    import numpy as np
+    r = np.asarray(td["r"], np.float64)
+    f = np.asarray(td["f"], np.float64)
+    top, bot = np.asarray(td["top"], np.float64), np.asarray(td["bot"], np.float64)
+    zone = np.asarray(td["zone"], np.float64)
+    seam = np.asarray(td["seam"], bool)
+    faces = [list(map(int, fc)) for fc in td["faces"]]
+    pitch = float(td["pitch"])
+    n = len(r)
+    phi = 0.5 * pitch - f * pitch
+    xs, ys = r * np.cos(phi), r * np.sin(phi)
+    verts = [(xs[i], ys[i], top[i]) for i in range(n)] + [(xs[i], ys[i], bot[i]) for i in range(n)]
+    fl = []
+    for fc in faces:
+        px, py = xs[fc], ys[fc]
+        area2 = float(np.sum(px * np.roll(py, -1) - np.roll(px, -1) * py))
+        fl.append(fc if area2 > 0 else fc[::-1])
+    out = list(fl) + [[v + n for v in fc[::-1]] for fc in fl]
+    cnt = {}
+    for fc in fl:
+        for k in range(len(fc)):
+            a_, b_ = fc[k], fc[(k + 1) % len(fc)]
+            key = (a_, b_) if a_ < b_ else (b_, a_)
+            cnt[key] = cnt.get(key, 0) + 1
+    crease = {}
+    ct = float(td.get("crease_top", 0.7))
+    for fc in fl:
+        for k in range(len(fc)):
+            a_, b_ = fc[k], fc[(k + 1) % len(fc)]
+            key = (a_, b_) if a_ < b_ else (b_, a_)
+            if cnt[key] != 1:
+                continue
+            if seam[a_] and seam[b_] and abs(f[a_] - f[b_]) < 1e-9:
+                continue
+            out.append([b_, a_, a_ + n, b_ + n])
+            crease[key] = ct
+            crease[(key[0] + n, key[1] + n)] = 1.0
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(float(c) for c in v) for v in verts], [], out)
+    me.update()
+    ca = me.attributes.new("crease_edge", "FLOAT", "EDGE")
+    vals = [0.0] * len(me.edges)
+    for i, e in enumerate(me.edges):
+        v0, v1 = e.vertices
+        vals[i] = crease.get((v0, v1) if v0 < v1 else (v1, v0), 0.0)
+    ca.data.foreach_set("value", vals)
+    za = me.attributes.new("zone", "FLOAT", "POINT")
+    za.data.foreach_set("value", [float(v) for v in zone] * 2)
+    for p in me.polygons:
+        p.use_smooth = True
+    return me
+
+
 def make_object(name, collection, group=None, hub_x=0.34, tdata=None):
     """
     Felge mit Muster: legt das Muster-Objekt („<name> Speiche“, sichtbar, im Edit Mode bearbeitbar) und das Felgen-Objekt an;
@@ -602,7 +720,8 @@ def make_object(name, collection, group=None, hub_x=0.34, tdata=None):
     """
     t_md = None
     if tdata is not None:
-        t_me = template_mesh_from_data(name + " Speiche", tdata)
+        t_me = (template_mesh_from_cage if "crease_top" in tdata else template_mesh_from_sector if "faces" in tdata
+                else template_mesh_from_data)(name + " Speiche", tdata)
         t_ob = bpy.data.objects.new(name + " Speiche", t_me)
         collection.objects.link(t_ob)
     else:
@@ -618,7 +737,8 @@ def make_object(name, collection, group=None, hub_x=0.34, tdata=None):
     collection.objects.link(ob)
     md = ob.modifiers.new("Parametrische Felge", "NODES")
     md.node_group = ng
-    add_finish_modifiers(ob)
+    if not (tdata is not None and "crease_top" in tdata):        # Käfig + Subdivision + Creases: keine Bevel nötig
+        add_finish_modifiers(ob)
     t_ob.display_type = "WIRE"                 # sichtbar und wählbar, stört aber die Felge nicht
     t_ob.hide_render = True
     return ob, t_ob, md

@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 32, 0),
+    "version": (0, 33, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -39,11 +39,12 @@ if "core" in locals():
     brake_data = importlib.reload(brake_data)
     fbx = importlib.reload(fbx)
     cloud = importlib.reload(cloud)
+    sector = importlib.reload(sector)
     paramdetect = importlib.reload(paramdetect)
     paramrim = importlib.reload(paramrim)
     paramui = importlib.reload(paramui)
 else:
-    from . import ai, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, tire_data, updater
+    from . import ai, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, sector, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -53,6 +54,8 @@ MASK_NAME = "Felge3D_Maske"
 def _update_rebuild(self, context):
     """Vorhandene Felge sofort mit dem neuen Wert neu bauen (gleiche Collection)."""
     if not (self.image and self.collection and self.collection.name in bpy.data.collections):
+        return
+    if self.result_mode == "EDIT" and paramui.PARAM_OK:        # bearbeitbare Geometrie wird nicht automatisch überschrieben
         return
     try:
         build_wheel(context, self, new_collection=False)
@@ -66,6 +69,10 @@ class Felge3DSettings(PropertyGroup):
         name="Eigene Maske", type=bpy.types.Image,
         description="Optional: Schwarz/Weiß-Bild (weiß = Material) statt automatischer Erkennung")
     collection: PointerProperty(name="Collection", type=bpy.types.Collection)
+    result_mode: EnumProperty(name="Ergebnis", default="EDIT", items=[
+        ("EDIT", "Bearbeitbare Geometrie (SubD)", "Grober Käfig + Subdivision Surface + Creases, direkt aus dem Foto (nur Blender 5.3)"),
+        ("KI", "KI-Mesh (Textur)", "Hochaufgelöstes Mesh mit Foto-Textur, nicht gut bearbeitbar")],
+        description="Entweder ein KI-Mesh mit Textur oder eine saubere, bearbeitbare Geometrie – ohne Zwischenschritt über das KI-Mesh")
     mesh_source: EnumProperty(name="Mesh-Quelle", default="LOCAL", items=[
         ("LOCAL", "Lokal (Standard)", "Foto -> KI-Mesh auf diesem Rechner, kostenlos"),
         ("CLOUD", "Cloud-API", "Mesh bei einem Anbieter erzeugen lassen (kostenpflichtig, Key in den Preferences)")])
@@ -712,8 +719,62 @@ def make_rim_meshes(context, s, overrides=None):
     return dict(star_me=star_me, barrel_me=barrel_me, res=res, n=n, depth=depth, p=p, mask=mask)
 
 
+def build_wheel_edit(context, s, new_collection=True):
+    """
+    Bearbeitbare Geometrie direkt aus dem Foto (ohne KI-Mesh): Felgenkreis -> Maske -> Polarfeld -> N und Naht -> gemittelter Sektor ->
+    grober Käfig (Quads, Creases) -> Felge per Geometry Nodes (Instanzierung, Verschweißen, Subdivision Surface).
+    """
+    gray, cx, cy, rx, ry = prepare(s)
+    depth_pre = ai_depth(s, cx, cy, rx, ry, force=True) if s.use_fusion else None
+    n_hint = symmetry_order(s, gray, cx, cy, rx, ry, depth_pre)
+    hub_n0 = hub_symmetry(s, gray, cx, cy, rx, ry, n_hint)
+    mask, thr = compute_mask(s, gray, cx, cy, rx, ry, n_hint, depth_pre, hub_n0)
+    if thr is not None and s.auto_threshold:
+        s["threshold"] = thr
+    p = make_params(s)
+    R, W, flange, wall, R_out, r_face, dish = core.dimensions(p)
+    F, radii = sector.polar_field(mask, cx, cy, rx, ry, R_out, r_face)
+    nph = sector.detect_n_phase(F, n_hint=n_hint)
+    N = nph["N"]
+    theta_s = sector.choose_seam(F, radii, N, r_face)
+    r_ref_face = s.diameter * 0.0127 - s.wall / 1000.0 + 0.001
+    cage = sector.build_cage(F, radii, dict(gray=gray, cx=cx, cy=cy, rx=rx, ry=ry, R_out=R_out), N, theta_s, r_ref_face,
+                             relief_mm=s.relief, relief_width_mm=s.relief_width, boss_mm=s.boss_height, boss_r_mm=s.boss_radius,
+                             spoke_t_mm=s.spoke_thickness, hub_t_mm=s.hub_thickness, hub_r_mm=s.hub_radius)
+    col = s.collection if (not new_collection and s.collection and s.collection.name in bpy.data.collections) else None
+    if col is None:
+        col = bpy.data.collections.new(paramui.next_rim_name())
+        context.scene.collection.children.link(col)
+        s.collection = col
+    col["felge3d_rim"] = True
+    col["felge3d_image"] = s.image.name
+    root = next((o for o in col.objects if o.get("felge3d_role") == "root"), None)
+    if root is None:
+        root = bpy.data.objects.new("Felge_Achse", None)
+        root.empty_display_type = "CIRCLE"
+        root.empty_display_size = 0.3
+        root.rotation_euler = (math.pi / 2, 0, 0)
+        root["felge3d_role"] = "root"
+        col.objects.link(root)
+    det = dict(n=N, drehung_deg=cage["drehung_deg"], hub_r_mm=s.hub_radius,
+               info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%" % (
+                   N, cage["drehung_deg"], len(cage["r"]), 100 * cage["polished"]))
+    col["felge3d_detect"] = json.dumps(det)
+    col["felge3d_detect_info"] = det["info"]
+    pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)
+    paramui.ensure_param(context, s, col, root, build_param_defaults(s, N), det, pts, cage)
+    for c_ in paramui.rim_collections():
+        c_.hide_viewport = c_ is not col
+        c_.hide_render = c_ is not col
+    if s.active_rim != col.name:
+        s.active_rim = col.name
+    return col, "Felge erzeugt (bearbeitbar): " + det["info"]
+
+
 def build_wheel(context, s, new_collection=True):
     """Komplette Pipeline für ein einzelnes Rad. Gibt (collection, info-text) zurück."""
+    if s.result_mode == "EDIT" and paramui.PARAM_OK:
+        return build_wheel_edit(context, s, new_collection)
     rim = make_rim_meshes(context, s)
     star_me, barrel_me, res, n, depth = rim["star_me"], rim["barrel_me"], rim["res"], rim["n"], rim["depth"]
     img_name = os.path.splitext(s.image.name)[0]
@@ -760,20 +821,31 @@ def build_wheel(context, s, new_collection=True):
     if s.use_param and paramui.PARAM_OK:
         try:
             det = None
-            try:
-                det = paramdetect.detect(res["polar_F"], res["polar_r"], s.diameter * 0.0127 - s.wall / 1000.0 + 0.001, n_sym=n, ring_m=make_params(s).ring / 1000.0)
-            except Exception as e_:  # noqa: BLE001
-                print("Felge3D: Parameter-Erkennung fehlgeschlagen:", e_)
-            if det:
+            tdata = None
+            r_ref_face = s.diameter * 0.0127 - s.wall / 1000.0 + 0.001
+            try:                                   # Draufsicht aus dem Foto: N/Phase, gemittelter Sektor, Silhouette -> Muster-Mesh
+                nph = sector.detect_n_phase(res["polar_F"], n_hint=n)
+                tdata = sector.build_sector_template(res, nph["N"], nph["phase"] - math.pi / nph["N"], r_ref_face)
+                det = dict(n=tdata["N"], drehung_deg=tdata["drehung_deg"], hub_r_mm=85.0,
+                           info="%d Speichen · Drehlage %.0f° · Sektor-Silhouette aus dem Foto (%d Flächen) · poliert %.0f %%" % (
+                               tdata["N"], tdata["drehung_deg"], len(tdata["faces"]), 100 * tdata["polished"]))
                 col["felge3d_detect"] = json.dumps(det)
                 col["felge3d_detect_info"] = det["info"]
-            pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)
-            tdata = None
-            if det:
+            except Exception as e_:  # noqa: BLE001 – dann der bisherige Weg (Kantenkurven aus der Maske)
+                print("Felge3D: Sektor-Muster fehlgeschlagen, nutze Kantenkurven:", e_)
+                tdata = None
                 try:
-                    tdata = paramdetect.build_template(det, res, r_ref_face=s.diameter * 0.0127 - s.wall / 1000.0 + 0.001)
-                except Exception as e_:  # noqa: BLE001 – dann bleibt das parametrische Muster
-                    print("Felge3D: Muster aus dem KI-Mesh fehlgeschlagen:", e_)
+                    det = paramdetect.detect(res["polar_F"], res["polar_r"], r_ref_face, n_sym=n, ring_m=make_params(s).ring / 1000.0)
+                except Exception as e2_:  # noqa: BLE001
+                    print("Felge3D: Parameter-Erkennung fehlgeschlagen:", e2_)
+                if det:
+                    col["felge3d_detect"] = json.dumps(det)
+                    col["felge3d_detect_info"] = det["info"]
+                    try:
+                        tdata = paramdetect.build_template(det, res, r_ref_face=r_ref_face)
+                    except Exception as e3_:  # noqa: BLE001
+                        print("Felge3D: Muster aus dem KI-Mesh fehlgeschlagen:", e3_)
+            pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)
             paramui.ensure_param(context, s, col, root, build_param_defaults(s, det["n"] if det else n), det, pts, tdata)
             for c_ in paramui.rim_collections():
                 c_.hide_viewport = c_ is not col
@@ -882,6 +954,11 @@ class FELGE3D_OT_detect(Operator):
         gray = core.downscale(image_to_gray(s.image), s.proc_size)
         h, w = gray.shape
         cx, cy, rx, ry = core.find_wheel(gray, tire={'AUTO': None, 'YES': True, 'NO': False}[s.tire_mode])
+        if s.tire_mode != "NO":                      # Reifen ausschließen: Speichenbereich ist periodisch, der Reifen nicht
+            try:
+                rx, ry, _info = sector.refine_circle(gray, cx, cy, rx, ry)
+            except Exception as e:  # noqa: BLE001 – bei Fehlern bleibt der bisherige Kreis
+                print("Felge3D: Kreisverfeinerung fehlgeschlagen:", e)
         s.center_x, s.center_y = cx / w, cy / h
         s.radius = rx / w
         s.aspect = ry / rx
@@ -1114,6 +1191,8 @@ class FELGE3D_PT_main(Panel):
     def draw(self, context):
         s = context.scene.felge3d
         L = self.layout
+        if paramui.PARAM_OK:
+            L.prop(s, "result_mode", text="")
         col = L.column(align=True)
         col.scale_y = 1.5
         col.operator("felge3d.import_image", icon="FILE_IMAGE")
