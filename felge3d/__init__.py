@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 36, 0),
+    "version": (0, 37, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -764,7 +764,8 @@ def build_wheel_edit(context, s, new_collection=True):
     det = dict(n=N, drehung_deg=cage["drehung_deg"], hub_r_mm=s.hub_radius,
                info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%%s%s" % (
                    N, cage["drehung_deg"], len(cage["r"]), 100 * cage["polished"],
-                   (" · %d Spiegelung(en) als Material gewertet" % n_refl) if n_refl else "", abgleich))
+                   (" · %d Spiegelung(en) als Material gewertet" % n_refl) if n_refl else "", abgleich + (" · Felgenhorn poliert" if cage.get("horn_polished") else "")))
+    horn_pol = bool(cage.get("horn_polished", False))
     try:                                                              # Abgleich-Bild: Foto + Käfig (Blau/Cyan/Orange), im Image Editor ansehen
         rgb_ = np.asarray(_rgb_cache[next(iter(_rgb_cache))], np.float32)
         if rgb_.max() <= 1.5:
@@ -788,6 +789,10 @@ def build_wheel_edit(context, s, new_collection=True):
     col["felge3d_detect_info"] = det["info"]
     pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)
     paramui.ensure_param(context, s, col, root, build_param_defaults(s, N), det, pts, cage)
+    try:                                                              # heller Außenrand im Foto -> Felgenhorn mit poliert (Material)
+        paramui.Rim(col).set("Horn poliert", horn_pol)
+    except (KeyError, TypeError, ValueError):
+        pass
     for c_ in paramui.rim_collections():
         c_.hide_viewport = c_ is not col
         c_.hide_render = c_ is not col

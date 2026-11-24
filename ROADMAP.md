@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.36.0)
+## Stand (Version 0.37.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -79,6 +79,13 @@ gleich gut (3, 6, 8, 10 schwach).
   abgeglichen (Überdeckung IoU, Anzeige im Info-Text, „⚠ weicht ab“ unter 90 %) und das Bild „<Felge_NN> Abgleich“ (Foto + Käfig: Blau/Cyan/Orange,
   alle Speichen) im Image Editor abgelegt. Stand: Porsche 99 %, Volvo 86 % ⚠, Porsche 911 Turbo (10 Speichen) 72 % ⚠; Felgen ohne polierte Fläche: kein Abgleich.
   Offen: Volvo/10-Speichen-Form noch nicht 1:1, Zone endet am Käfigrand (heller Ring/Horn außerhalb), Volvo zeitweise offene Kanten am Ringübergang.
+
+- 0.37.0: **Mehr vom hellen Bereich erfassen.** Zweifarbigkeit mit Hysterese (auch mittelgraue Ausläufer der polierten Fläche), über die Speichen
+  hinweg 70. Perzentil statt Median (Licht/Spiegelungen unterscheiden sich je Speiche). **Felgenhorn/Außenrand**: ist der Ring außerhalb des Käfigs im Foto so
+  hell wie die polierte Fläche (Porsche, Volvo, 911 Turbo), wird „Horn poliert“ automatisch gesetzt. Der Käfig wird automatisch feiner (bis 26 Spalten), solange Blau
+  das Weiß im Foto nicht zu 93 % abdeckt (schmale Streifen fielen sonst zwischen die Zellen). Haarlinien-Kanten (< 0,9 mm) werden zusammengezogen.
+  Stand: Porsche 95 %, Volvo 87 % ⚠ (Käfig ~1150 Punkte/Sektor, 80 offene Kanten bei Stufe 2), 911 Turbo (10 Speichen) 73 % ⚠. Offen: Streifen nahe der Nabe beim Volvo,
+  kleine blaue „Ohren“ am Ringübergang (Porsche), Volvo nicht wasserdicht.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

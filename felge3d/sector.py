@@ -847,7 +847,7 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
         th = theta_s + (Fg + k) * pitch
         vals[k] = core.bilinear(gray, photo["cx"] + R / photo["R_out"] * photo["rx"] * np.sin(th),
                                 photo["cy"] + R / photo["R_out"] * photo["ry"] * np.cos(th))
-    br = np.median(vals, axis=0)
+    br = np.percentile(vals, 70, axis=0)                      # nicht Median: Spiegelungen/Licht sind je Speiche verschieden, die polierte Fläche soll vollständig erfasst werden
     mat = (Fv >= 0.5)
     solid = mat & (R > r_hub_solid + 0.008)
     if solid.sum() < 100:
@@ -856,6 +856,20 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     nrm = np.clip((br - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     thr, var = _otsu(nrm[solid])
     cls = nrm > thr
+    if (solid & ~cls).any():                                  # Hysterese: auch mittelgraue Ausläufer der hellen Fläche (Verlauf, Spiegelung) gehören dazu
+        dark_n = float(np.mean(nrm[solid & ~cls]))
+        low = (nrm > dark_n + 0.68 * (thr - dark_n)) & mat
+        for _ in range(5):
+            g = cls.copy()
+            g[1:] |= cls[:-1]
+            g[:-1] |= cls[1:]
+            g[:, 1:] |= cls[:, :-1]
+            g[:, :-1] |= cls[:, 1:]
+            g &= low
+            g |= cls
+            if (g == cls).all():
+                break
+            cls = g
     b_raw = float(np.mean(br[solid & cls])) if (solid & cls).any() else 0.0
     d_raw = float(np.mean(br[solid & ~cls])) if (solid & ~cls).any() else 0.0
     bimodal = bool(var > 0.03 and b_raw >= 0.5 and b_raw - d_raw >= 0.22)
@@ -865,7 +879,16 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     E = _blur_cyc(_erode_material(mat, r_fine, pitch, border_m), 1)       # Rahmen: Abstand zur Silhouette
     Z = np.minimum(B, E)
     Z[R < r_hub_solid + 0.008] = 0.0
-    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, raw=(cls & mat & (R > r_hub_solid + 0.008)))
+    # Außenrand (Felgenhorn): ist der Ring außerhalb des Käfigs so hell wie die polierte Fläche, wird er mit poliert
+    ang = np.linspace(0.0, 2 * math.pi, 360, endpoint=False)
+    rr_ = np.linspace(r_fine[-1] + 0.004, photo["R_out"] + 0.02, 18)         # Randring liegt im Foto oft knapp außerhalb des gefundenen Kreises
+    RG, TG = np.meshgrid(rr_, ang, indexing="ij")
+    ring = core.bilinear(gray, photo["cx"] + RG / photo["R_out"] * photo["rx"] * np.sin(TG),
+                         photo["cy"] + RG / photo["R_out"] * photo["ry"] * np.cos(TG))
+    ring_b = float(np.max(np.median(ring, axis=1)))                           # hellster Ring (Median über alle Winkel)
+    horn = bool(ring_b >= d_raw + 0.6 * (b_raw - d_raw))
+    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=horn,
+                                      raw=(cls & mat & (R > r_hub_solid + 0.008)))
 
 
 _DEBUG_BAND = False
@@ -1010,7 +1033,7 @@ def zone_iou(r, f, faces, diamond, r_fine, raw):
     return float(np.sum(M & ref)) / max(float(np.sum(M | ref)), 1.0)
 
 
-def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0045, r_min=0.075):
+def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0045, r_min=0.075, micro=0.0009):
     """Kurze Kanten am Rand (Zacken, Doppellinien) zusammenziehen; Naht und Zonenpunkte bleiben, Nabe bleibt unberührt."""
     n = len(r)
     seam = (f < 1e-9) | (f > 1 - 1e-9)
@@ -1035,11 +1058,13 @@ def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0045, r_mi
         x, y = rr * np.cos(ff * pitch), rr * np.sin(ff * pitch)
         cand = []
         for (a, b), c_ in cnt.items():
-            if (a in bverts or b in bverts) and rr[a] > r_min and rr[b] > r_min and not seam[a] and not seam[b] \
-                    and bool(zvert[a]) == bool(zvert[b]):
-                L = math.hypot(x[a] - x[b], y[a] - y[b])
-                if L < tol:
-                    cand.append((L, a, b))
+            if seam[a] or seam[b]:
+                continue
+            L = math.hypot(x[a] - x[b], y[a] - y[b])
+            if L < micro:                                          # Haarlinien-Kanten (< Verschweißabstand) überall zusammenziehen
+                cand.append((L, a, b))
+            elif (a in bverts or b in bverts) and rr[a] > r_min and rr[b] > r_min and bool(zvert[a]) == bool(zvert[b]) and L < tol:
+                cand.append((L, a, b))
         if not cand:
             break
         used = set()
@@ -1049,6 +1074,7 @@ def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0045, r_mi
             used.update((a, b))
             parent[b] = a
             rr[a], ff[a] = 0.5 * (rr[a] + rr[b]), 0.5 * (ff[a] + ff[b])
+            zvert[a] = bool(zvert[a]) or bool(zvert[b])
         new_faces, new_dia = [], []
         seen = set()
         for fc, dflag in zip(faces, diamond):
@@ -1175,7 +1201,7 @@ def _band_zone(Zs, ea, eb, passes=24):
 
 def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_width_mm=40.0, boss_mm=6.0, boss_r_mm=75.0,
                spoke_t_mm=14.0, hub_t_mm=24.0, hub_r_mm=85.0, r_a=0.012, r_hub_solid=0.045, crease_top=1.0,
-               border_mm=6.0, max_area_err=0.05):
+               border_mm=6.0, max_area_err=0.05, zone_target=0.93):
     """
     Bearbeitbarer Käfig des Pizzastücks für Subdivision Surface (ohne KI-Mesh): grobes Netz entlang der Silhouette (Fenster, Löcher),
     Rücken/Bund aus dem Randabstand, Dicke aus Nabe/Speiche. Die Diamond-Cut-Fläche (Zweifarbigkeit aus dem Foto) ist eine eigene
@@ -1236,13 +1262,24 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     cell = 0.5 * (r_ref_face + r_a) * pitch * max(spoke_w, 0.2) / (Cc - 1)        # Zellbreite quer zur Speiche (m)
     margin = max(border_mm / 1000.0, 1.2 * cell)                         # Zone liegt in vollen Zellen (Rahmen um die polierte Fläche)
     Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, 0.0)       # Blau = helle Fläche im Foto (1:1, keine Erosion)
+    if _DEBUG_BAND and Zv is not None:
+        for i in range(0, len(r_fine), 8):
+            print('ZDBG r=%.0f mat=%.2f raw=%.2f Z=%.2f' % (1000 * r_fine[i], np.mean(Fv[i] >= 0.5), np.mean(zinfo['raw'][i]), np.mean(Zv[i] >= 0.5)))
     if Zv is not None:
         Zv, _ = _warp(Zv, r_fine, ea, eb)
-    m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_ref_face, Zv=Zv, pitch=pitch, rows=row_radii(Rc))
-    r, faces = m["r"], m["faces"]
-    f = true_f(r, m["f"])
-    f[np.abs(f) < 1e-9] = 0.0
-    r, f, faces, m["diamond"], m["zvert"], m["chords"] = _collapse_short(r, f, faces, m["diamond"], m["zvert"], m["chords"], pitch)
+    ladder = [(R_, C_) for R_, C_ in ((14, 9), (18, 11), (24, 14), (32, 18), (48, 26)) if C_ >= Cc]
+    z_iou = None
+    for Rc, Cc in ladder:                                                # feiner werden, bis Blau das Weiß im Foto abdeckt (schmale Streifen)
+        m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_ref_face, Zv=Zv, pitch=pitch, rows=row_radii(Rc))
+        r, faces = m["r"], m["faces"]
+        f = true_f(r, m["f"])
+        f[np.abs(f) < 1e-9] = 0.0
+        r, f, faces, m["diamond"], m["zvert"], m["chords"] = _collapse_short(r, f, faces, m["diamond"], m["zvert"], m["chords"], pitch)
+        if Zv is None:
+            break
+        z_iou = zone_iou(r, f, faces, m["diamond"], r_fine, zinfo["raw"])
+        if z_iou >= zone_target:
+            break
     seam = (f < 1e-9) | (f > 1 - 1e-9)
     diamond, zvert, chords = m["diamond"], m["zvert"], m["chords"]
     n = len(r)
@@ -1288,6 +1325,6 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=np.zeros(n), diamond=diamond if Zv is not None else
                 (np.ones(len(faces), np.int8) if bright_all else np.zeros(len(faces), np.int8)), chords=chords,
                 N=int(N), pitch=pitch, theta_s=theta_s, crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi),
-                sym=sym, bimodal=bool(zinfo["bimodal"]), zone_iou=float(zone_iou(r, f, faces, m["diamond"], r_fine, zinfo["raw"])) if Zv is not None else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
+                sym=sym, horn_polished=bool(zinfo.get("horn", False)), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
                 area_err=err, cells=(Rc, Cc), zvert=zvert.astype(np.int8), teller_h=teller_h,
                 has_zone=bool(Zv is not None and zvert.sum() > 10))
