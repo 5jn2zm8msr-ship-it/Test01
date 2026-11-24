@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 39, 0),
+    "version": (0, 40, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1240,7 +1240,7 @@ class FELGE3D_OT_diamond_preview(Operator):
         nrm = np.clip((g - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
         thr = s.diamond_threshold / 100.0
         if thr <= 0:
-            thr = float(sector._otsu(nrm[inside])[0])
+            thr = 0.7 * float(sector._otsu(nrm[inside])[0])
         m = (nrm >= thr) & inside
         if hi < 0.45 or hi - lo < 0.25:
             self.report({"WARNING"}, "Keine helle Fläche im Foto: Diamond Cut wird nicht angewendet.")

@@ -857,7 +857,7 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
         return None, dict(bimodal=False, bright=float(np.mean(br[solid])), share=0.0)
     nrm = np.clip((br - lo) / (hi - lo), 0.0, 1.0)                     # Graustufen relativ zur Felge: 0 % = dunkelste, 100 % = hellste Stelle
     if thr <= 0:                                                       # 0 = automatisch: Schwelle zwischen den zwei Helligkeitsgruppen (Otsu)
-        thr = float(_otsu(nrm[solid])[0])
+        thr = 0.7 * float(_otsu(nrm[solid])[0])                      # bewusst großzügig: alles, was nicht schwarz ist, ist Diamond Cut (Schwarz/Weiß-Bild)
     cls = _blur_cyc((nrm >= thr).astype(np.float32), 2) >= 0.5         # Entrauschen (einzelne Glanzpunkte im Schwarz)
     share = float(np.mean(cls[solid]))
     b_raw = float(np.mean(br[solid & cls])) if (solid & cls).any() else 0.0

@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.39.0)
+## Stand (Version 0.40.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -97,6 +97,11 @@ gleich gut (3, 6, 8, 10 schwach).
   (gemessen: Helligkeit 0,78 bis 263 mm, dunkler Spalt bei 267 mm, heller Ring bei 272-282 mm). Käfig und Polarfeld reichen jetzt 13 mm weiter nach außen
   (`sector.CAGE_EXT`); Abgleich Porsche 97 %. Das Abgleich-Bild markiert den hellen Außenring (Felgenhorn) hellblau, wenn „Horn poliert“ gesetzt wurde.
   Offen: Porsche 20 und Volvo 60 offene Kanten am Fensterende; gefundener Felgenkreis (R_out) liegt ~4 % innerhalb des hellen Außenrings im Foto.
+
+- 0.40.0: **Schwarz/Weiß-Schwelle großzügiger.** Auto-Schwelle = 0,7 × Otsu (alles, was nicht klar schwarz ist, wird Diamond Cut), gleiche Regel in der Schwellwert-Vorschau.
+  Außenring (Felgenhorn) wird bei hellem Ring im Foto automatisch poliert und im Abgleich-Bild bis 1,05 × R_out hellblau markiert (Porsche: Rand am Reifen, Volvo: Außenring).
+  Stand: Porsche 94 %, Volvo 89 % ⚠, 911 Turbo 80 % ⚠. Offen: Außenring ist nur als Material auf dem Horn (5 mm breit), im Foto ist er ~11 mm breit; Streifen nahe der Volvo-Nabe;
+  offene Kanten am Fensterende (Porsche 20, Volvo 60).
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).
