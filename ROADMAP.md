@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.29.1)
+## Stand (Version 0.29.2)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -25,8 +25,11 @@ gleich gut (3, 6, 8, 10 schwach).
   FBX/Collection-Felgen werden unverändert übernommen (nur gleichmäßig skaliert und in den Reifen gesetzt, per Test belegt).
 - 0.29.1: FBX-Orientierung robuster: Achse = Hauptachse mit rundem Querschnitt, flächengewichtete Punkte, Außenrichtung = von der Bettmitte zur Nabe
   (auch bei flachen/konvexen Felgen; getestet in 14 Lagen: liegend, 90° gedreht, umgedreht, zufällig)
+- 0.29.2: Standardkurve + Kurvenänderungen an 10 Testfotos geprüft (Netz stabil, Mindestdicke > 13 mm); ungenutzte Einstellungen entfernt;
+  Windows: kein Konsolenfenster bei der KI-Installation; Python-3.10-Syntax geprüft (Blender 3.x)
 
 ## Nächste Schritte
+0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).
 0. Bremse: Schlitze der Scheibe sind nur Bump aus dem Foto (keine echte Geometrie); Scheibe nutzt die linke Fotohälfte
    gespiegelt (Sattel im Foto verdeckt rechts). Kein freies 3D-Referenzmodell erreichbar -> Aufbau aus Kenntnis der Bauteile.
 1. FBX-Weg verfeinern: Nabe/ET der 3D-Felge an die Einpresstiefe anpassen, Breite an die Felgenbreite (J) koppeln,

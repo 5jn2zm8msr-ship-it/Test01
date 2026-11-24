@@ -92,10 +92,13 @@ def is_ready(kind="HIGH"):
     return supports(kind) and os.path.isfile(model_path(kind))
 
 
+_NOWIN = 0x08000000 if os.name == "nt" else 0     # unter Windows kein Konsolenfenster aufblitzen lassen
+
+
 def _import_ok(py, target):
     """In einem eigenen Prozess testen, ob onnxruntime lädt (ein Absturz trifft dann nicht Blender)."""
     code = ("import sys; sys.path.insert(0, %r); import onnxruntime as o; print(o.__version__)" % target)
-    r = subprocess.run([py, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    r = subprocess.run([py, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=_NOWIN)
     return r.returncode == 0, r.stdout.strip()[-400:]
 
 
@@ -105,7 +108,7 @@ def install_runtime():
     target = libs_dir()
     py = sys.executable
     subprocess.run([py, "-m", "ensurepip", "--upgrade"], check=False,
-                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=_NOWIN)
     log = []
     for version, plat in ORT_CANDIDATES:
         shutil.rmtree(target, ignore_errors=True)
@@ -115,7 +118,7 @@ def install_runtime():
         if plat:
             cmd += ["--platform", plat, "--only-binary=:all:", "--python-version",
                     "%d.%d" % sys.version_info[:2], "--implementation", "cp"]
-        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=_NOWIN)
         if r.returncode != 0:
             log.append("%s/%s: pip: %s" % (version, plat, r.stdout.strip().splitlines()[-1:]))
             continue
