@@ -40,14 +40,15 @@ INPUTS = [
     ("Schüsseltiefe (mm)", "FLOAT", 60.0, -80.0, 160.0, "Tiefe der Nabe bei Kurvenwert 1 (+ = konkav)"),
     ("Konkavität", "FLOAT", 1.0, 0.0, 2.5, "Globaler Multiplikator auf die Schnittkurve"),
     ("Front-Einzug (mm)", "FLOAT", 12.0, 0.0, 40.0, "Abstand der Speichen-Außenkante hinter dem Horn"),
-    ("Zentralverschluss", "BOOL", False, 0, 1, "Aus = Radschrauben, an = Zentralverschluss"),
-    ("Radschrauben", "INT", 5, 3, 8, ""),
+    ("Nabenmitte", "INT", 0, 0, 2, "0 = Kappe mit Wappen (geschlossen), 1 = Zentralverschluss mit Rändel, 2 = Radschrauben (mit kleiner Mittelkappe)"),
+    ("Radschrauben", "INT", 5, 3, 8, "Anzahl, nur bei Nabenmitte 2"),
     ("Lochkreis (mm)", "FLOAT", 112.0, 90.0, 140.0, ""),
     ("Flansch (mm)", "FLOAT", 17.0, 8.0, 30.0, "Höhe des Felgenhorns"),
     ("Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, ""),
     ("Tiefbett (mm)", "FLOAT", 22.0, 8.0, 40.0, ""),
     ("Auflösung", "INT", 96, 24, 256, "Segmente um die Achse (Bett)"),
     ("Diamond Cut", "BOOL", True, 0, 1, "Speichen-Frontflächen als eigenes Material (glanzgedreht); aus = alles in der Grundfarbe"),
+    ("Teller aktiv", "BOOL", True, 0, 1, "Alle Frontflächen auf die Drehfläche (Teller) legen: technische, gefräste Optik; aus = organisch (Wölbung der Speichen)"),
     ("Rücksprung (mm)", "FLOAT", 2.0, 0.0, 10.0, "Schwarze Flächen liegen so weit hinter dem Teller (Diamond Cut) – der Fräser erreicht sie nicht"),
     ("Horn poliert", "BOOL", False, 0, 1, "Felgenhorn (Drehprofil, liegt schon auf dem Teller) ebenfalls als Diamond-Cut-Material"),
     ("Teller anzeigen", "BOOL", False, 0, 1, "Zeigt die Tellerfläche (Hilfsfläche, 0,5 mm über dem Diamond Cut)"),
@@ -473,17 +474,45 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None, telle
     B.ng.links.new(bz.outputs[0], bi.inputs["Instance"])
     bl = B.node("GeometryNodeRealizeInstances")
     B.ng.links.new(bi.outputs["Instances"], bl.inputs["Geometry"])
-    nut = B.node("GeometryNodeMeshCylinder")
-    nut.inputs["Vertices"].default_value = 24
-    nut.inputs["Radius"].default_value = 0.034
-    nut.inputs["Depth"].default_value = 0.024
-    nt = B.node("GeometryNodeTransform")
-    B.ng.links.new(nut.outputs["Mesh"], nt.inputs["Geometry"])
-    nt.inputs["Translation"].default_value = (0.0, 0.0, 0.011)
+    def cyl(verts, rad, depth_, z, knurl=0.0):
+        c = B.node("GeometryNodeMeshCylinder")
+        c.inputs["Vertices"].default_value = verts
+        c.inputs["Radius"].default_value = rad
+        c.inputs["Depth"].default_value = depth_
+        g = c.outputs["Mesh"]
+        if knurl:                                   # abwechselnd größerer Radius = Rändel (Zahnrad-Kontur)
+            ks = B.node("GeometryNodeSetPosition")
+            B.ng.links.new(g, ks.inputs["Geometry"])
+            kx, ky, _kz = B.sep(B.position())
+            kf = B.math("MODULO", B.index(), 2.0) * knurl
+            B.ng.links.new(B.comb(kx * kf, ky * kf, 0.0), ks.inputs["Offset"])
+            g = ks.outputs[0]
+        t = B.node("GeometryNodeTransform")
+        B.ng.links.new(g, t.inputs["Geometry"])
+        t.inputs["Translation"].default_value = (0.0, 0.0, z)
+        return t.outputs[0]
+
+    # Nabenmitte: 0 Kappe (Ring + Wappenscheibe), 1 Zentralverschluss (Rändelring + Kappe), 2 Schrauben + kleine Mittelkappe
+    cap = B.join([cyl(48, 0.042, 0.024, 0.012), cyl(48, 0.027, 0.004, 0.025)])
+    nut = B.join([cyl(32, 0.040, 0.022, 0.011, knurl=0.09), cyl(48, 0.028, 0.030, 0.015)])
+    bolts = B.join([bl.outputs[0], cyl(32, 0.020, 0.012, 0.006)])
+
+    def is_mode(k):
+        n = B.node("FunctionNodeCompare", data_type="INT", operation="EQUAL")
+        a_ = [x for x in n.inputs if x.name == "A" and x.enabled][0]
+        b_ = [x for x in n.inputs if x.name == "B" and x.enabled][0]
+        B.ng.links.new(I("Nabenmitte").s, a_)
+        b_.default_value = k
+        return n.outputs[0]
+
+    sw1 = B.node("GeometryNodeSwitch", input_type="GEOMETRY")
+    B.ng.links.new(is_mode(1), sw1.inputs["Switch"])
+    B.ng.links.new(cap, sw1.inputs["False"])
+    B.ng.links.new(nut, sw1.inputs["True"])
     sw = B.node("GeometryNodeSwitch", input_type="GEOMETRY")
-    B.ng.links.new(I("Zentralverschluss").s, sw.inputs["Switch"])
-    B.ng.links.new(bl.outputs[0], sw.inputs["False"])
-    B.ng.links.new(nt.outputs[0], sw.inputs["True"])
+    B.ng.links.new(is_mode(2), sw.inputs["Switch"])
+    B.ng.links.new(sw1.outputs[0], sw.inputs["False"])
+    B.ng.links.new(bolts, sw.inputs["True"])
 
     # ---------------- Schnittkurve: ein Float-Curve-Knoten hebt/senkt den ganzen Stern (Muster + Schrauben)
     # Subdivision Surface auf dem verschweißten Käfig (Schrauben bleiben unverändert); Creases aus dem Kantenattribut „crease_edge“
@@ -546,7 +575,7 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None, telle
     fa.inputs["Name"].default_value = "front"
     ia = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
     ia.inputs["Name"].default_value = "is_top"
-    wgt = Ref(B, fa.outputs["Attribute"]) * I("Diamond Cut")
+    wgt = Ref(B, fa.outputs["Attribute"]) * I("Teller aktiv")
     target = tz - (1.0 - Ref(B, ia.outputs["Attribute"])) * (I("Rücksprung (mm)") * mm)
     _px, _py, pz = B.sep(B.position())
     tp = B.node("GeometryNodeSetPosition")
@@ -815,11 +844,11 @@ def template_mesh_from_cage(name, td):
     zv = np.asarray(td.get("zvert", np.zeros(n)), np.float64)
     r_ref = float(td.get("r_ref_face", 0.25))
     ramp = np.clip((r - 0.080) / 0.025, 0.0, 1.0)                # Nabe bleibt unberührt, Übergang zum Teller weich
-    has = 1.0 if td.get("has_zone", False) else 0.0
-    it = me.attributes.new("is_top", "FLOAT", "POINT")
-    it.data.foreach_set("value", [float(v) for v in zv] * 2)
+    zone_ok = bool(td.get("has_zone", False))
+    it = me.attributes.new("is_top", "FLOAT", "POINT")                  # ohne polierte Zone: ganze Front liegt auf dem Teller
+    it.data.foreach_set("value", [float(v) if zone_ok else 1.0 for v in zv] * 2)
     fr = me.attributes.new("front", "FLOAT", "POINT")
-    fr.data.foreach_set("value", [float(v) * has for v in ramp] + [0.0] * n)
+    fr.data.foreach_set("value", [float(v) for v in ramp] + [0.0] * n)
     za = me.attributes.new("zone", "FLOAT", "POINT")
     za.data.foreach_set("value", [float(v) for v in zone] * 2)
     for p in me.polygons:
@@ -837,7 +866,7 @@ def set_teller_points(ob, pts, slope=0.0):
     bp[0].co, bp[1].co, bp[2].co = (r0, 0.0, z0), (r1, 0.0, z1), (r2, 0.0, z2)
     dl, dr = (r1 - r0) / 3.0, (r2 - r1) / 3.0
     bp[0].handle_left = (r0 - dl, 0.0, z0)
-    bp[0].handle_right = (r0 + dl, 0.0, z0 + (z1 - z0) / 3.0)
+    bp[0].handle_right = (r0 + dl, 0.0, z0)                 # Mitte: waagerecht (weicher Einlauf, kein Wackeln)
     bp[1].handle_left = (r1 - dl, 0.0, z1 - slope * dl)
     bp[1].handle_right = (r1 + dr, 0.0, z1 + slope * dr)
     bp[2].handle_left = (r2 - dr, 0.0, z2 - (z2 - z1) / 3.0)

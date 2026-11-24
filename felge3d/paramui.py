@@ -123,9 +123,13 @@ def reset_teller(rim):
     def z(u):
         return z_rim - dish * mp.evaluate(cm, min(max(u, 0.0), 1.0)) + float(np.interp(u, hh[:, 0], hh[:, 1]))
 
-    um, d = 0.62, 0.03
-    slope = (z(um + d) - z(um - d)) / (2 * d * r_face)
-    paramrim.set_teller_points(rim.cob, [(0.0, z(0.0)), (um * r_face, z(um)), (r_face, z(1.0))], slope)
+    um = 0.62
+    z0, z2 = z(0.0), z(1.0)
+    z1 = min(max(z(um), min(z0, z2)), max(z0, z2))              # immer gleichsinnig: Mitte → Rand steigt (oder fällt) stetig
+    r1 = um * r_face
+    m0, m1 = (z1 - z0) / r1, (z2 - z1) / (r_face - r1)
+    slope = 0.0 if m0 * m1 <= 0 else 2.0 / (1.0 / m0 + 1.0 / m1)     # monotone Tangente (kein Überschwingen)
+    paramrim.set_teller_points(rim.cob, [(0.0, z0), (r1, z1), (r_face, z2)], slope)
     rim.ob.update_tag()
 
 
@@ -592,12 +596,12 @@ class FELGE3D_OT_teller_reset(Operator):
 GROUPS = [
     ("Form", ("Durchmesser (Zoll)", "Breite J (Zoll)")),
     ("Speichen", ("Speichen", "Drehung (Grad)", "Wölbung (mm)", "Dicke Speiche (mm)")),
-    ("Nabe", ("Zentralverschluss", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)", "Nabenbund Höhe (mm)", "Nabenbund Radius (mm)")),
+    ("Nabe", ("Nabenmitte", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)", "Nabenbund Höhe (mm)", "Nabenbund Radius (mm)")),
     ("Tiefe", ("Konkavität", "Schüsseltiefe (mm)", "Front-Einzug (mm)")),
     ("Felgenbett", ("Flansch (mm)", "Wandstärke (mm)", "Tiefbett (mm)", "Auflösung")),
     ("Unterteilung", ("Unterteilung", "Kantenschärfe")),
     ("Material", ("Diamond Cut", "Diamond-Cut Rand (%)")),
-    ("Teller (Diamond Cut)", ("Rücksprung (mm)", "Horn poliert", "Teller anzeigen")),
+    ("Teller (Diamond Cut)", ("Teller aktiv", "Rücksprung (mm)", "Horn poliert", "Teller anzeigen")),
 ]
 
 

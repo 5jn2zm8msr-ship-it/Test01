@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 34, 0),
+    "version": (0, 35, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -734,6 +734,7 @@ def build_wheel_edit(context, s, new_collection=True):
     p = make_params(s)
     R, W, flange, wall, R_out, r_face, dish = core.dimensions(p)
     F, radii = sector.polar_field(mask, cx, cy, rx, ry, R_out, r_face)
+    F, n_refl = sector.fill_reflections(F, radii, dict(gray=gray, cx=cx, cy=cy, rx=rx, ry=ry, R_out=R_out), r_face)
     nph = sector.detect_n_phase(F, n_hint=n_hint)
     N = nph["N"]
     theta_s = sector.choose_seam(F, radii, N, r_face)
@@ -757,8 +758,9 @@ def build_wheel_edit(context, s, new_collection=True):
         root["felge3d_role"] = "root"
         col.objects.link(root)
     det = dict(n=N, drehung_deg=cage["drehung_deg"], hub_r_mm=s.hub_radius,
-               info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%" % (
-                   N, cage["drehung_deg"], len(cage["r"]), 100 * cage["polished"]))
+               info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%%s" % (
+                   N, cage["drehung_deg"], len(cage["r"]), 100 * cage["polished"],
+                   (" · %d Spiegelung(en) als Material gewertet" % n_refl) if n_refl else ""))
     col["felge3d_detect"] = json.dumps(det)
     col["felge3d_detect_info"] = det["info"]
     pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)

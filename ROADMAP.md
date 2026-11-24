@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.34.0)
+## Stand (Version 0.35.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -63,6 +63,16 @@ gleich gut (3, 6, 8, 10 schwach).
   Trefferausfälle). Offen/ungeprüft: Live-Update beim Ziehen im Edit Mode (nur per Skript getestet), Kurve skaliert nicht mit, wenn
   der Durchmesser später geändert wird (Zurücksetzen nötig), Speichendicke ändert sich mit dem Teller (Rückseite bleibt),
   Übergang schwarz → Teller ist eine Fase von einer Käfigzelle Breite. Außerdem behoben: *Muster neu erzeugen* schlug beim Käfig-Muster fehl.
+
+- 0.35.0: **Käfig entlang der Speiche, Foto-Abgleich, Nabenmitte, Spiegelungen.**
+  Käfig-Gitter folgt der Speichenkontur (Linien parallel zur Außenkante statt radial ins Zentrum), grob (~540 Punkte je Sektor, Zeilenabstand
+  ~18 mm, an Fensterspitze/-ende feiner; Subdivision Stufe 2 verfeinert), alle Außenkanten und die Grenze poliert/schwarz mit Crease 1,0.
+  Polierte Fläche: zwei gerade, ans Foto angepasste Kanten, gerades Ende, nach außen durchgezogen; Foto-Abgleich (IoU) wird berechnet
+  (Porsche 97 %); bei komplexer Form (Volvo: nur Kanten poliert) Kontur direkt aus dem Foto. Teller gilt für die ganze Front (Schalter
+  „Teller aktiv“): technische, gefräste Optik; Teller-Kurve monoton. **Spiegelungen**: Luft-Bereiche ohne Kante zur hellen polierten Fläche
+  (Porsche: 5 „Löcher“ an den Speichenenden) werden Material, echte Löcher (Audi-Radschrauben, schwarz auf schwarz) bleiben.
+  **Nabenmitte**: Kappe mit Wappenscheibe (geschlossen, Standard), Zentralverschluss mit Rändel oder Radschrauben mit Mittelkappe.
+  Offen: Volvo 1 offene Kante je Speiche am Ringübergang; kleine Zacken an Fensterspitze/-ende möglich; Spiegelungs-Regel an 5 Fotos geprüft.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).
