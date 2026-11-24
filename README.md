@@ -21,6 +21,11 @@ Aus einem Felgenfoto (Frontansicht) werden in Sekunden **vier Räder mit Reifen*
 Getestet (headless): Blender 4.5 LTS und **5.3** (Python 3.13); Ziel: ein ZIP für Blender 3.5 (Intel-Mac) bis 5.x (3.x bisher nicht getestet, kein bpy 3.x verfügbar), macOS, Windows, Linux.
 KI-Tiefe: onnxruntime wird je nach Python-Version gewählt (3.13: 1.22; älter: 1.19.2 universal2).
 
+## Parametrische Felge (nur Blender 5.3)
+Zu jedem Bild entsteht in der Collection `Felge_01`, `Felge_02` … zusätzlich zum (ausgeblendeten) KI-Mesh eine saubere Quad-Felge (Geometry Nodes).
+Im Panel *Parametrische Felge*: Konkavität-Slider, Kurven-Editor (Tiefe über dem Radius), Speichen/Nabe/Bett, Diamond Cut mit zwei Farben,
+*Aus KI-Mesh neu ableiten*, *Anwenden* (Modifier festschreiben). *Felgen vergleichen* schaltet zwischen den Collections um.
+
 ## Updates
 Panel **Rim Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.
 Quelle: dieses Repository, Ordner `felge3d/` (Modulname bleibt `felge3d`).

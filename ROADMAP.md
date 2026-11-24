@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.29.2)
+## Stand (Version 0.30.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -27,6 +27,11 @@ gleich gut (3, 6, 8, 10 schwach).
   (auch bei flachen/konvexen Felgen; getestet in 14 Lagen: liegend, 90° gedreht, umgedreht, zufällig)
 - 0.29.2: Standardkurve + Kurvenänderungen an 10 Testfotos geprüft (Netz stabil, Mindestdicke > 13 mm); ungenutzte Einstellungen entfernt;
   Windows: kein Konsolenfenster bei der KI-Installation; Python-3.10-Syntax geprüft (Blender 3.x)
+- 0.30.0 (nur Blender 5.3, getestet mit bpy 5.3.0): Parametrische Quad-Felge per Geometry Nodes (paramrim.py/paramui.py/paramdetect.py):
+  Bett, Außenring, Nabe (5 Radschrauben oder Zentralverschluss), Musterspeiche per Rotations-Instanzierung; Schnittkurve (Float Curve, live)
+  + Slider Konkavität; Parameter-Erkennung aus dem KI-Mesh (Speichenzahl, Breite, Biegung, Nabe); Materialien prozedural inkl. Diamond Cut;
+  Collections Felge_01, Felge_02 … (KI-Mesh ausgeblendet + parametrische Felge), Umschalten im Panel; Package nutzt die parametrische Felge.
+  Grenzen: nur Einzelspeichen; Scheiben mit Fenstern, Doppel-/Y-/Netzspeichen werden nur grob angenähert (IoU zur KI-Maske 0,4–0,8).
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

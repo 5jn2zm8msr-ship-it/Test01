@@ -1,0 +1,508 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""
+Parametrische Felge per Geometry Nodes (Blender 5.x): sauberes Quad-Mesh, nicht-destruktiv.
+
+Aufbau: Felgenbett (Profil um die Achse), Außenring, Nabe, EINE Musterspeiche (Gitter, Breite/Biegung/Tiefe aus Kurven),
+per Rotations-Instanzierung auf die Speichenzahl vervielfältigt, Nabe mit Radschrauben ODER Zentralverschluss.
+Koordinaten wie das KI-Mesh: Radachse = Z, Vorderseite (Felgenhorn) bei z = 0 nach +Z, Bett nach -Z.
+Die Tiefe der Speichen kommt aus der Float-Curve „Schnitt“ (x = Radius Nabe -> Horn, y = Tiefe); der Startpunkt der Kurve
+bestimmt, wie tief Nabe/Schrauben/Zentralverschluss sitzen. Der Slider „Konkavität“ multipliziert die Kurve.
+"""
+import math
+
+import bpy
+
+GROUP_NAME = "Rim Generator | Parametrische Felge"
+CURVE_SECTION, CURVE_WIDTH, CURVE_SWEEP = "Schnitt", "Speichenbreite", "Speichenbiegung"
+
+# (Name, Typ, Standard, min, max, Beschreibung)
+INPUTS = [
+    ("Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Felgendurchmesser in Zoll"),
+    ("Breite J (Zoll)", "FLOAT", 9.0, 5.0, 14.0, "Maulweite in Zoll"),
+    ("Speichen", "INT", 5, 3, 24, "Anzahl der Speichen"),
+    ("Drehung (Grad)", "FLOAT", 0.0, -180.0, 180.0, "Dreht das Speichenmuster um die Achse"),
+    ("Schüsseltiefe (mm)", "FLOAT", 60.0, -80.0, 160.0, "Tiefe der Nabe bei Kurvenwert 1 (+ = konkav)"),
+    ("Konkavität", "FLOAT", 1.0, 0.0, 2.5, "Globaler Multiplikator auf die Schnittkurve"),
+    ("Front-Einzug (mm)", "FLOAT", 12.0, 0.0, 40.0, "Abstand der Speichen-Außenkante hinter dem Horn"),
+    ("Nabenradius (mm)", "FLOAT", 85.0, 40.0, 130.0, "Radius der flachen Nabenanlage"),
+    ("Dicke Nabe (mm)", "FLOAT", 24.0, 10.0, 50.0, ""),
+    ("Dicke Speiche (mm)", "FLOAT", 14.0, 6.0, 40.0, ""),
+    ("Ring (mm)", "FLOAT", 12.0, 4.0, 30.0, "Breite des Außenrings, der Speichen und Bett verbindet"),
+    ("Speichenbreite (mm)", "FLOAT", 62.0, 15.0, 150.0, "Maximale Speichenbreite (Verlauf: Kurve Speichenbreite)"),
+    ("Biegung (Grad)", "FLOAT", 0.0, -90.0, 90.0, "Verdrehung der Speiche zum Rand (Verlauf: Kurve Speichenbiegung)"),
+    ("Wölbung (mm)", "FLOAT", 3.0, 0.0, 15.0, "Speichenrücken (Querschnitt gewölbt)"),
+    ("Zentralverschluss", "BOOL", False, 0, 1, "Aus = Radschrauben, an = Zentralverschluss"),
+    ("Radschrauben", "INT", 5, 3, 8, ""),
+    ("Lochkreis (mm)", "FLOAT", 112.0, 90.0, 140.0, ""),
+    ("Flansch (mm)", "FLOAT", 17.0, 8.0, 30.0, "Höhe des Felgenhorns"),
+    ("Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, ""),
+    ("Tiefbett (mm)", "FLOAT", 22.0, 8.0, 40.0, ""),
+    ("Auflösung", "INT", 96, 24, 256, "Segmente um die Achse (Bett, Ring, Nabe)"),
+    ("Diamond Cut", "BOOL", True, 0, 1, "Speichen-Frontflächen als eigenes Material (glanzgedreht); aus = alles in der Grundfarbe"),
+]
+MATERIAL_FRONT, MATERIAL_BODY = "Felge Front", "Felge Körper"
+PARTS = {}          # Zwischenergebnisse (nur für Tests)
+FRONT_COLOR_NODE, BODY_COLOR_NODE = "Farbe Front", "Farbe Grund"
+
+
+class Ref:
+    """Ausgang eines Knotens mit Rechenoperatoren (baut Math-Knoten)."""
+    __slots__ = ("b", "s")
+
+    def __init__(self, b, s):
+        self.b, self.s = b, s
+
+    def __add__(self, o): return self.b.math("ADD", self, o)
+    def __radd__(self, o): return self.b.math("ADD", o, self)
+    def __sub__(self, o): return self.b.math("SUBTRACT", self, o)
+    def __rsub__(self, o): return self.b.math("SUBTRACT", o, self)
+    def __mul__(self, o): return self.b.math("MULTIPLY", self, o)
+    def __rmul__(self, o): return self.b.math("MULTIPLY", o, self)
+    def __truediv__(self, o): return self.b.math("DIVIDE", self, o)
+    def __rtruediv__(self, o): return self.b.math("DIVIDE", o, self)
+    def __neg__(self): return self.b.math("MULTIPLY", self, -1.0)
+
+
+_PY = {"ADD": lambda a, b: a + b, "SUBTRACT": lambda a, b: a - b, "MULTIPLY": lambda a, b: a * b,
+       "DIVIDE": lambda a, b: a / b if b else 0.0, "MINIMUM": min, "MAXIMUM": max,
+       "SINE": lambda a, b: math.sin(a), "COSINE": lambda a, b: math.cos(a), "SQRT": lambda a, b: math.sqrt(max(a, 0.0)),
+       "POWER": lambda a, b: a ** b}
+
+
+class Builder:
+    def __init__(self, ng):
+        self.ng = ng
+        self.gi = ng.nodes.new("NodeGroupInput")
+        self.gi.location = (-1400, 0)
+        self._x, self._y = -1200, 400
+
+    def node(self, idname, **props):
+        n = self.ng.nodes.new(idname)
+        for k, v in props.items():
+            setattr(n, k, v)
+        n.location = (self._x, self._y)
+        self._y -= 90
+        if self._y < -1400:
+            self._y, self._x = 400, self._x + 260
+        return n
+
+    # ---- Skalare
+    def inp(self, name):
+        return Ref(self, self.gi.outputs[name])
+
+    def _feed(self, node, idx, v):
+        if isinstance(v, Ref):
+            self.ng.links.new(v.s, node.inputs[idx])
+        else:
+            node.inputs[idx].default_value = float(v)
+
+    def math(self, op, a, b=0.0):
+        if not isinstance(a, Ref) and not isinstance(b, Ref):
+            return _PY[op](float(a), float(b))
+        n = self.node("ShaderNodeMath", operation=op)
+        self._feed(n, 0, a)
+        self._feed(n, 1, b)
+        return Ref(self, n.outputs[0])
+
+    def minimum(self, a, b): return self.math("MINIMUM", a, b)
+    def maximum(self, a, b): return self.math("MAXIMUM", a, b)
+    def clamp01(self, a): return self.minimum(self.maximum(a, 0.0), 1.0)
+    def sin(self, a): return self.math("SINE", a)
+    def cos(self, a): return self.math("COSINE", a)
+    def sqrt(self, a): return self.math("SQRT", a)
+
+    def curve(self, name, x, pts, ymin=0.0, ymax=1.0):
+        """Float Curve mit Standardpunkten pts [(x, y), ...]; x = Ref."""
+        n = self.node("ShaderNodeFloatCurve")
+        n.name = n.label = name
+        self._feed(n, 1, x)
+        m = n.mapping
+        m.use_clip = True
+        m.clip_min_x, m.clip_max_x, m.clip_min_y, m.clip_max_y = 0.0, 1.0, ymin, ymax
+        set_curve_points(m, pts)
+        return Ref(self, n.outputs[0])
+
+    # ---- Vektoren
+    def comb(self, x, y, z):
+        n = self.node("ShaderNodeCombineXYZ")
+        for i, v in enumerate((x, y, z)):
+            self._feed(n, i, v)
+        return n.outputs[0]
+
+    def sep(self, vec):
+        n = self.node("ShaderNodeSeparateXYZ")
+        self.ng.links.new(vec, n.inputs[0])
+        return Ref(self, n.outputs[0]), Ref(self, n.outputs[1]), Ref(self, n.outputs[2])
+
+    def position(self):
+        return self.node("GeometryNodeInputPosition").outputs[0]
+
+    def index(self):
+        return Ref(self, self.node("GeometryNodeInputIndex").outputs[0])
+
+    # ---- Geometrie
+    def join(self, geos):
+        n = self.node("GeometryNodeJoinGeometry")
+        for g in geos:
+            self.ng.links.new(g, n.inputs[0])
+        return n.outputs[0]
+
+    def revolve(self, pts, closed=True, sections=None, flip=False):
+        """Profil (r, z) in Metern (Zahlen oder Ref) um die Z-Achse drehen. Gibt Geometrie (Quads) zurück."""
+        segs = []
+        count = len(pts) if closed else len(pts) - 1
+        for k in range(count):
+            a, b = pts[k], pts[(k + 1) % len(pts)]
+            ln = self.node("GeometryNodeCurvePrimitiveLine")
+            self.ng.links.new(self.comb(a[0] - 1.0, -a[1], 0.0), ln.inputs["Start"])
+            self.ng.links.new(self.comb(b[0] - 1.0, -b[1], 0.0), ln.inputs["End"])
+            segs.append(ln.outputs["Curve"])
+        prof = self.join(segs)
+        circ = self.node("GeometryNodeCurvePrimitiveCircle")
+        circ.inputs["Radius"].default_value = 1.0
+        if sections is not None:
+            self.ng.links.new(sections.s, circ.inputs["Resolution"])
+        c2m = self.node("GeometryNodeCurveToMesh")
+        self.ng.links.new(circ.outputs["Curve"], c2m.inputs["Curve"])
+        self.ng.links.new(prof, c2m.inputs["Profile Curve"])
+        mg = self.node("GeometryNodeMergeByDistance")
+        mg.inputs["Distance"].default_value = 0.00005
+        self.ng.links.new(c2m.outputs["Mesh"], mg.inputs["Geometry"])
+        out = mg.outputs[0]
+        if flip:
+            fl = self.node("GeometryNodeFlipFaces")
+            self.ng.links.new(out, fl.inputs["Mesh"])
+            out = fl.outputs[0]
+        return out
+
+
+def set_curve_points(m, pts):
+    cur = m.curves[0]
+    while len(cur.points) > 2:
+        cur.points.remove(cur.points[-1])
+    cur.points[0].location = pts[0]
+    cur.points[1].location = pts[-1]
+    for x, y in pts[1:-1]:
+        cur.points.new(x, y)
+    for p in cur.points:
+        p.handle_type = "AUTO"
+    m.update()
+
+
+def default_section_points(hub_x=0.34, q=2.0):
+    """Exakte Standardschnitt-Kurve (wie core.default_depth): flach bis zur Nabe, dann 1 - u^q."""
+    xs = [0.0, hub_x] + [hub_x + u * (1.0 - hub_x) for u in (0.25, 0.5, 0.75)] + [1.0]
+    return [(x, 1.0 - min(max((x - hub_x) / (1.0 - hub_x), 0.0), 1.0) ** q) for x in xs]
+
+
+def _color_node(nt, name, color, loc):
+    n = nt.nodes.get(name) or nt.nodes.new("ShaderNodeRGB")
+    n.name = n.label = name
+    n.outputs[0].default_value = color
+    n.location = loc
+    return n
+
+
+def _front_material(name, color=(0.80, 0.81, 0.83, 1.0)):
+    """Glanzgedrehtes Aluminium: hell, stark reflektierend, feine Drehriefen (Ringe um die Achse), anisotrope Reflexion."""
+    m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    out.location = (700, 0)
+    b = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    b.location = (400, 0)
+    nt.links.new(b.outputs["BSDF"], out.inputs["Surface"])
+    col = _color_node(nt, FRONT_COLOR_NODE, color, (-300, 300))
+    nt.links.new(col.outputs[0], b.inputs["Base Color"])
+    b.inputs["Metallic"].default_value = 1.0
+    b.inputs["Roughness"].default_value = 0.16
+    for nm in ("Anisotropic",):
+        if nm in b.inputs:
+            b.inputs[nm].default_value = 0.8
+    tg = nt.nodes.new("ShaderNodeTangent")
+    tg.direction_type, tg.axis = "RADIAL", "Z"
+    tg.location = (100, -300)
+    if "Tangent" in b.inputs:
+        nt.links.new(tg.outputs["Tangent"], b.inputs["Tangent"])
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    tc.location = (-900, -300)
+    wv = nt.nodes.new("ShaderNodeTexWave")
+    wv.wave_type, wv.bands_direction, wv.rings_direction = "RINGS", "Z", "Z"
+    wv.wave_profile = "SAW"
+    wv.inputs["Scale"].default_value = 1100.0
+    wv.inputs["Distortion"].default_value = 1.2
+    wv.inputs["Detail"].default_value = 2.0
+    wv.inputs["Detail Scale"].default_value = 2.5
+    wv.location = (-650, -300)
+    nt.links.new(tc.outputs["Object"], wv.inputs["Vector"])
+    bp = nt.nodes.new("ShaderNodeBump")
+    bp.inputs["Strength"].default_value = 0.08
+    bp.inputs["Distance"].default_value = 0.0004
+    bp.location = (100, -500)
+    nt.links.new(wv.outputs["Fac"], bp.inputs["Height"])
+    nt.links.new(bp.outputs["Normal"], b.inputs["Normal"])
+    mr = nt.nodes.new("ShaderNodeMapRange")
+    mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 0.12, 0.26
+    mr.location = (-300, -150)
+    nt.links.new(wv.outputs["Fac"], mr.inputs["Value"])
+    nt.links.new(mr.outputs["Result"], b.inputs["Roughness"])
+    m.diffuse_color = color
+    return m
+
+
+def _body_material(name, color=(0.012, 0.012, 0.014, 1.0)):
+    """Grundfarbe: frei wählbar (Standard Schwarz glänzend), Klarlack."""
+    m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    out.location = (500, 0)
+    b = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    b.location = (200, 0)
+    nt.links.new(b.outputs["BSDF"], out.inputs["Surface"])
+    col = _color_node(nt, BODY_COLOR_NODE, color, (-200, 200))
+    nt.links.new(col.outputs[0], b.inputs["Base Color"])
+    b.inputs["Metallic"].default_value = 0.35
+    b.inputs["Roughness"].default_value = 0.22
+    for nm in ("Coat Weight", "Clearcoat"):
+        if nm in b.inputs:
+            b.inputs[nm].default_value = 0.8
+            break
+    m.diffuse_color = color
+    return m
+
+
+def _materials(suffix=""):
+    return (_front_material(MATERIAL_FRONT + suffix), _body_material(MATERIAL_BODY + suffix))
+
+
+def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix=""):
+    """Erzeugt den Geometry-Nodes-Baum. Gibt die Node-Group zurück."""
+    ng = bpy.data.node_groups.new(name, "GeometryNodeTree")
+    ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    for nm, typ, dv, lo, hi, desc in INPUTS:
+        sock_t = {"FLOAT": "NodeSocketFloat", "INT": "NodeSocketInt", "BOOL": "NodeSocketBool"}[typ]
+        s = ng.interface.new_socket(nm, in_out="INPUT", socket_type=sock_t)
+        s.default_value = dv
+        if typ != "BOOL":
+            s.min_value, s.max_value = lo, hi
+        s.description = desc
+    B = Builder(ng)
+    I = B.inp
+    mm = 0.001
+    inch = 0.0254
+    R = I("Durchmesser (Zoll)") * (inch / 2.0)
+    W = I("Breite J (Zoll)") * inch
+    wall, flange, drop = I("Wandstärke (mm)") * mm, I("Flansch (mm)") * mm, I("Tiefbett (mm)") * mm
+    ring = I("Ring (mm)") * mm
+    r_face = R - wall + 0.001
+    r_hub = I("Nabenradius (mm)") * mm
+    inset = I("Front-Einzug (mm)") * mm
+    dish = I("Schüsseltiefe (mm)") * mm * I("Konkavität")
+    z_rim = -inset
+    t_spoke, t_hub = I("Dicke Speiche (mm)") * mm, I("Dicke Nabe (mm)") * mm
+    sections = I("Auflösung")
+
+    # ---------------- Felgenbett (Profil wie core.barrel_profile)
+    outer = [(R + flange, 0.0), (R + flange, -0.006), (R + 0.002, -0.014), (R, -0.020), (R, W * -0.18), (R - drop, W * -0.30),
+             (R - drop, W * -0.62), (R, W * -0.74), (R, -W + 0.020), (R + 0.002, -W + 0.014), (R + flange, -W + 0.006), (R + flange, -W)]
+    inner = [(r - wall, z) for r, z in outer]
+    barrel = B.revolve(outer + inner[::-1], True, sections)
+
+    # ---------------- Stern flach aufbauen (Oberseite z = 0); die Schnittkurve hebt/senkt danach alles gemeinsam
+    ring_geo = B.revolve([(r_face - ring, 0.0), (r_face, 0.0), (r_face, -t_spoke), (r_face - ring, -t_spoke)], True, sections)
+    hub_geo = B.revolve([(0.012, 0.0), (r_hub, 0.0), (r_hub, -t_hub), (0.012, -t_hub)], True, sections)
+
+    # Musterspeiche: Gitter (Quads) -> Extrusion nach unten; Breite/Biegung aus Kurven
+    grid = B.node("GeometryNodeMeshGrid")
+    grid.inputs["Size X"].default_value = grid.inputs["Size Y"].default_value = 1.0
+    grid.inputs["Vertices X"].default_value, grid.inputs["Vertices Y"].default_value = 30, 7
+    px, py, _pz = B.sep(B.position())
+    tt = px + 0.5
+    vv = py * 2.0
+    r0, r1 = r_hub * 0.8, r_face - ring * 0.5
+    rr = r0 + (r1 - r0) * tt
+    th = I("Biegung (Grad)") * (math.pi / 180.0) * B.curve(CURVE_SWEEP, tt, [(0.0, 0.0), (1.0, 1.0)], -1.0, 1.0)
+    hw = I("Speichenbreite (mm)") * mm * 0.5 * B.curve(CURVE_WIDTH, tt, [(0.0, 0.85), (0.5, 0.7), (1.0, 1.0)])
+    hw = B.minimum(hw, rr * (0.9 * math.pi) / I("Speichen"))      # nie breiter als der Teilungsabstand (keine Überlappung)
+    cth, sth = B.cos(th), B.sin(th)
+    x_new = rr * cth - vv * hw * sth
+    y_new = rr * sth + vv * hw * cth
+    z_top = I("Wölbung (mm)") * mm * (1.0 - vv * vv) + 0.0002
+    sp = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(grid.outputs["Mesh"], sp.inputs["Geometry"])
+    B.ng.links.new(B.comb(x_new, y_new, z_top), sp.inputs["Position"])
+    ex = B.node("GeometryNodeExtrudeMesh")
+    B.ng.links.new(sp.outputs[0], ex.inputs["Mesh"])
+    ex.inputs["Offset Scale"].default_value = -0.001      # entlang der Normalen (nach unten)
+    ex.inputs["Individual"].default_value = False         # zusammenhängende Extrusion mit Seitenwänden
+    sp2 = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(ex.outputs["Mesh"], sp2.inputs["Geometry"])
+    B.ng.links.new(ex.outputs["Top"], sp2.inputs["Selection"])
+    qx, qy, _qz = B.sep(B.position())
+    q_r = B.sqrt(qx * qx + qy * qy)
+    s_of = B.clamp01((r_face - q_r) / (r_face - r_hub))
+    thick = t_spoke + (t_hub - t_spoke) * s_of
+    B.ng.links.new(B.comb(0.0, 0.0, -(thick - 0.001)), sp2.inputs["Offset"])
+    # Die Region-Extrusion lässt die Oberseite offen: Unterseite umdrehen, Original-Oberseite dazu, Nähte verschweißen
+    fl = B.node("GeometryNodeFlipFaces")
+    B.ng.links.new(sp2.outputs[0], fl.inputs["Mesh"])
+    B.ng.links.new(ex.outputs["Top"], fl.inputs["Selection"])
+    spoke_solid = B.node("GeometryNodeMergeByDistance")
+    spoke_solid.inputs["Distance"].default_value = 0.00005
+    B.ng.links.new(B.join([fl.outputs[0], sp.outputs[0]]), spoke_solid.inputs["Geometry"])
+    pts = B.node("GeometryNodeMeshCircle")
+    pts.inputs["Radius"].default_value = 0.0
+    B.ng.links.new(I("Speichen").s, pts.inputs["Vertices"])
+    ang = (B.index() * (2.0 * math.pi) / I("Speichen")) + I("Drehung (Grad)") * (math.pi / 180.0)
+    iop = B.node("GeometryNodeInstanceOnPoints")
+    B.ng.links.new(pts.outputs["Mesh"], iop.inputs["Points"])
+    B.ng.links.new(spoke_solid.outputs[0], iop.inputs["Instance"])
+    B.ng.links.new(B.comb(0.0, 0.0, ang), iop.inputs["Rotation"])
+    rl = B.node("GeometryNodeRealizeInstances")
+    B.ng.links.new(iop.outputs["Instances"], rl.inputs["Geometry"])
+
+    # Nabe: Radschrauben ODER Zentralverschluss (auf der flachen Nabenoberseite z = 0)
+    bolt = B.node("GeometryNodeMeshCylinder")
+    bolt.inputs["Vertices"].default_value = 6
+    bolt.inputs["Radius"].default_value = 0.0105
+    bolt.inputs["Depth"].default_value = 0.022
+    bz = B.node("GeometryNodeTransform")
+    B.ng.links.new(bolt.outputs["Mesh"], bz.inputs["Geometry"])
+    bz.inputs["Translation"].default_value = (0.0, 0.0, 0.009)
+    cpts = B.node("GeometryNodeMeshCircle")
+    B.ng.links.new(I("Radschrauben").s, cpts.inputs["Vertices"])
+    B.ng.links.new((I("Lochkreis (mm)") * (mm / 2.0)).s, cpts.inputs["Radius"])
+    bi = B.node("GeometryNodeInstanceOnPoints")
+    B.ng.links.new(cpts.outputs["Mesh"], bi.inputs["Points"])
+    B.ng.links.new(bz.outputs[0], bi.inputs["Instance"])
+    bl = B.node("GeometryNodeRealizeInstances")
+    B.ng.links.new(bi.outputs["Instances"], bl.inputs["Geometry"])
+    nut = B.node("GeometryNodeMeshCylinder")
+    nut.inputs["Vertices"].default_value = 24
+    nut.inputs["Radius"].default_value = 0.034
+    nut.inputs["Depth"].default_value = 0.024
+    nt = B.node("GeometryNodeTransform")
+    B.ng.links.new(nut.outputs["Mesh"], nt.inputs["Geometry"])
+    nt.inputs["Translation"].default_value = (0.0, 0.0, 0.011)
+    sw = B.node("GeometryNodeSwitch", input_type="GEOMETRY")
+    B.ng.links.new(I("Zentralverschluss").s, sw.inputs["Switch"])
+    B.ng.links.new(bl.outputs[0], sw.inputs["False"])
+    B.ng.links.new(nt.outputs[0], sw.inputs["True"])
+
+    # Schnittkurve: ein einziger Float-Curve-Knoten hebt/senkt den ganzen Stern (Nabe, Schrauben, Speichen, Ring)
+    flat = B.join([ring_geo, hub_geo, rl.outputs[0], sw.outputs[0]])
+    zx, zy, _zz = B.sep(B.position())
+    depth = B.curve(CURVE_SECTION, B.clamp01(B.sqrt(zx * zx + zy * zy) / r_face), default_section_points(hub_x))
+    szp = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(flat, szp.inputs["Geometry"])
+    B.ng.links.new(B.comb(0.0, 0.0, z_rim - dish * depth), szp.inputs["Offset"])
+    star_geo = szp.outputs[0]
+    PARTS.clear()
+    PARTS.update(barrel=barrel, ring=ring_geo, hub=hub_geo, spokes=rl.outputs[0], bolts=sw.outputs[0], star=star_geo, flat=flat)
+
+    # ---------------- Zusammenbau, Materialien (Front über Normale), Glätten
+    mfront, mbody = _materials(mat_suffix)
+    body_all = B.join([barrel, star_geo])
+    setb = B.node("GeometryNodeSetMaterial")
+    B.ng.links.new(body_all, setb.inputs["Geometry"])
+    setb.inputs["Material"].default_value = mbody
+    nrm = B.node("GeometryNodeInputNormal")
+    cz = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    nz = B.sep(nrm.outputs[0])[2]
+    B.ng.links.new(nz.s, cz.inputs[0])
+    cz.inputs[1].default_value = 0.3
+    px2, py2, _ = B.sep(B.position())
+    r_p = B.sqrt(px2 * px2 + py2 * py2)
+    cr = B.node("FunctionNodeCompare", data_type="FLOAT", operation="LESS_THAN")
+    B.ng.links.new(r_p.s, cr.inputs[0])
+    B.ng.links.new((r_face - 0.0005).s, cr.inputs[1])
+    both0 = B.node("FunctionNodeBooleanMath", operation="AND")
+    B.ng.links.new(cz.outputs[0], both0.inputs[0])
+    B.ng.links.new(cr.outputs[0], both0.inputs[1])
+    both = B.node("FunctionNodeBooleanMath", operation="AND")
+    B.ng.links.new(both0.outputs[0], both.inputs[0])
+    B.ng.links.new(I("Diamond Cut").s, both.inputs[1])
+    setf = B.node("GeometryNodeSetMaterial")
+    B.ng.links.new(setb.outputs[0], setf.inputs["Geometry"])
+    B.ng.links.new(both.outputs[0], setf.inputs["Selection"])
+    setf.inputs["Material"].default_value = mfront
+    sm = B.node("GeometryNodeSetShadeSmooth")
+    B.ng.links.new(setf.outputs[0], sm.inputs["Mesh"])
+    sm.inputs["Shade Smooth"].default_value = True
+    go = B.node("NodeGroupOutput")
+    B.ng.links.new(sm.outputs[0], go.inputs["Geometry"])
+    return ng
+
+
+def add_finish_modifiers(ob):
+    """Bevel (Kanten) + Weighted Normal nach dem Node-Baum; Händisch weiter bearbeitbar oder per 'Anwenden' festschreiben."""
+    import math as _m
+    bv = ob.modifiers.new("Kantenfase", "BEVEL")
+    bv.width, bv.segments = 0.0008, 2
+    bv.limit_method, bv.angle_limit = "ANGLE", _m.radians(35)
+    wn = ob.modifiers.new("Gewichtete Normalen", "WEIGHTED_NORMAL")
+    wn.keep_sharp = True
+    return bv, wn
+
+
+def make_object(name, collection, group=None, hub_x=0.34):
+    """Mesh-Objekt mit eigenem Node-Baum (eigene Kopie, damit jede Felge ihre eigene Kurve hat)."""
+    ng = group.copy() if group is not None else build_group(name=name, hub_x=hub_x, mat_suffix=" " + name)
+    ng.name = name
+    me = bpy.data.meshes.new(name)
+    ob = bpy.data.objects.new(name, me)
+    collection.objects.link(ob)
+    md = ob.modifiers.new("Parametrische Felge", "NODES")
+    md.node_group = ng
+    add_finish_modifiers(ob)
+    return ob, md
+
+
+def socket_ids(ng):
+    """Name -> Identifier der Eingänge der Node-Group."""
+    return {i.name: i.identifier for i in ng.interface.items_tree if getattr(i, "in_out", "") == "INPUT"}
+
+
+def _input_struct(md, ident):
+    props = getattr(md, "properties", None)          # Blender 5.x: md.properties.inputs.Socket_N.value
+    if props is not None and hasattr(props, "inputs") and hasattr(props.inputs, ident):
+        return getattr(props.inputs, ident)
+    return None
+
+
+def set_param(md, name, value):
+    ident = socket_ids(md.node_group)[name]
+    st = _input_struct(md, ident)
+    if st is not None:
+        st.value = value
+    else:
+        md[ident] = value
+    md.id_data.update_tag()
+
+
+def get_param(md, name):
+    ident = socket_ids(md.node_group)[name]
+    st = _input_struct(md, ident)
+    return st.value if st is not None else md[ident]
+
+
+def curve_node(md, name=CURVE_SECTION):
+    return md.node_group.nodes[name]
+
+
+def apply_all(context, ob):
+    """Modifier-Stack festschreiben (Node-Baum, Bevel, Weighted Normal) -> normales Mesh zum Nacharbeiten."""
+    dg = context.evaluated_depsgraph_get()
+    ev = ob.evaluated_get(dg)
+    me = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=dg)
+    old = ob.data
+    ob.modifiers.clear()
+    ob.data = me
+    me.name = ob.name
+    if old.users == 0:
+        bpy.data.meshes.remove(old)
+    return me

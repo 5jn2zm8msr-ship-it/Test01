@@ -1372,6 +1372,7 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     return dict(star_verts=sv, star_faces=sf, star_sharp=sharp, star_kinds=kinds,
                 barrel_verts=bv, barrel_faces=bf, dish=dish, tone_info=tone_info,
                 analysis=shape_analysis(p), selfcheck=selfcheck_report(sym_report, F0, F, radii, r_face),
+                polar_F=F, polar_r=radii, r_face=r_face,
                 hub_back=(z_rim - dish / 1000.0 - p.hub_thickness / 1000.0) * 1000.0)
 
 

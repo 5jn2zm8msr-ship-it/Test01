@@ -9,13 +9,14 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 29, 3),
+    "version": (0, 30, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
     "category": "Import-Export",
 }
 
+import json
 import math
 import os
 
@@ -37,8 +38,11 @@ if "core" in locals():
     tire_data = importlib.reload(tire_data)
     brake_data = importlib.reload(brake_data)
     fbx = importlib.reload(fbx)
+    paramdetect = importlib.reload(paramdetect)
+    paramrim = importlib.reload(paramrim)
+    paramui = importlib.reload(paramui)
 else:
-    from . import ai, brake_data, car, core, fbx, tire_data, updater
+    from . import ai, brake_data, car, core, fbx, paramdetect, paramrim, paramui, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -61,6 +65,10 @@ class Felge3DSettings(PropertyGroup):
         name="Eigene Maske", type=bpy.types.Image,
         description="Optional: Schwarz/Weiß-Bild (weiß = Material) statt automatischer Erkennung")
     collection: PointerProperty(name="Collection", type=bpy.types.Collection)
+    use_param: BoolProperty(name="Parametrische Felge erzeugen (Blender 5.3)", default=True,
+                            description="Zusätzlich zum KI-Mesh eine saubere Quad-Felge (Geometry Nodes) in dieselbe Collection setzen")
+    active_rim: EnumProperty(name="Felge", items=paramui.rim_items, update=paramui.rim_switched,
+                             description="Zwischen den erzeugten Felgen-Collections umschalten")
 
     # --- Lage der Felge im Bild
     tire_mode: EnumProperty(name="Reifen im Foto", default="AUTO", items=[
@@ -594,6 +602,19 @@ def union_meshes(a_me, b_me):
     return me
 
 
+def build_param_defaults(s, n=None):
+    """Startwerte der parametrischen Felge aus den Maßen/der Erkennung des KI-Meshes."""
+    p = make_params(s)
+    dish = core.dimensions(p)[6]
+    d = {"Durchmesser (Zoll)": float(s.diameter), "Breite J (Zoll)": float(s.width), "Schüsseltiefe (mm)": float(dish),
+         "Front-Einzug (mm)": float(s.face_inset), "Nabenradius (mm)": float(s.hub_radius), "Dicke Nabe (mm)": float(s.hub_thickness),
+         "Dicke Speiche (mm)": float(s.spoke_thickness), "Ring (mm)": float(p.ring), "Flansch (mm)": float(s.flange),
+         "Wandstärke (mm)": float(s.wall), "Tiefbett (mm)": float(s.drop), "hub_x": default_hub_x(s)}
+    if n and 3 <= int(n) <= 24:
+        d["Speichen"] = int(n)
+    return d
+
+
 def unique_collection_name(base):
     name, i = base, 2
     while name in bpy.data.collections:
@@ -695,14 +716,18 @@ def build_wheel(context, s, new_collection=True):
     col = s.collection if (not new_collection and s.collection
                            and s.collection.name in bpy.data.collections) else None
     if col is None:
-        col = bpy.data.collections.new(unique_collection_name("Felge " + img_name))
+        col = bpy.data.collections.new(paramui.next_rim_name())
         context.scene.collection.children.link(col)
         s.collection = col
-    # alte Objekte der Collection entfernen (Empty bleibt)
+    col["felge3d_rim"] = True
+    col["felge3d_image"] = s.image.name
+    # alte KI-Objekte der Collection entfernen (Empty und parametrische Felge bleiben)
     root = None
     for ob in list(col.objects):
         if ob.get("felge3d_role") == "root":
             root = ob
+        elif ob.get("felge3d_role") in (paramui.ROLE_PARAM, "param_applied"):
+            continue
         else:
             me = ob.data
             bpy.data.objects.remove(ob)
@@ -724,7 +749,26 @@ def build_wheel(context, s, new_collection=True):
         if me.users == 0:
             bpy.data.meshes.remove(me)
 
-    nf = sum(len(ob.data.polygons) for ob in col.objects if ob.type == "MESH")
+    if s.use_param and paramui.PARAM_OK:
+        try:
+            det = None
+            try:
+                det = paramdetect.detect(res["polar_F"], res["polar_r"], res["r_face"], n_sym=n, ring_m=make_params(s).ring / 1000.0)
+            except Exception as e_:  # noqa: BLE001
+                print("Felge3D: Parameter-Erkennung fehlgeschlagen:", e_)
+            if det:
+                col["felge3d_detect"] = json.dumps(det)
+                col["felge3d_detect_info"] = det["info"]
+            pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)
+            paramui.ensure_param(context, s, col, root, build_param_defaults(s, det["n"] if det else n), det, pts)
+            for c_ in paramui.rim_collections():
+                c_.hide_viewport = c_ is not col
+                c_.hide_render = c_ is not col
+            if s.active_rim != col.name:
+                s.active_rim = col.name
+        except Exception as e:  # noqa: BLE001 – das KI-Mesh bleibt auch ohne parametrische Felge nutzbar
+            print("Felge3D: parametrische Felge fehlgeschlagen:", e)
+    nf = sum(len(ob.data.polygons) for ob in col.objects if ob.type == "MESH" and ob.get("felge3d_role") in ("star", "barrel", "body"))
     s["ai_used"] = depth is not None
     info = "Felge erzeugt: %s · %d-fach symmetrisch · %d Flächen%s" % (
         res["analysis"]["text"] if s.use_et else "Schüssel %+.0f mm" % res["dish"], n, nf,
@@ -764,8 +808,11 @@ class FELGE3D_OT_import_image(Operator, ImportHelper):
             pass
         if s.auto_detect:
             bpy.ops.felge3d.detect()
+        same = next((c for c in paramui.rim_collections() if c.get("felge3d_image") == img.name), None)
+        if same is not None:                    # gleiches Bild: bestehende Collection aktualisieren
+            s.collection = same
         try:
-            col, info = build_wheel(context, s, new_collection=True)
+            col, info = build_wheel(context, s, new_collection=same is None)
         except Exception as e:  # noqa: BLE001 – Fehler dem Nutzer anzeigen
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
@@ -1056,11 +1103,12 @@ class FELGE3D_PT_main(Panel):
 
 
 class FELGE3D_PT_section(Panel):
-    bl_label = "Schnitt: Tiefe und Bombierung"
+    bl_label = "Schnitt: Tiefe und Bombierung (KI-Mesh)"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         s = context.scene.felge3d
@@ -1443,6 +1491,9 @@ def build_car(context, s, c):
     bimgs, bmeta = brake_textures()
     mats, imgs = car.build_materials(c, tire_img, tread_img, tread_h, bimgs, bmeta["cal_color"])
     finfo = fbx.analyze(src_meshes, s.fbx_flip) if use_fbx else None
+    pob = None
+    if not use_fbx and paramui.PARAM_OK and s.collection is not None:
+        pob = paramui.param_object_of(s.collection)          # parametrische Felge hat Vorrang, sonst KI-Mesh
 
     axles = {}
     for front in (True, False):
@@ -1455,6 +1506,17 @@ def build_car(context, s, c):
             back_fn = fbx.back_profile(parts, d["rim_out"], finfo["width"] * scale)
             base = lambda sgn: Matrix.Rotation(math.pi, 4, "Z") if sgn < 0 else Matrix.Identity(4)
             rim_parts = [(label, me) for label, me in parts]
+        elif pob is not None:                      # parametrische Felge (Geometry Nodes) in der Größe dieser Achse
+            md_p = paramui.param_modifier(pob)
+            half = d["rim_width_in"] * 0.0254 / 2.0
+            behind = d["rim_width_in"] * 25.4 / 2.0 - d["et"] * 1000.0          # Nabenanlage hinter dem Horn (mm)
+            dish_mm = behind - paramrim.get_param(md_p, "Dicke Nabe (mm)") - paramrim.get_param(md_p, "Front-Einzug (mm)")
+            me_p = paramui.param_rim_mesh(context, pob, d["rim_in"], d["rim_width_in"], dish_mm, "Felge " + ("vorn" if front else "hinten"))
+            wall_m = paramrim.get_param(md_p, "Wandstärke (mm)") / 1000.0
+            back_fn = paramui.back_profile_of(me_p, half, d["r_rim"] - wall_m - 0.002)
+            r_well = d["r_rim"] - (paramrim.get_param(md_p, "Tiefbett (mm)") + paramrim.get_param(md_p, "Wandstärke (mm)")) / 1000.0
+            base = lambda sgn, half=half: Matrix.Translation((sgn * half, 0, 0)) @ car.rim_matrix(sgn)
+            rim_parts = [("Felge", me_p)]
         else:
             rim = make_rim_meshes(context, s, dict(diameter=float(d["rim_in"]), width=d["rim_width_in"],
                                                    et=d["et"] * 1000.0, use_et=True))
@@ -1826,6 +1888,7 @@ classes = (
     FELGE3D_OT_export_obj,
     # Reiter 1: 2D to 3D Rim
     FELGE3D_PT_main,
+    *paramui.classes,
     FELGE3D_PT_section,
     FELGE3D_PT_shape,
     FELGE3D_PT_check,
