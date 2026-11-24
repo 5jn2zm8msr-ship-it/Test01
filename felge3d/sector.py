@@ -422,7 +422,7 @@ def build_sector_template(res, N, theta0, r_ref_face, cols=73, rows=128, r_a=0.0
         y = ph["cy"] + r / ph["R_out"] * ph["ry"] * np.cos(t)
         vals[k] = core.bilinear(gray, x, y)
     br = np.median(vals, axis=0)
-    solid = r > r_hub_solid + 0.02
+    solid = r > r_hub_solid + 0.008
     lo, hi = (np.percentile(br[solid], 5), np.percentile(br[solid], 95)) if solid.sum() > 50 else (0.0, 1.0)
     nrm = np.clip((br - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     thr, var = _otsu(nrm[solid]) if solid.sum() > 50 else (0.5, 0.0)
@@ -439,7 +439,7 @@ def build_sector_template(res, N, theta0, r_ref_face, cols=73, rows=128, r_a=0.0
         zone = (zone > 0.5).astype(np.float64)
     else:
         zone = np.full(n, 1.0 if (solid.any() and float(np.mean(br[solid])) > 0.55) else 0.0)
-    zone[r < r_hub_solid + 0.02] = 0.0
+    zone[r < r_hub_solid + 0.008] = 0.0
     half = 0.5 * pitch
     phi0 = math.pi / 2 - (theta0 + half)
     return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=zone, N=int(N), pitch=pitch,
@@ -849,7 +849,7 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
                                 photo["cy"] + R / photo["R_out"] * photo["ry"] * np.cos(th))
     br = np.median(vals, axis=0)
     mat = (Fv >= 0.5)
-    solid = mat & (R > r_hub_solid + 0.02)
+    solid = mat & (R > r_hub_solid + 0.008)
     if solid.sum() < 100:
         return None, dict(bimodal=False, bright=0.0)
     lo, hi = np.percentile(br[solid], 5), np.percentile(br[solid], 95)
@@ -864,8 +864,8 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     B = _blur_cyc((nrm > thr).astype(np.float32), 3)                     # ruhige Kontur
     E = _blur_cyc(_erode_material(mat, r_fine, pitch, border_m), 1)       # Rahmen: Abstand zur Silhouette
     Z = np.minimum(B, E)
-    Z[R < r_hub_solid + 0.02] = 0.0
-    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, raw=(cls & mat & (R > r_hub_solid + 0.02)))
+    Z[R < r_hub_solid + 0.008] = 0.0
+    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, raw=(cls & mat & (R > r_hub_solid + 0.008)))
 
 
 _DEBUG_BAND = False
@@ -930,6 +930,84 @@ def _zone_band(Zf, at_, bt_, ea, eb, r_fine, pitch, raw, min_border):
     ref = (raw > 0.5) & (np.arange(n_r)[:, None] >= i0) & (np.arange(n_r)[:, None] <= i1)
     iou = float(np.sum(band & ref)) / max(float(np.sum(band | ref)), 1.0)
     return out, dict(iou=iou, r0=float(rr[i0]), r1=float(rr[i1]), d=min_border)
+
+
+def overlay_array(rgb, cage, cx, cy, rx, ry, R_out):
+    """Foto mit Käfig-Abgleich: Blau = Diamond-Cut-Flächen, Cyan = Grenze poliert/schwarz (Crease), Orange = Außenkontur, für alle N Speichen."""
+    H, W = rgb.shape[:2]
+    ov = np.asarray(rgb, np.float32).copy()
+    r, f = np.asarray(cage["r"]), np.asarray(cage["f"])
+    faces, dia = cage["faces"], np.asarray(cage["diamond"])
+    chords = {tuple(sorted(c)) for c in cage["chords"]}
+    pitch, ts, N = cage["pitch"], cage["theta_s"], int(cage["N"])
+    seam = (f < 1e-9) | (f > 1 - 1e-9)
+    cnt = {}
+    for fc in faces:
+        for q in range(len(fc)):
+            e = tuple(sorted((fc[q], fc[(q + 1) % len(fc)])))
+            cnt[e] = cnt.get(e, 0) + 1
+    blue = np.array([40.0, 110.0, 255.0])
+    for k in range(N):
+        th = ts + (f + k) * pitch
+        X, Y = cx + r / R_out * rx * np.sin(th), cy + r / R_out * ry * np.cos(th)
+        for fc, d in zip(faces, dia):
+            if not d:
+                continue
+            for q in range(1, len(fc) - 1):
+                a, b, c = fc[0], fc[q], fc[q + 1]
+                x0, x1 = int(max(min(X[a], X[b], X[c]), 0)), int(min(max(X[a], X[b], X[c]) + 1, W - 1))
+                y0, y1 = int(max(min(Y[a], Y[b], Y[c]), 0)), int(min(max(Y[a], Y[b], Y[c]) + 1, H - 1))
+                if x1 < x0 or y1 < y0:
+                    continue
+                gy, gx = np.mgrid[y0:y1 + 1, x0:x1 + 1]
+                den = (Y[b] - Y[c]) * (X[a] - X[c]) + (X[c] - X[b]) * (Y[a] - Y[c])
+                if abs(den) < 1e-9:
+                    continue
+                l1 = ((Y[b] - Y[c]) * (gx - X[c]) + (X[c] - X[b]) * (gy - Y[c])) / den
+                l2 = ((Y[c] - Y[a]) * (gx - X[c]) + (X[a] - X[c]) * (gy - Y[c])) / den
+                m = (l1 >= 0) & (l2 >= 0) & (l1 + l2 <= 1)
+                ov[y0:y1 + 1, x0:x1 + 1][m] = 0.55 * ov[y0:y1 + 1, x0:x1 + 1][m] + 0.45 * blue
+        for e, c_ in cnt.items():
+            a, b = e
+            if e in chords:
+                col = (0.0, 230.0, 230.0)
+            elif c_ == 1 and not (seam[a] and seam[b]):
+                col = (255.0, 140.0, 0.0)
+            else:
+                continue
+            n = int(max(abs(X[a] - X[b]), abs(Y[a] - Y[b])) * 1.5) + 2
+            t = np.linspace(0, 1, n)
+            xs = np.clip((X[a] + (X[b] - X[a]) * t).astype(int), 0, W - 1)
+            ys = np.clip((Y[a] + (Y[b] - Y[a]) * t).astype(int), 0, H - 1)
+            ov[ys, xs] = col
+    return ov
+
+
+def zone_iou(r, f, faces, diamond, r_fine, raw):
+    """Abgleich Blau (Diamond-Cut-Flächen des Käfigs) gegen Weiß (helle Fläche im Foto) im Sektor-Raster: Überdeckung IoU."""
+    n_r, C = raw.shape
+    r0, r1 = r_fine[0], r_fine[-1]
+    X = np.asarray(f) * (C - 1)
+    Y = (np.asarray(r) - r0) / (r1 - r0) * (n_r - 1)
+    M = np.zeros((n_r, C), bool)
+    for fc, d in zip(faces, diamond):
+        if not d:
+            continue
+        for k in range(1, len(fc) - 1):
+            a, b, c = fc[0], fc[k], fc[k + 1]
+            x0, x1 = int(max(min(X[a], X[b], X[c]), 0)), int(min(max(X[a], X[b], X[c]) + 1, C - 1))
+            y0, y1 = int(max(min(Y[a], Y[b], Y[c]), 0)), int(min(max(Y[a], Y[b], Y[c]) + 1, n_r - 1))
+            if x1 < x0 or y1 < y0:
+                continue
+            gy, gx = np.mgrid[y0:y1 + 1, x0:x1 + 1]
+            den = (Y[b] - Y[c]) * (X[a] - X[c]) + (X[c] - X[b]) * (Y[a] - Y[c])
+            if abs(den) < 1e-12:
+                continue
+            l1 = ((Y[b] - Y[c]) * (gx - X[c]) + (X[c] - X[b]) * (gy - Y[c])) / den
+            l2 = ((Y[c] - Y[a]) * (gx - X[c]) + (X[a] - X[c]) * (gy - Y[c])) / den
+            M[y0:y1 + 1, x0:x1 + 1] |= (l1 >= -0.02) & (l2 >= -0.02) & (l1 + l2 <= 1.02)
+    ref = np.asarray(raw) > 0.5
+    return float(np.sum(M & ref)) / max(float(np.sum(M | ref)), 1.0)
 
 
 def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0045, r_min=0.075):
@@ -1157,15 +1235,9 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     spoke_w = float(np.median((eb - ea)[r_fine > 0.09]))
     cell = 0.5 * (r_ref_face + r_a) * pitch * max(spoke_w, 0.2) / (Cc - 1)        # Zellbreite quer zur Speiche (m)
     margin = max(border_mm / 1000.0, 1.2 * cell)                         # Zone liegt in vollen Zellen (Rahmen um die polierte Fläche)
-    Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, 0.004)      # Rahmen 4 mm; geteilt wird auch in angeschnittenen Zellen
-    zband = None
+    Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, 0.0)       # Blau = helle Fläche im Foto (1:1, keine Erosion)
     if Zv is not None:
-        Zb, zband = _zone_band(zinfo["raw"].astype(np.float32), at_, bt_, ea, eb, r_fine, pitch, zinfo["raw"], 0.004)
-        if Zb is not None and zband["iou"] >= 0.85:          # klares Band (Speichenfläche): gerade Kanten, passend zum Foto
-            Zv = Zb
-        else:                                                 # komplexe Form (z. B. nur Kanten poliert): Kontur direkt aus dem Foto
-            Zv, _ = _warp(Zv, r_fine, ea, eb)
-            zband = dict(iou=float(zband["iou"]) if zband else 0.0, d=0.0, free=True)
+        Zv, _ = _warp(Zv, r_fine, ea, eb)
     m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_ref_face, Zv=Zv, pitch=pitch, rows=row_radii(Rc))
     r, faces = m["r"], m["faces"]
     f = true_f(r, m["f"])
@@ -1216,6 +1288,6 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=np.zeros(n), diamond=diamond if Zv is not None else
                 (np.ones(len(faces), np.int8) if bright_all else np.zeros(len(faces), np.int8)), chords=chords,
                 N=int(N), pitch=pitch, theta_s=theta_s, crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi),
-                sym=sym, bimodal=bool(zinfo["bimodal"]), zone_iou=float(zband["iou"]) if zband else None, zone_border_mm=1000 * float(zband["d"]) if zband and not zband.get("free") else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
+                sym=sym, bimodal=bool(zinfo["bimodal"]), zone_iou=float(zone_iou(r, f, faces, m["diamond"], r_fine, zinfo["raw"])) if Zv is not None else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
                 area_err=err, cells=(Rc, Cc), zvert=zvert.astype(np.int8), teller_h=teller_h,
                 has_zone=bool(Zv is not None and zvert.sum() > 10))

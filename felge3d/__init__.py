@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 35, 0),
+    "version": (0, 36, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -757,10 +757,33 @@ def build_wheel_edit(context, s, new_collection=True):
         root.rotation_euler = (math.pi / 2, 0, 0)
         root["felge3d_role"] = "root"
         col.objects.link(root)
+    iou = cage.get("zone_iou")
+    abgleich = ""
+    if iou is not None:                                              # Blau muss das Weiß im Foto 1:1 abbilden
+        abgleich = " · Abgleich Blau/Foto %.0f %%%s" % (100 * iou, "" if iou >= 0.90 else " ⚠ weicht ab")
     det = dict(n=N, drehung_deg=cage["drehung_deg"], hub_r_mm=s.hub_radius,
-               info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%%s" % (
+               info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%%s%s" % (
                    N, cage["drehung_deg"], len(cage["r"]), 100 * cage["polished"],
-                   (" · %d Spiegelung(en) als Material gewertet" % n_refl) if n_refl else ""))
+                   (" · %d Spiegelung(en) als Material gewertet" % n_refl) if n_refl else "", abgleich))
+    try:                                                              # Abgleich-Bild: Foto + Käfig (Blau/Cyan/Orange), im Image Editor ansehen
+        rgb_ = np.asarray(_rgb_cache[next(iter(_rgb_cache))], np.float32)
+        if rgb_.max() <= 1.5:
+            rgb_ = rgb_ * 255.0
+        ov_ = sector.overlay_array(rgb_[..., :3], cage, cx, cy, rx, ry, R_out)
+        hh, ww = ov_.shape[:2]
+        nm_ = "%s Abgleich" % col.name
+        im_ = bpy.data.images.get(nm_)
+        if im_ is None or tuple(im_.size) != (ww, hh):
+            if im_ is not None:
+                bpy.data.images.remove(im_)
+            im_ = bpy.data.images.new(nm_, ww, hh, alpha=False)
+        rgba = np.ones((hh, ww, 4), np.float32)
+        rgba[..., :3] = ov_ / 255.0
+        im_.pixels.foreach_set(rgba.ravel())
+        im_.use_fake_user = True
+        col["felge3d_abgleich"] = nm_
+    except Exception:  # noqa: BLE001  (der Abgleich darf den Bau nie verhindern)
+        pass
     col["felge3d_detect"] = json.dumps(det)
     col["felge3d_detect_info"] = det["info"]
     pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)

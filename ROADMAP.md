@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.35.0)
+## Stand (Version 0.36.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -73,6 +73,12 @@ gleich gut (3, 6, 8, 10 schwach).
   (Porsche: 5 „Löcher“ an den Speichenenden) werden Material, echte Löcher (Audi-Radschrauben, schwarz auf schwarz) bleiben.
   **Nabenmitte**: Kappe mit Wappenscheibe (geschlossen, Standard), Zentralverschluss mit Rändel oder Radschrauben mit Mittelkappe.
   Offen: Volvo 1 offene Kante je Speiche am Ringübergang; kleine Zacken an Fensterspitze/-ende möglich; Spiegelungs-Regel an 5 Fotos geprüft.
+
+- 0.36.0: **Blau = Weiß, 1:1 und bei jedem Foto geprüft.** Die polierte Fläche kommt direkt aus der hellen Fläche im Foto (Median über alle N
+  Sektoren, ohne Rahmen/Erosion, auch in angeschnittenen Zellen geteilt; Kontur per Crease 1,0). Beim Laden jedes Bildes wird Blau gegen Weiß
+  abgeglichen (Überdeckung IoU, Anzeige im Info-Text, „⚠ weicht ab“ unter 90 %) und das Bild „<Felge_NN> Abgleich“ (Foto + Käfig: Blau/Cyan/Orange,
+  alle Speichen) im Image Editor abgelegt. Stand: Porsche 99 %, Volvo 86 % ⚠, Porsche 911 Turbo (10 Speichen) 72 % ⚠; Felgen ohne polierte Fläche: kein Abgleich.
+  Offen: Volvo/10-Speichen-Form noch nicht 1:1, Zone endet am Käfigrand (heller Ring/Horn außerhalb), Volvo zeitweise offene Kanten am Ringübergang.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).
