@@ -80,8 +80,19 @@ def remote_version(repo, branch="main", token=""):
     ]
     if token:  # privates Repo: nur über die API mit Token
         urls = urls[1:]
-    raw = _first_ok(urls, token=token)
-    return parse_version(raw.decode("utf-8", "replace"))
+    # Alle Quellen fragen und die höchste Version nehmen: das schnelle CDN (raw) kann nach einem Upload
+    # einige Minuten die alte Datei liefern, die API ist aktuell, aber manchmal langsam.
+    found, last = [], None
+    for url, extra in urls:
+        try:
+            v = parse_version(_get(url, **dict({"token": token}, **extra)).decode("utf-8", "replace"))
+            if v:
+                found.append(v)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if not found:
+        raise last or RuntimeError("Version nicht lesbar")
+    return max(found)
 
 
 def install_latest(repo, branch="main", token=""):
