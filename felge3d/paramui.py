@@ -132,15 +132,17 @@ def apply_detected(rim, det, section_pts=None):
             ob.update_tag()
 
 
-def ensure_param(context, s, col, root, defaults, detected=None, section_pts=None):
+def ensure_param(context, s, col, root, defaults, detected=None, section_pts=None, tdata=None):
     """Felge + Musterspeiche in der Collection anlegen (vorhandene bleiben mit den Werten des Nutzers erhalten)."""
     ob = param_object_of(col)
     if ob is None:
         d = dict(defaults)
         hub_x = d.pop("hub_x", 0.34)
-        ob, tob, md = paramrim.make_object("%s parametrisch" % col.name, col, None, hub_x=hub_x)
+        ob, tob, md = paramrim.make_object("%s parametrisch" % col.name, col, None, hub_x=hub_x, tdata=tdata)
         ob["felge3d_role"] = ROLE_PARAM
-        tob["felge3d_role"] = ROLE_TEMPLATE
+        tob["felge3d_role"] = ROLE_TEMPLATE if tdata is None else ROLE_TEMPLATE_BAKED
+        if tdata is not None:                              # Datenfeld für „neu erzeugen“ merken
+            tob["felge3d_tdata"] = json.dumps({k: (v.tolist() if hasattr(v, "tolist") else v) for k, v in tdata.items()})
         if root is not None:
             ob.parent = root
             tob.parent = root
@@ -152,7 +154,8 @@ def ensure_param(context, s, col, root, defaults, detected=None, section_pts=Non
                 pass
         for k, v in (("Referenz-Durchmesser (Zoll)", d.get("Durchmesser (Zoll)")), ("Referenz-Wandstärke (mm)", d.get("Wandstärke (mm)"))):
             if v is not None:                              # Muster wird für diese Größe gebaut
-                paramrim.set_param(rim.tmd, k, float(v))
+                if rim.tmd is not None:
+                    paramrim.set_param(rim.tmd, k, float(v))
                 paramrim.set_param(rim.md, k, float(v))
         apply_detected(rim, detected, section_pts)
     hide_ai(col)
@@ -416,6 +419,16 @@ class FELGE3D_OT_template_regen(Operator):
         s, rim = _current(context)
         if rim.tob is None or rim.tmd is not None:
             return {"CANCELLED"}
+        raw = rim.tob.get("felge3d_tdata")
+        if raw:                                           # Muster aus dem KI-Mesh neu aufbauen
+            import numpy as np
+            td = {k: (np.asarray(v) if isinstance(v, list) else v) for k, v in json.loads(raw).items()}
+            old = rim.tob.data
+            rim.tob.data = paramrim.template_mesh_from_data(rim.tob.name, td)
+            if old.users == 0:
+                bpy.data.meshes.remove(old)
+            rim.tob.update_tag()
+            return {"FINISHED"}
         ng = bpy.data.node_groups.get(rim.tob.get("felge3d_slice_group", ""))
         if ng is None:
             self.report({"ERROR"}, "Die Parameter des Musters sind nicht mehr vorhanden.")

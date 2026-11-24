@@ -535,17 +535,83 @@ def add_finish_modifiers(ob):
     return bv, wn
 
 
-def make_object(name, collection, group=None, hub_x=0.34):
+def template_mesh_from_data(name, td):
     """
-    Felge mit Muster: legt das Muster-Objekt („<name> Speiche“, sichtbar, im Edit Mode bearbeitbar, mit eigenem Parameter-Baum)
-    und das Felgen-Objekt an; die Felge liest das Muster per Object Info. Gibt (Felge, Muster, Felgen-Modifier) zurück.
+    Pizzastück-Mesh (Quads) aus dem Datenfeld von paramdetect.build_template: Oberseite, Unterseite, Seitenwände
+    (ohne die Nähte, dort schließt der Nachbar). Attribut „zone“ = polierte Fläche (1) / Rahmen (0).
     """
-    t_ng = build_slice_group(name + " Speiche")
-    t_me = bpy.data.meshes.new(name + " Speiche")
-    t_ob = bpy.data.objects.new(name + " Speiche", t_me)
-    collection.objects.link(t_ob)
-    t_md = t_ob.modifiers.new("Musterspeiche", "NODES")
-    t_md.node_group = t_ng
+    import numpy as np
+    pos = np.asarray(td["pos"], np.float64)
+    top = np.asarray(td["top"], np.float64)
+    bot = np.asarray(td["bot"], np.float64)
+    zone = np.asarray(td["zone"], np.float64)
+    fl, fr = np.asarray(td["fl"], np.float64).copy(), np.asarray(td["fr"], np.float64).copy()
+    R, C = top.shape
+    tl, trr = fl < 0.004, fr > 0.996
+    fl[tl & ~trr] = 0.008                                # einseitiger Nahtkontakt zurücknehmen (wie im Node-Baum)
+    fr[trr & ~tl] = 0.992
+    seam_l = (fl < 0.004)
+    seam_r = (fr > 0.996)
+    verts = []
+    for z in (top, bot):
+        for i in range(R):
+            for j in range(C):
+                verts.append((pos[i, j, 0], pos[i, j, 1], z[i, j]))
+    nT = R * C
+    faces = []
+
+    def tp(i, j): return i * C + j
+
+    def bt(i, j): return nT + i * C + j
+    for i in range(R - 1):
+        for j in range(C - 1):
+            faces.append((tp(i, j), tp(i + 1, j), tp(i + 1, j + 1), tp(i, j + 1)))
+            faces.append((bt(i, j + 1), bt(i + 1, j + 1), bt(i + 1, j), bt(i, j)))
+
+    def wall(a, b, outward):
+        q = [tp(*a), tp(*b), bt(*b), bt(*a)]
+        p0, p1, p3 = np.array(verts[q[0]]), np.array(verts[q[1]]), np.array(verts[q[3]])
+        n = np.cross(p1 - p0, p3 - p0)
+        if n[0] * outward[0] + n[1] * outward[1] < 0:
+            q = q[::-1]
+        faces.append(tuple(q))
+    for i in range(R - 1):
+        if not (seam_l[i] and seam_l[i + 1]):
+            wall((i, 0), (i + 1, 0), pos[i, 0] - pos[i, 1])
+        if not (seam_r[i] and seam_r[i + 1]):
+            wall((i, C - 1), (i + 1, C - 1), pos[i, C - 1] - pos[i, C - 2])
+    for j in range(C - 1):
+        wall((0, j), (0, j + 1), pos[0, j] - pos[1, j])
+        wall((R - 1, j), (R - 1, j + 1), pos[R - 1, j] - pos[R - 2, j])
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(float(c) for c in v) for v in verts], [], faces)
+    me.update()
+    attr = me.attributes.new("zone", "FLOAT", "POINT")
+    vals = [float(v) for v in zone.ravel()] * 2
+    attr.data.foreach_set("value", vals)
+    for p in me.polygons:
+        p.use_smooth = True
+    return me
+
+
+def make_object(name, collection, group=None, hub_x=0.34, tdata=None):
+    """
+    Felge mit Muster: legt das Muster-Objekt („<name> Speiche“, sichtbar, im Edit Mode bearbeitbar) und das Felgen-Objekt an;
+    die Felge liest das Muster per Object Info. Mit tdata (aus dem KI-Mesh abgeleitet) ist das Muster direkt ein Mesh,
+    sonst entsteht es aus dem parametrischen Node-Baum. Gibt (Felge, Muster, Felgen-Modifier) zurück.
+    """
+    t_md = None
+    if tdata is not None:
+        t_me = template_mesh_from_data(name + " Speiche", tdata)
+        t_ob = bpy.data.objects.new(name + " Speiche", t_me)
+        collection.objects.link(t_ob)
+    else:
+        t_ng = build_slice_group(name + " Speiche")
+        t_me = bpy.data.meshes.new(name + " Speiche")
+        t_ob = bpy.data.objects.new(name + " Speiche", t_me)
+        collection.objects.link(t_ob)
+        t_md = t_ob.modifiers.new("Musterspeiche", "NODES")
+        t_md.node_group = t_ng
     ng = build_group(name=name, hub_x=hub_x, mat_suffix=" " + name, template=t_ob)
     me = bpy.data.meshes.new(name)
     ob = bpy.data.objects.new(name, me)

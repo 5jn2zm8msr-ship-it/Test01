@@ -88,7 +88,7 @@ def default_edges(n, r_face, r_hub, ring, width, bend_deg=0.0, rows=96, r_a=0.01
     return _rdp(rho, fL, 0.004, 24), _rdp(rho, fR, 0.004, 24)
 
 
-def detect(F, radii, r_face, n_sym=0, ring_m=0.012, rows=96, r_a=0.012):
+def detect(F, radii, r_face, n_sym=0, ring_m=0.012, rows=128, r_a=0.012):
     """
     Leitet das „Pizzastück“ aus dem Polarfeld ab. Ergebnis (dict):
       n, drehung_deg (Mitte des Stücks), edge_l / edge_r (Stützpunkte (rho, f): Speichenkanten über dem Radius; f = Anteil der
@@ -222,8 +222,139 @@ def detect(F, radii, r_face, n_sym=0, ring_m=0.012, rows=96, r_a=0.012):
     el, er = _rdp(rho, fL, 0.004, 28), _rdp(rho, fR, 0.004, 28)
     es = _rdp(rho, cfrac, 0.004, 20)
     info = info.replace("(0 Stützpunkte)", "(%d+%d Stützpunkte)" % (len(el), len(er)))
-    return dict(n=int(n), drehung_deg=float(drehung), edge_l=el, edge_r=er, seam=es, hub_r_mm=hub_r * 1000.0,
+    return dict(n=int(n), drehung_deg=float(drehung), edge_l=el, edge_r=er, seam=es, rows=int(rows),
+                row_fl=[float(v) for v in fL], row_fr=[float(v) for v in fR], row_seam=[float(v) for v in (seam - seam_ref)],
+                seam_ref=float(seam_ref), pitch=float(pitch), hub_r_mm=hub_r * 1000.0,
                 ring_mm=max(6.0, (r_face - ring_in) * 1000.0), wmax_mm=wmax * 1000.0, twin=twin, info=info)
 
 
 detect.why = ''
+
+
+def _otsu(vals, bins=64):
+    h, e = np.histogram(vals, bins=bins, range=(0.0, 1.0))
+    h = h.astype(np.float64)
+    tot = h.sum()
+    if tot <= 0:
+        return 0.5, 0.0
+    c = 0.5 * (e[1:] + e[:-1])
+    w0 = np.cumsum(h)
+    w1 = tot - w0
+    m0 = np.cumsum(h * c) / np.maximum(w0, 1)
+    m1 = (np.sum(h * c) - np.cumsum(h * c)) / np.maximum(w1, 1)
+    var = w0 * w1 * (m0 - m1) ** 2 / tot ** 2
+    k = int(np.argmax(var))
+    return float(c[k]), float(var[k])
+
+
+def _smooth2d(a, iters_r=2, iters_c=1):
+    """Leichtes Glätten (1-2-1): stärker entlang des Radius (Rasterrauschen), schwächer quer (Speichenrücken bleibt)."""
+    a = np.array(a, np.float64)
+    for _ in range(iters_r):
+        b = a.copy()
+        b[1:-1] = 0.25 * a[:-2] + 0.5 * a[1:-1] + 0.25 * a[2:]
+        a = b
+    for _ in range(iters_c):
+        c = a.copy()
+        c[:, 1:-1] = 0.25 * a[:, :-2] + 0.5 * a[:, 1:-1] + 0.25 * a[:, 2:]
+        a = c
+    return a
+
+
+def build_template(det, res, cols=13, r_ref_face=None, r_a=0.012):
+    """
+    Pizzastück als Datenfeld aus dem KI-Mesh: Gitter (Zeilen = Radius, Spalten = quer) mit
+      * Grundriss aus den Speichenkanten (det), Naht-Verlauf,
+      * Höhenrelief (Rücken, Nabenbund, Kantenrundung) und Dicke exakt aus dem KI-Mesh (res: detail_fn, thick_fn),
+      * zweifarbiger Zone (polierte Fläche vs. Rahmen) aus der Helligkeit des Fotos (gemittelt über alle Speichen).
+    Gibt dict mit pos (R,C,2), top (R,C), bot (R,C), zone (R,C), fl, fr (R) zurück.
+    """
+    rows = det["rows"]
+    n, pitch = det["n"], det["pitch"]
+    half = 0.5 * pitch
+    fL, fR = np.array(det["row_fl"]), np.array(det["row_fr"])
+    dseam = np.array(det["row_seam"])
+    seam_ref = det["seam_ref"]
+    r_face = r_ref_face
+    r_rows = r_a + (r_face - r_a) * np.linspace(0.0, 1.0, rows)
+    ph = res["photo"]
+    gray = np.asarray(ph["gray"], np.float64)
+    from . import core
+    # --- Foto: Helligkeit über der Keilbreite, gemittelt über alle Speichen
+    M = 33
+    gl = np.linspace(0.0, 1.0, M)                          # Anteil über der Keilbreite in phi-Richtung (links -> rechts)
+    prof = np.zeros((rows, M))
+    for k in range(n):
+        for i, r in enumerate(r_rows):
+            th = seam_ref + dseam[i]                            # Naht dieser Zeile (theta)
+            # phi-Anteil g -> theta = naht + (1 - g) * pitch
+            t = th + (1.0 - gl) * pitch + k * pitch
+            x = ph["cx"] + (r * np.sin(t)) / ph["R_out"] * ph["rx"]
+            y = ph["cy"] + (r * np.cos(t)) / ph["R_out"] * ph["ry"]
+            prof[i] += core.bilinear(gray, x, y)
+    prof /= n
+    spoke = (np.arange(M)[None, :] / (M - 1) >= fL[:, None] - 1e-9) & (np.arange(M)[None, :] / (M - 1) <= fR[:, None] + 1e-9) & ((fR - fL) < 0.9)[:, None]
+    vals = prof[spoke]
+    lo, hi = (np.percentile(vals, 5), np.percentile(vals, 95)) if len(vals) > 20 else (0.0, 1.0)
+    nrm = np.clip((prof - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+    thr, var = _otsu(nrm[spoke]) if len(vals) > 20 else (0.5, 0.0)
+    bimodal = var > 0.02
+    mean_b = float(nrm[spoke].mean()) if len(vals) > 20 else 0.0
+    p1 = np.full(rows, 0.25)
+    p2 = np.full(rows, 0.75)
+    polished = np.zeros(rows, bool)
+    for i in range(rows):
+        if not ((fR[i] - fL[i]) < 0.9):
+            continue
+        g0, g1 = fL[i], fR[i]
+        sel = (gl >= g0) & (gl <= g1)
+        if sel.sum() < 4:
+            continue
+        if bimodal:
+            m = (nrm[i] > thr) & sel
+        else:
+            m = sel if mean_b > 0.5 else np.zeros(M, bool)
+        if not m.any():
+            continue
+        # längster zusammenhängender heller Abschnitt
+        idx = np.where(m)[0]
+        splits = np.where(np.diff(idx) > 1)[0]
+        runs = np.split(idx, splits + 1)
+        run = max(runs, key=len)
+        if len(run) < 3:
+            continue
+        a, b = gl[run[0]], gl[run[-1]]
+        p1[i] = (a - g0) / max(g1 - g0, 1e-6)
+        p2[i] = (b - g0) / max(g1 - g0, 1e-6)
+        polished[i] = True
+    k5 = np.ones(13) / 13.0                                      # polierte Fläche: ruhige Randlinie
+    for arr in (p1, p2):
+        arr[:] = np.convolve(np.pad(arr, 6, mode="edge"), k5, mode="valid")
+    p1 = np.clip(p1, 0.04, 0.46)
+    p2 = np.clip(p2, 0.54, 0.96)
+    # --- Spaltenanteile je Zeile: Rahmen (3 Spalten), polierte Fläche (7 innere Spalten), Rahmen (3 Spalten)
+    cf = np.zeros((rows, cols))
+    zone = np.zeros((rows, cols))
+    inner = cols - 6
+    for i in range(rows):
+        if polished[i]:
+            a, b = p1[i], p2[i]
+            fr = [0.0, a * 0.5, a] + [a + (b - a) * (k + 1) / (inner + 1) for k in range(inner)] + [b, b + (1 - b) * 0.5, 1.0]
+            zone[i, 2:cols - 2] = 1.0
+        else:
+            fr = list(np.linspace(0.0, 1.0, cols))
+        cf[i] = fr
+    # --- Positionen (lokal, Keilmitte bei phi = 0): g = Anteil in phi-Richtung zwischen den Kanten
+    gcol = fL[:, None] + (fR - fL)[:, None] * cf
+    # Naht relativ zur Nabe: phi-Verschiebung c = -(seam - seam_ref) = -dseam (dseam = seam - seam_ref)
+    phi_local = (gcol - 0.5) * pitch - dseam[:, None]
+    pos = np.stack([r_rows[:, None] * np.cos(phi_local), r_rows[:, None] * np.sin(phi_local)], axis=-1)
+    # --- Höhen: Relief und Dicke aus dem KI-Mesh (an der echten Position im KI-Mesh-Koordinatensystem: x = r sin(theta), y = r cos(theta))
+    theta = seam_ref + dseam[:, None] + (1.0 - gcol) * pitch       # theta der Spalte (Wedge-Start = Naht)
+    xs = r_rows[:, None] * np.sin(theta)
+    ys = r_rows[:, None] * np.cos(theta)
+    top = np.asarray(res["detail_fn"](np.stack([xs.ravel(), ys.ravel()], axis=-1))).reshape(rows, cols)
+    top = _smooth2d(top, 8, 1)                                          # Rasterrauschen des Reliefs glätten (sonst flimmernde Normalen)
+    thick = np.asarray(res["thick_fn"](r_rows))[:, None] * np.ones((1, cols))
+    return dict(pos=pos, top=top, bot=-thick, zone=zone, fl=fL, fr=fR, rows=rows, cols=cols,
+                n_polished=int(polished.sum()), bimodal=bool(bimodal))

@@ -768,7 +768,13 @@ def build_wheel(context, s, new_collection=True):
                 col["felge3d_detect"] = json.dumps(det)
                 col["felge3d_detect_info"] = det["info"]
             pts = sorted((p_.location[0], p_.location[1]) for p_ in profile_node().mapping.curves[0].points)
-            paramui.ensure_param(context, s, col, root, build_param_defaults(s, det["n"] if det else n), det, pts)
+            tdata = None
+            if det:
+                try:
+                    tdata = paramdetect.build_template(det, res, r_ref_face=s.diameter * 0.0127 - s.wall / 1000.0 + 0.001)
+                except Exception as e_:  # noqa: BLE001 – dann bleibt das parametrische Muster
+                    print("Felge3D: Muster aus dem KI-Mesh fehlgeschlagen:", e_)
+            paramui.ensure_param(context, s, col, root, build_param_defaults(s, det["n"] if det else n), det, pts, tdata)
             for c_ in paramui.rim_collections():
                 c_.hide_viewport = c_ is not col
                 c_.hide_render = c_ is not col
