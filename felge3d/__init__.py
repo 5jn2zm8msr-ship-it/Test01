@@ -9,9 +9,9 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 26, 0),
+    "version": (0, 27, 0),
     "blender": (3, 6, 0),
-    "location": "3D-Viewport > Seitenleiste (N) > Rim Generator",
+    "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
     "category": "Import-Export",
 }
@@ -68,11 +68,12 @@ class Felge3DSettings(PropertyGroup):
         ("YES", "Ja – Reifen sichtbar", "Äußeren Kreis (Reifen) überspringen und das Felgenhorn davor nehmen"),
         ("NO", "Nein – nur Felge", "Äußersten deutlichen Kreis als Felge nehmen"),
     ])
-    source: EnumProperty(name="Felge aus", default="PHOTO", items=[
-        ("PHOTO", "Foto", "Felge aus einem Foto (2D) erzeugen"),
-        ("FBX", "3D-Datei", "Fertige 3D-Felge (FBX/OBJ/glTF) laden und auf die 4 Räder übertragen"),
+    source: EnumProperty(name="Felge", default="GENERATED", items=[
+        ("GENERATED", "Generierte Felge", "Die Felge aus dem Reiter ‚2D to 3D Rim‘ (Foto) verwenden"),
+        ("COLLECTION", "Eigene Felge", "Eine beliebige Felge aus einer Collection der Szene wählen (z.B. importierte FBX)"),
     ])
-    fbx_collection: PointerProperty(name="3D-Felge", type=bpy.types.Collection)
+    fbx_collection: PointerProperty(name="Collection", type=bpy.types.Collection,
+                                    description="Collection mit der Felge (Meshes); Achse, Vorderseite und Größe werden erkannt")
     fbx_flip: BoolProperty(name="Felge umdrehen", default=False, update=lambda self, ctx: None,
                            description="Falls die Felge verkehrt herum sitzt (Vorderseite nach innen)")
     fbx_info: StringProperty(default="")
@@ -334,8 +335,52 @@ def analysis_for(s):
     return a
 
 
+PROFILE_TREE = "Rim Generator | Schnittkurve"
+
+
+def _set_default_profile(m, hub_x=0.37, q=2.0):
+    """Standard-Schnittkurve: Nabe flach, dann sanft zum Rand ansteigend (entspricht der bisherigen Schüsselform)."""
+    m.use_clip = True
+    m.clip_min_x, m.clip_max_x, m.clip_min_y, m.clip_max_y = 0.0, 1.0, 0.0, 1.0
+    cur = m.curves[0]
+    while len(cur.points) > 2:
+        cur.points.remove(cur.points[-1])
+    cur.points[0].location = (0.0, 1.0)
+    cur.points[1].location = (1.0, 0.0)
+    for x in (hub_x, 0.55, 0.75, 0.9):
+        u = (x - hub_x) / (1.0 - hub_x)
+        cur.points.new(x, 1.0 - u ** q)
+    for pt in cur.points:
+        pt.handle_type = "AUTO"
+    m.update()
+
+
+def profile_node():
+    """Knoten mit der editierbaren Schnittkurve (liegt in der .blend-Datei). Wird bei Bedarf angelegt."""
+    ng = bpy.data.node_groups.get(PROFILE_TREE)
+    if ng is None or "Kurve" not in ng.nodes:
+        ng = bpy.data.node_groups.new(PROFILE_TREE, "ShaderNodeTree")
+        ng.use_fake_user = True
+        node = ng.nodes.new("ShaderNodeRGBCurve")
+        node.name = "Kurve"
+        _set_default_profile(node.mapping)
+    return ng.nodes["Kurve"]
+
+
+def profile_samples(n=65):
+    """Tiefenanteil (0..1) der Schnittkurve bei r/r_face = 0..1."""
+    m = profile_node().mapping
+    m.update()
+    cur = m.curves[0]
+    return np.clip(np.array([m.evaluate(cur, i / (n - 1.0)) for i in range(n)], np.float32), 0.0, 1.15)
+
+
 def make_params(s):
     p = core.Params()
+    try:
+        p.profile = profile_samples()
+    except Exception:  # noqa: BLE001 – Kurve nicht verfügbar: Standardform
+        p.profile = None
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
               "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "relief_fade", "tone_step", "edge_round", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
@@ -969,47 +1014,54 @@ class FELGE3D_OT_install_update(Operator):
 
 # ============================================================ Oberfläche
 class FELGE3D_PT_main(Panel):
-    bl_label = "Rim Generator"
+    bl_label = "2D to 3D Rim"
     bl_idname = "FELGE3D_PT_main"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
 
     def draw(self, context):
         s = context.scene.felge3d
-        c = context.scene.felge3d_car
         L = self.layout
-        L.prop(s, "source", expand=True)
         col = L.column(align=True)
-        col.scale_y = 1.4
-        if s.source == "FBX":
-            col.operator("felge3d.import_fbx", icon="FILE_3D")
-            if s.fbx_info:
-                L.label(text=s.fbx_info, icon="INFO")
-            ready = bool(_fbx_meshes(s))
-        else:
-            col.operator("felge3d.import_image", icon="FILE_IMAGE")
-            ready = bool(s.image)
-        row = L.row()
-        row.scale_y = 1.6
-        row.enabled = ready
-        row.operator("felge3d.car_generate", icon="AUTO")
-        col = L.column(align=True)
-        col.prop(c, "wheelbase")
-        col.prop(c, "front_track")
-        col.prop(c, "rear_track")
-        col = L.column(align=True)
-        col.prop(c, "front_rim", slider=True)
-        col.prop(c, "rear_rim", slider=True)
+        col.scale_y = 1.5
+        col.operator("felge3d.import_image", icon="FILE_IMAGE")
+        if s.image:
+            L.label(text=s.image.name, icon="IMAGE_DATA")
         if s.warning:
             L.label(text="Erkennung unsicher – siehe ‚Erkennung & Prüfung‘", icon="ERROR")
+
+
+class FELGE3D_PT_section(Panel):
+    bl_label = "Schnitt: Tiefe und Bombierung"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "2D to 3D Rim"
+    bl_parent_id = "FELGE3D_PT_main"
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        L.label(text="X: Radius (links Mitte → rechts Rand)")
+        L.label(text="Y: Tiefe (oben = tief in der Mitte, unten = Rand)")
+        try:
+            L.template_curve_mapping(profile_node(), "mapping", type="NONE")
+        except Exception as e:  # noqa: BLE001
+            L.label(text="Kurve nicht verfügbar: %s" % e, icon="ERROR")
+        a = analysis_for(s)
+        L.label(text="Tiefe in der Mitte: %.0f mm (%s)" % (abs(a["dish_mm"]), a["verdict"].capitalize()))
+        col = L.column(align=True)
+        col.scale_y = 1.4
+        col.enabled = bool(s.image)
+        col.operator("felge3d.refresh_profile", icon="FILE_REFRESH")
+        L.operator("felge3d.reset_profile", icon="LOOP_BACK")
 
 
 class FELGE3D_PT_shape(Panel):
     bl_label = "Felge: Maße & Form"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1025,7 +1077,6 @@ class FELGE3D_PT_shape(Panel):
         else:
             col.prop(s, "dish", slider=True)
         L.prop(s, "tire_mode")
-        L.prop(s, "fbx_flip")
         a = analysis_for(s)
         L.label(text="Form: " + a["verdict"].capitalize() + " (%+.0f mm)" % a["dish_mm"])
         if a["warn"]:
@@ -1036,7 +1087,7 @@ class FELGE3D_PT_check(Panel):
     bl_label = "Erkennung & Prüfung"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1061,7 +1112,7 @@ class FELGE3D_PT_look(Panel):
     bl_label = "Aussehen"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1082,7 +1133,7 @@ class FELGE3D_PT_ai(Panel):
     bl_label = "KI-Relief (optional)"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1109,7 +1160,7 @@ class FELGE3D_PT_dims(Panel):
     bl_label = "Form & Details"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1133,7 +1184,7 @@ class FELGE3D_PT_detect(Panel):
     bl_label = "Erkennung (Feinabstimmung)"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1179,11 +1230,11 @@ class FELGE3D_PT_detect(Panel):
 
 class FELGE3D_PT_update(Panel):
     """Eigenes Top-Level-Panel, immer sichtbar und unabhängig vom Hauptpanel (Update-Knopf darf nie fehlen)."""
-    bl_label = "Rim Generator · Update"
+    bl_label = "Update"
     bl_idname = "FELGE3D_PT_update"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
 
     def draw(self, context):
         L = self.layout
@@ -1208,7 +1259,7 @@ class FELGE3D_PT_advanced(Panel):
     bl_label = "Erweitert"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
+    bl_category = "2D to 3D Rim"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1340,13 +1391,13 @@ def _fbx_meshes(s):
 
 
 def build_car(context, s, c):
-    use_fbx = s.source == "FBX"
+    use_fbx = s.source == "COLLECTION"
     if use_fbx:
         src_meshes = _fbx_meshes(s)
         if not src_meshes:
-            raise RuntimeError("Zuerst eine 3D-Felge laden (‚3D-Felge laden…‘).")
+            raise RuntimeError("Eine Collection mit der Felge wählen (Picker) oder ‚3D-Felge importieren‘.")
     elif not s.image:
-        raise RuntimeError("Zuerst ein Felgenbild laden.")
+        raise RuntimeError("Im Reiter ‚2D to 3D Rim‘ zuerst ein Felgenbild laden – oder unter ‚Felge‘ eine eigene Collection wählen.")
     if context.object and context.object.mode != "OBJECT":
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -1433,10 +1484,41 @@ def build_car(context, s, c):
         "3D-Felge" if use_fbx else "Foto", c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et))
 
 
+class FELGE3D_OT_refresh_profile(Operator):
+    """Felge mit der geänderten Schnittkurve neu aufbauen"""
+    bl_idname = "felge3d.refresh_profile"
+    bl_label = "Refresh"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        if not s.image:
+            self.report({"ERROR"}, "Erst ein Felgenbild laden.")
+            return {"CANCELLED"}
+        try:
+            col, info = build_wheel(context, s, new_collection=not (s.collection and s.collection.name in bpy.data.collections))
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Felge mit neuer Schnittkurve aktualisiert.")
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_reset_profile(Operator):
+    """Schnittkurve auf die Standardform zurücksetzen"""
+    bl_idname = "felge3d.reset_profile"
+    bl_label = "Kurve zurücksetzen"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        _set_default_profile(profile_node().mapping)
+        return {"FINISHED"}
+
+
 class FELGE3D_OT_import_fbx(Operator, ImportHelper):
     """3D-Felge (FBX, OBJ oder glTF) laden: Achse, Vorderseite und Größe werden automatisch erkannt"""
     bl_idname = "felge3d.import_fbx"
-    bl_label = "3D-Felge laden…"
+    bl_label = "3D-Datei importieren…"
     bl_options = {"REGISTER", "UNDO"}
     filter_glob: StringProperty(default="*.fbx;*.obj;*.glb;*.gltf", options={"HIDDEN"})
 
@@ -1460,7 +1542,7 @@ class FELGE3D_OT_import_fbx(Operator, ImportHelper):
             col.objects.link(o)
         col.hide_viewport = True                      # Quelle ausblenden, die Räder entstehen separat
         s.fbx_collection = col
-        s.source = "FBX"
+        s.source = "COLLECTION"
         info = fbx.analyze(meshes, s.fbx_flip)
         s["fbx_info"] = "%d Teile · Breite/Ø = %.2f · Schüssel %.0f %% (Größe wird auf die Zoll-Regler skaliert)" % (
             len(meshes), info["width"] / (2.0 * info["r_max"]), abs(info["dish"]) / (2.0 * info["r_max"]) * 100.0)
@@ -1502,8 +1584,8 @@ class FELGE3D_PT_car_axle(Panel):
     bl_label = "Achsen: Felge und Reifen"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
-    bl_parent_id = "FELGE3D_PT_main"
+    bl_category = "Package"
+    bl_parent_id = "FELGE3D_PT_pkg"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -1522,8 +1604,8 @@ class FELGE3D_PT_car_extra(Panel):
     bl_label = "Reifen: Profil, Textur, Decals"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Rim Generator"
-    bl_parent_id = "FELGE3D_PT_main"
+    bl_category = "Package"
+    bl_parent_id = "FELGE3D_PT_pkg"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -1541,12 +1623,79 @@ class FELGE3D_PT_car_extra(Panel):
 
 
 
+class FELGE3D_PT_pkg(Panel):
+    bl_label = "Package"
+    bl_idname = "FELGE3D_PT_pkg"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Package"
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        c = context.scene.felge3d_car
+        L = self.layout
+        box = L.box()
+        box.label(text="Felge", icon="MESH_TORUS")
+        box.prop(s, "source", expand=True)
+        if s.source == "COLLECTION":
+            box.prop(s, "fbx_collection", text="")
+            box.operator("felge3d.import_fbx", icon="IMPORT")
+            if s.fbx_info and s.fbx_collection:
+                box.label(text=s.fbx_info, icon="INFO")
+            ready = bool(_fbx_meshes(s))
+        else:
+            box.label(text=(s.image.name if s.image else "Noch kein Felgenbild (Reiter ‚2D to 3D Rim‘)"),
+                      icon="IMAGE_DATA")
+            ready = bool(s.image)
+        row = L.row()
+        row.scale_y = 1.7
+        row.enabled = ready
+        row.operator("felge3d.car_generate", icon="AUTO")
+        col = L.column(align=True)
+        col.prop(c, "wheelbase")
+        col.prop(c, "front_track")
+        col.prop(c, "rear_track")
+        col = L.column(align=True)
+        col.prop(c, "front_rim", slider=True)
+        col.prop(c, "rear_rim", slider=True)
+
+
+class FELGE3D_PT_pkg_opts(Panel):
+    bl_label = "Optionen"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Package"
+    bl_parent_id = "FELGE3D_PT_pkg"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        c = context.scene.felge3d_car
+        L = self.layout
+        L.prop(c, "use_brakes")
+        if s.source == "COLLECTION":
+            L.prop(s, "fbx_flip")
+
+
+class FELGE3D_PT_update_pkg(Panel):
+    bl_label = "Update"
+    bl_idname = "FELGE3D_PT_update_pkg"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Package"
+
+    def draw(self, context):
+        FELGE3D_PT_update.draw(self, context)
+
+
 classes = (
     Felge3DPreferences,
     Felge3DSettings,
     Felge3DCar,
     FELGE3D_OT_car_generate,
     FELGE3D_OT_import_fbx,
+    FELGE3D_OT_refresh_profile,
+    FELGE3D_OT_reset_profile,
     FELGE3D_OT_car_reset,
     FELGE3D_OT_check_update,
     FELGE3D_OT_install_ai,
@@ -1558,17 +1707,23 @@ classes = (
     FELGE3D_OT_preview,
     FELGE3D_OT_mask_to_image,
     FELGE3D_OT_export_obj,
+    # Reiter 1: 2D to 3D Rim
     FELGE3D_PT_main,
+    FELGE3D_PT_section,
     FELGE3D_PT_shape,
     FELGE3D_PT_check,
     FELGE3D_PT_look,
     FELGE3D_PT_ai,
     FELGE3D_PT_dims,
     FELGE3D_PT_detect,
-    FELGE3D_PT_car_axle,
-    FELGE3D_PT_car_extra,
     FELGE3D_PT_advanced,
     FELGE3D_PT_update,
+    # Reiter 2: Package
+    FELGE3D_PT_pkg,
+    FELGE3D_PT_pkg_opts,
+    FELGE3D_PT_car_axle,
+    FELGE3D_PT_car_extra,
+    FELGE3D_PT_update_pkg,
 )
 
 

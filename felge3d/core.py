@@ -1178,6 +1178,7 @@ class Params:
     diameter = 18.0       # Zoll
     width = 8.5           # Zoll
     use_et = True         # Schüsseltiefe aus Breite (J) + Einpresstiefe (ET)
+    profile = None        # Schnittkurve: Tiefenanteil (0 = Rand, 1 = volle Schüssel) bei r/r_face = 0..1 (Samples)
     et = 40.0             # mm
     face_inset = 12.0     # mm
     dish = 60.0           # mm
@@ -1292,6 +1293,11 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
     q = max(1.2, p.dish_power + 0.5)
 
     def z_front(r):
+        if p.profile is not None and len(p.profile) > 2:
+            # Schnittkurve (vom Nutzer editierbar): Tiefenanteil über dem Radius
+            x = np.clip(r / r_face, 0.0, 1.0)
+            depth = np.interp(x, np.linspace(0.0, 1.0, len(p.profile)), p.profile)
+            return z_rim - dish / 1000.0 * depth
         # glatte Schüssel: an der Nabe waagerecht (kein Knick), zum Rand sanft ansteigend
         s = s_of(r)
         return z_rim - dish / 1000.0 * (1.0 - (1.0 - s) ** q)

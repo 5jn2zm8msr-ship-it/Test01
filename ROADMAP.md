@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.26.0)
+## Stand (Version 0.27.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -8,7 +8,9 @@ Offen/unsicher: Felgenerkennung bei Fotos mit Reifen oder Schrägansicht (Felgen
 stimmt die Speichenzahl nicht); sehr feine Speichen/Netzfelgen (BBS); Fusion nicht an allen 20 Testfotos
 gleich gut (3, 6, 8, 10 schwach).
 
-## Erledigt (0.25–0.26)
+## Erledigt (0.25–0.27)
+- Aufteilung in zwei Reiter (2D to 3D Rim | Package); Package nimmt die generierte Felge oder per Picker eine Collection
+- Schnittkurve mit Handles (Tiefe/Bombierung des Tellers) + Refresh
 - Bremsen: Scheibe + Topf + Sattel als Mesh mit Foto-Textur, beidseitig hinten, Schrift rechts korrigiert
 - Zoll-Regler vorn/hinten im Hauptpanel
 - Zweiter Weg: 3D-Felge (FBX/OBJ/glTF) laden -> Achse/Vorderseite/Größe automatisch, auf die 4 Räder übertragen

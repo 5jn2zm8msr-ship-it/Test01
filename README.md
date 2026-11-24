@@ -7,9 +7,14 @@ Aus einem Felgenfoto (Frontansicht) werden in Sekunden **vier Räder mit Reifen*
 2. Blender mit Cmd+Q neu starten. Seitenleiste `N` → Reiter **Rim Generator**.
 3. Optional: **KI-Tiefe einrichten** (einmalig, lokal, ~400 MB) – verbessert die Erkennung.
 
-## Bedienung
+## Bedienung – zwei Reiter in der Seitenleiste (N)
+**Reiter „2D to 3D Rim“** – Felge aus einem Foto
 1. **Felgenbild laden & bauen** (JPG/PNG, möglichst gerade von vorn)
-2. **4 Räder erzeugen** – Radstand/Spurweiten oben, alle Maße unter *Achsen*
+2. **Schnitt: Tiefe und Bombierung** – Kurve mit Handles ziehen, dann **Refresh** (die Felge baut sich neu)
+
+**Reiter „Package“** – vier Räder mit Reifen und Bremsen
+1. Felge wählen: *Generierte Felge* (aus Reiter 1) oder *Eigene Felge* (Picker für eine beliebige Collection, z.B. importierte FBX)
+2. Radstand, Spurweiten, **Zoll vorn/hinten** einstellen, **4 Räder erzeugen**
 
 ## Updates
 Panel **Rim Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.
