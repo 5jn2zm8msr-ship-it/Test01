@@ -15,7 +15,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
-RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH, TRD, BRK, BRM = range(16)
+RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH, TRD, BRK, BRM, BRD, BRDM, PAD = range(19)
 COLL_NAME = "Felge3D | Fahrzeug-Paket"
 PREFIX = "Felge3D | "
 
@@ -142,22 +142,76 @@ def tread_mat(img, height_img=None):
     return photo_relief_mat(PREFIX + "Reifenprofil", img, .94, 0.0, 2.2, 0.004, 0.0025, 0.5, 'REPEAT', height_img)
 
 
-def brake_photo_mat(name, img):
-    m = get_mat(name, (.4, .4, .4), .5, .25)
+def _set_input(bsdf, names, value):
+    for n in names:
+        if n in bsdf.inputs:
+            try:
+                bsdf.inputs[n].default_value = value
+            except (TypeError, ValueError):
+                pass
+            return True
+    return False
+
+
+def _photo_nodes(m, img, bump, bump_dist):
+    """Foto als Basisfarbe + Bump (hell = hoch: dunkle Schlitze/Schrift liegen tiefer). Gibt (bsdf, nodes, Helligkeit) zurück."""
     nt = m.node_tree
     bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-    for n in [n for n in nt.nodes if n.type == 'TEX_IMAGE']:
+    for n in [n for n in nt.nodes if n.type in ('TEX_IMAGE', 'BUMP', 'RGBTOBW', 'MAP_RANGE', 'TANGENT')]:
         nt.nodes.remove(n)
-    if img is not None and bsdf:
-        tex = nt.nodes.new('ShaderNodeTexImage')
-        tex.image, tex.extension, tex.interpolation = img, 'EXTEND', 'Cubic'
-        tex.location = (bsdf.location.x - 340, bsdf.location.y)
-        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    if img is None or bsdf is None:
+        return bsdf, None, None
+    x0, y0 = bsdf.location.x, bsdf.location.y
+    tex = nt.nodes.new('ShaderNodeTexImage')
+    tex.image, tex.extension, tex.interpolation = img, 'EXTEND', 'Cubic'
+    tex.location = (x0 - 700, y0)
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    bw = nt.nodes.new('ShaderNodeRGBToBW')
+    bw.location = (x0 - 460, y0 - 200)
+    nt.links.new(tex.outputs["Color"], bw.inputs["Color"])
+    bp = nt.nodes.new('ShaderNodeBump')
+    bp.inputs["Strength"].default_value = bump
+    bp.inputs["Distance"].default_value = bump_dist
+    bp.location = (x0 - 240, y0 - 200)
+    nt.links.new(bw.outputs["Val"], bp.inputs["Height"])
+    nt.links.new(bp.outputs["Normal"], bsdf.inputs["Normal"])
+    return bsdf, tex, bw
+
+
+def brake_photo_mat(name, img):
+    """Sattel: Klarlack (Coat) auf Farbe aus dem Foto; Schrift/Kratzer als leichter Bump."""
+    m = get_mat(name, (.4, .4, .4), .38, 0.0)
+    bsdf, tex, bw = _photo_nodes(m, img, 0.35, 0.0015)
+    if bsdf:
+        _set_input(bsdf, ("Coat Weight", "Clearcoat"), 0.75)
+        _set_input(bsdf, ("Coat Roughness", "Clearcoat Roughness"), 0.07)
+    return m
+
+
+def brake_disc_mat(name, img):
+    """Scheibe: gebürsteter Stahl (Anisotropie entlang des Umfangs), Rauheit aus dem Foto, Schlitze als Bump."""
+    m = get_mat(name, (.5, .5, .5), .38, 0.6)      # nicht voll metallisch: ohne HDRI wäre blanker Stahl fast schwarz
+    bsdf, tex, bw = _photo_nodes(m, img, 0.5, 0.0012)
+    if bsdf:
+        nt = m.node_tree
+        _set_input(bsdf, ("Anisotropic",), 0.55)
+        tg = nt.nodes.new('ShaderNodeTangent')
+        tg.direction_type, tg.axis = 'RADIAL', 'X'
+        tg.location = (bsdf.location.x - 240, bsdf.location.y - 480)
+        if "Tangent" in bsdf.inputs:
+            nt.links.new(tg.outputs["Tangent"], bsdf.inputs["Tangent"])
+        if bw is not None:
+            mr = nt.nodes.new('ShaderNodeMapRange')
+            mr.inputs["From Min"].default_value, mr.inputs["From Max"].default_value = 0.0, 1.0
+            mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 0.62, 0.26
+            mr.location = (bsdf.location.x - 460, bsdf.location.y - 420)
+            nt.links.new(bw.outputs["Val"], mr.inputs["Value"])
+            nt.links.new(mr.outputs["Result"], bsdf.inputs["Roughness"])
     return m
 
 
 def build_materials(c, tire_img=None, tread_img=None, tread_h=None, brake_imgs=None, cal_color=None):
-    """Materialliste in der Reihenfolge RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH."""
+    """Materialliste in der Reihenfolge der Indizes RUB ... BRM, BRD, BRDM, PAD (siehe oben)."""
     top, top_img = decal_mat(PREFIX + "Decal Flanke oben", c.decal_sidewall_top, (.8, .8, .8), .55, 0)
     bot, bot_img = decal_mat(PREFIX + "Decal Flanke unten", c.decal_sidewall_bottom, (.8, .8, .8), .55, 0)
     cal, cal_img = decal_mat(PREFIX + "Decal Sattel", c.decal_caliper, (.05, .05, .05), .35, 0)
@@ -177,6 +231,9 @@ def build_materials(c, tire_img=None, tread_img=None, tread_h=None, brake_imgs=N
         tread_mat(tread_img, tread_h),
         brake_photo_mat(PREFIX + 'Bremse links', (brake_imgs or (None, None))[0]),
         brake_photo_mat(PREFIX + 'Bremse rechts', (brake_imgs or (None, None))[1]),
+        brake_disc_mat(PREFIX + 'Bremsscheibe links', (brake_imgs or (None, None))[0]),
+        brake_disc_mat(PREFIX + 'Bremsscheibe rechts', (brake_imgs or (None, None))[1]),
+        get_mat(PREFIX + 'Bremsbelag', (.025, .025, .027), .92, 0.05),
     ]
     if cal_color:
         lin = tuple(max(0.0, v) ** 2.2 for v in cal_color)
@@ -525,11 +582,92 @@ def _face(bm, verts, want, axis='x'):
     return f
 
 
+def _ray_radii(poly, phi):
+    """Größter Abstand vom Ursprung, in dem der Strahl (Winkel phi) die Polygonkante schneidet (None = kein Treffer)."""
+    ux, uy = math.cos(phi), math.sin(phi)
+    best = None
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        ex, ey = x2 - x1, y2 - y1
+        den = -ux * ey + ex * uy
+        if abs(den) < 1e-12:
+            continue
+        t = (-x1 * ey + ex * y1) / den
+        k = (ux * y1 - uy * x1) / den
+        if t > 0 and -1e-9 <= k <= 1 + 1e-9:
+            best = t if best is None else max(best, t)
+    return best
+
+
+def _polar_prism(bm, s, phis, r_in, r_out, x0, x1, mat):
+    """Geschlossener Ringsektor-Körper (Winkel phi von +Y nach +Z; r_in/r_out je Winkel; axial x0..x1)."""
+    K = len(phis)
+
+    def v(r, p, x):
+        return bm.verts.new((s * x, r * math.cos(p), r * math.sin(p)))
+    A0 = [v(r_in[k], phis[k], x0) for k in range(K)]
+    A1 = [v(r_in[k], phis[k], x1) for k in range(K)]
+    B0 = [v(r_out[k], phis[k], x0) for k in range(K)]
+    B1 = [v(r_out[k], phis[k], x1) for k in range(K)]
+    faces = []
+    for k in range(K - 1):
+        for quad in ((A1[k], A1[k + 1], B1[k + 1], B1[k]), (A0[k], A0[k + 1], B0[k + 1], B0[k]),
+                     (B0[k], B0[k + 1], B1[k + 1], B1[k]), (A0[k], A0[k + 1], A1[k + 1], A1[k])):
+            faces.append(bm.faces.new(quad))
+    faces.append(bm.faces.new((A0[0], A1[0], B1[0], B0[0])))
+    faces.append(bm.faces.new((A0[-1], A1[-1], B1[-1], B0[-1])))
+    for f in faces:
+        f.material_index = mat
+        f.smooth = True
+    return faces
+
+
+def _brake_vanes(bm, s, r0, r1, xa, xb, n, sweep, width, mat):
+    """Gebogene Lüftungsstege zwischen den beiden Reibringen (xa..xb), von r0 nach r1."""
+    K = 6
+    for iv in range(n):
+        a0 = 2 * math.pi * iv / n
+        side = {-1: [], 1: []}
+        for sg in (-1, 1):
+            for k in range(K + 1):
+                u = k / K
+                r = r0 + (r1 - r0) * u
+                a = a0 + sweep * u + sg * (width / 2.0) / r
+                side[sg].append((bm.verts.new((s * xa, r * math.sin(a), r * math.cos(a))),
+                                 bm.verts.new((s * xb, r * math.sin(a), r * math.cos(a)))))
+        faces = []
+        for sg in (-1, 1):
+            for k in range(K):
+                p, q = side[sg][k], side[sg][k + 1]
+                f = bm.faces.new((p[0], q[0], q[1], p[1]))
+                o = side[-sg][k]
+                tang = Vector((0.0, (p[0].co.y - o[0].co.y), (p[0].co.z - o[0].co.z)))
+                f.normal_update()
+                if f.normal.dot(tang) < 0:
+                    f.normal_flip()
+                faces.append(f)
+        cap = bm.faces.new((side[-1][K][0], side[1][K][0], side[1][K][1], side[-1][K][1]))
+        cap.normal_update()
+        rad = Vector((0.0, cap.calc_center_median().y, cap.calc_center_median().z))
+        if cap.normal.dot(rad) < 0:
+            cap.normal_flip()
+        faces.append(cap)
+        for f in faces:
+            f.material_index = mat
+            f.smooth = True
+
+
 def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
     """
-    Bremse als Mesh mit dem Bremsenfoto als Textur (planar von vorn):
-    Scheibe (Reibring) + Topf als Mesh 1, Sattel als Mesh 2 (Umriss aus dem Foto, extrudiert).
-    Rechte Seite (s<0): Geometrie wie links (Sattel hinten), Textur gespiegelt mit korrigierter Schrift.
+    Bremse als echtes 3D-Mesh, das Bremsenfoto liegt als Textur auf den passenden Flächen:
+      Scheibe: innenbelüftet (zwei Reibringe + 36 gebogene Stege), Topf mit Übergang, Nabenkappe;
+      Sattel: Außenplatte (Umriss aus dem Foto), Innenplatte, Brücke über dem Scheibenrand, zwei Bremsbeläge,
+              zwei Torx-Schrauben und Entlüfter/Leitung (Positionen aus dem Foto).
+    Die Schlitze der Scheibe kommen als Bump aus dem Foto. Der Sattel wird um die Achse auf c.caliper_angle gedreht
+    (0 = oben, 90 = Richtung Heck); die Textur bleibt an der Geometrie.
+    Rechte Seite (s<0): Geometrie gespiegelt, Textur gespiegelt mit korrigierter Schrift.
     Gibt (Scheibenmesh, Sattelmesh, x_d) zurück.
     """
     t = d["disc_t"]
@@ -539,10 +677,14 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
     cs = min(1.0, (r_well - 0.006) / (bmeta["cal_rmax"] * dr))
     r_c0, r_c1 = bmeta["cal_rmin"] * dr * cs, bmeta["cal_rmax"] * dr * cs
     rear = min(back_fn(r) for r in np.linspace(r_c0, r_c1, 6))
-    x_d = min(x_m - 0.045, rear - cw - 0.004)
+    x_d = min(x_m - 0.045, rear - cw - 0.016)      # 12 mm Luft für Schraubenköpfe/Entlüfter hinter den Speichen
     mirror = s < 0
-    PH = BRM if mirror else BRK
+    PH, PHD = (BRM, BRDM) if mirror else (BRK, BRD)
     seg = 160
+    tp = 0.26 * t                                           # Dicke eines Reibrings
+    xo_out, xo_in = x_d + t / 2.0, x_d + t / 2.0 - tp
+    xi_out, xi_in = x_d - t / 2.0, x_d - t / 2.0 + tp
+    angs = [2 * math.pi * i / seg for i in range(seg)]
 
     def uv_of(dxr, dzr):
         return (bmeta["cx"] + (-dxr if mirror else dxr) * bmeta["Rx"], bmeta["cy_up"] + dzr * bmeta["Ry"])
@@ -550,30 +692,25 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
     def vert(bm, x, y, z):
         return bm.verts.new((s * x, y, z))
 
-    # ---------------- Scheibe + Topf
+    # ================= Scheibe + Topf
     bm = bmesh.new()
     uv_lay = bm.loops.layers.uv.verify()
 
-    def set_uv(f):
-        for loop in f.loops:
-            co = loop.vert.co
-            loop[uv_lay].uv = uv_of(co.y / dr, co.z / dr)
-
-    def annulus(r0, r1, x, mat, want, photo=True):
-        ang = [2 * math.pi * i / seg for i in range(seg)]
-        A = [vert(bm, x, r0 * math.sin(a), r0 * math.cos(a)) for a in ang]
-        B = [vert(bm, x, r1 * math.sin(a), r1 * math.cos(a)) for a in ang]
+    def annulus(r0, r1, x, mat, want, photo=False):
+        A = [vert(bm, x, r0 * math.sin(a), r0 * math.cos(a)) for a in angs]
+        B = [vert(bm, x, r1 * math.sin(a), r1 * math.cos(a)) for a in angs]
         for i in range(seg):
             j = (i + 1) % seg
             f = _face(bm, [A[i], A[j], B[j], B[i]], want * s)
             f.material_index = mat
-            if photo:
-                set_uv(f)
+            if photo:                                       # Reibring: linke Fotohälfte gespiegelt (Sattelbereich frei)
+                for loop in f.loops:
+                    co = loop.vert.co
+                    loop[uv_lay].uv = uv_of(-abs(co.y) / dr, co.z / dr)
 
     def band(r, xa, xb, mat, outward):
-        ang = [2 * math.pi * i / seg for i in range(seg)]
-        A = [vert(bm, xa, r * math.sin(a), r * math.cos(a)) for a in ang]
-        B = [vert(bm, xb, r * math.sin(a), r * math.cos(a)) for a in ang]
+        A = [vert(bm, xa, r * math.sin(a), r * math.cos(a)) for a in angs]
+        B = [vert(bm, xb, r * math.sin(a), r * math.cos(a)) for a in angs]
         for i in range(seg):
             j = (i + 1) % seg
             f = bm.faces.new([A[i], A[j], B[j], B[i]])
@@ -584,18 +721,44 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
             f.material_index = mat
             f.smooth = True
 
-    annulus(r_in, dr, x_d + t / 2.0, PH, +1)                 # Reibring außen (Foto)
-    annulus(r_in, dr, x_d - t / 2.0, PH, -1)                 # Reibring innen
-    band(dr, x_d - t / 2.0, x_d + t / 2.0, ROT, True)        # Außenkante
-    band(r_in, x_d - t / 2.0, x_d + t / 2.0, ROT, False)     # Innenkante
-    annulus(r_hat, r_in, x_d - 0.2 * t, BLK, +1, photo=False)  # dunkle Fuge zwischen Topf und Ring
-    band(r_hat, x_d - 0.3 * t, x_m, HAT, True)               # Topfwand
-    ctr = vert(bm, x_m, 0.0, 0.0)                            # Topfdeckel (Foto)
-    rim_v = [vert(bm, x_m, r_hat * math.sin(a), r_hat * math.cos(a)) for a in [2 * math.pi * i / seg for i in range(seg)]]
+    def revolve_o(prof, idx, want):
+        faces = revolve(bm, prof, s, idx, seg=seg)
+        f0 = faces[0]
+        f0.normal_update()
+        cen = f0.calc_center_median()
+        rad = Vector((0.0, cen.y, cen.z)).normalized()
+        if f0.normal.dot(rad * want[0] + Vector((s, 0.0, 0.0)) * want[1]) < 0:
+            for f in faces:
+                f.normal_flip()
+
+    # Reibringe (Foto außen und innen), Innenflächen zu den Stegen, Kanten
+    annulus(r_in, dr, xo_out, PHD, +1, True)
+    annulus(r_in, dr, xo_in, ROT, -1)
+    band(dr, xo_in, xo_out, ROT, True)
+    annulus(r_in, dr, xi_out, PHD, -1, True)
+    annulus(r_in, dr, xi_in, ROT, +1)
+    band(dr, xi_out, xi_in, ROT, True)
+    band(r_in, xi_out, xo_out, ROT, False)
+    _brake_vanes(bm, s, r_in + 0.004, dr, xi_in, xo_in, 36, math.radians(26), 0.0075, ROT)
+
+    # Topf: Schulter (dunkel) vom Reibring zur Topfwand, Wand, Deckel (Foto), Nabenkappe; Rückseite als Kegel
+    k_top = x_m - 0.004
+    shoulder = []
+    for i in range(6):
+        u = i / 5.0
+        shoulder.append((r_in + (r_hat - r_in) * u, xo_out + (k_top - xo_out) * (1.0 - (1.0 - u) ** 2)))
+    revolve_o(shoulder, BLK, (1.0, 1.0))
+    revolve_o([(r_hat, k_top), (r_hat, x_m)], HAT, (1.0, 0.0))
+    revolve_o([(r_in, xi_out), (r_hat, k_top)], HAT, (-1.0, -1.0))
+    ctr = vert(bm, x_m, 0.0, 0.0)
+    rim_v = [vert(bm, x_m, r_hat * math.sin(a), r_hat * math.cos(a)) for a in angs]
     for i in range(seg):
         f = _face(bm, [ctr, rim_v[i], rim_v[(i + 1) % seg]], +1 * s)
-        f.material_index = PH
-        set_uv(f)
+        f.material_index = PHD
+        for loop in f.loops:
+            co = loop.vert.co
+            loop[uv_lay].uv = uv_of(co.y / dr, co.z / dr)
+    cylinder(bm, s, x_m, x_m + 0.010, 0.17 * r_hat, BOL, seg=24)       # Nabenkappe / Mutter
     bm.normal_update()
     me_d = bpy.data.meshes.new("Bremsscheibe " + name)
     bm.to_mesh(me_d)
@@ -605,35 +768,85 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
     apply_smoothing(me_d, math.radians(40))
     me_d.update()
 
-    # ---------------- Sattel: Umriss aus dem Foto, extrudiert
+    # ================= Sattel
     bm = bmesh.new()
     uv_lay = bm.loops.layers.uv.verify()
     pts = bmeta["caliper"]
-    yz = [(dx * dr * cs, dy * dr * cs) for dx, dy in pts]       # +Y = Heck (Foto rechts), z = oben
-    cen = (sum(p[0] for p in yz) / len(yz), sum(p[1] for p in yz) / len(yz))
-    Fv = [vert(bm, x_d + cw, y, z) for y, z in yz]
-    Bv = [vert(bm, x_d - cw, y, z) for y, z in yz]
-    ff = bm.faces.new(Fv)
-    ff.normal_update()
-    if ff.normal.x * s < 0:
-        ff.normal_flip()
-    ff.material_index = PH
-    for loop, (dx, dy) in zip(ff.loops, [pts[Fv.index(l.vert)] for l in ff.loops]):
-        loop[uv_lay].uv = uv_of(dx, dy)
-    fb = bm.faces.new(Bv)
-    fb.normal_update()
-    if fb.normal.x * s > 0:
-        fb.normal_flip()
-    fb.material_index = CAL
-    n = len(yz)
-    for i in range(n):
-        j = (i + 1) % n
-        f = bm.faces.new([Fv[i], Fv[j], Bv[j], Bv[i]])
-        f.normal_update()
-        mid = Vector((0.0, (yz[i][0] + yz[j][0]) / 2 - cen[0], (yz[i][1] + yz[j][1]) / 2 - cen[1]))
-        if f.normal.dot(mid) < 0:
-            f.normal_flip()
-        f.material_index = CAL
+    u_m = dr * cs                                           # Foto-Einheit -> Meter
+    yz = [(dx * u_m, dy * u_m) for dx, dy in pts]           # +Y = Heck (Foto rechts), z = oben
+    x_front, x_back = x_d + cw, x_d - cw
+    gap = 0.006                                             # Luft zwischen Platte und Scheibe (Belag sitzt dazwischen)
+
+    def plate(xa, xb, photo_front):
+        """Platte mit Fotoumriss zwischen xa (außen) und xb (innen)."""
+        n = len(yz)
+        F = [vert(bm, xa, y, z) for y, z in yz]
+        B = [vert(bm, xb, y, z) for y, z in yz]
+        fs = [bm.faces.new(F), bm.faces.new(B)]
+        for i in range(n):
+            fs.append(bm.faces.new([F[i], F[(i + 1) % n], B[(i + 1) % n], B[i]]))
+        fs[0].material_index = PH if photo_front else CAL
+        for f in fs[1:]:
+            f.material_index = CAL
+        for f in fs:
+            f.smooth = True
+
+    plate(x_front, xo_out + gap, True)                      # Außenplatte (Foto)
+    plate(xi_out - gap, x_back, False)                      # Innenplatte
+    # Brücke über dem Scheibenrand: folgt dem äußeren Umriss, füllt den Spalt zwischen den Platten
+    ph = [math.atan2(y, x) for x, y in pts]
+    phis = list(np.linspace(min(ph) + 0.01, max(ph) - 0.01, 28))
+    r_b0 = dr + 0.008
+    r_o, ok = [], []
+    for p in phis:
+        ro = _ray_radii(yz, p)
+        ok.append(ro is not None and ro > r_b0 + 0.012)
+        r_o.append(max((ro or 0.0) - 0.0015, r_b0 + 0.004))
+    # zusammenhängenden Bereich mit Treffern nehmen
+    idx_ok = [i for i, v in enumerate(ok) if v]
+    if len(idx_ok) >= 2:
+        i0, i1 = idx_ok[0], idx_ok[-1]
+        _polar_prism(bm, s, phis[i0:i1 + 1], [r_b0] * (i1 - i0 + 1), r_o[i0:i1 + 1],
+                     xi_out - gap - 0.003, xo_out + gap + 0.003, CAL)
+    # Bremsbeläge (zwischen Platte und Scheibe)
+    pc = float(np.mean(ph))
+    pad_phis = list(np.linspace(pc - 0.50, pc + 0.50, 7))
+    pad_in, pad_out = 0.74 * dr, 0.965 * dr
+    _polar_prism(bm, s, pad_phis, [pad_in] * 7, [pad_out] * 7, xo_out + 0.0008, xo_out + gap - 0.0008, PAD)
+    _polar_prism(bm, s, pad_phis, [pad_in] * 7, [pad_out] * 7, xi_out - gap + 0.0008, xi_out - 0.0008, PAD)
+    # Schrauben (Positionen aus dem Foto) und Entlüfter / Leitung
+    for bx, by in ((0.623, 0.548), (0.712, -0.426)):
+        cylinder(bm, s, x_front - 0.001, x_front + 0.006, 0.055 * u_m, BOL, center=(bx * u_m, by * u_m), seg=24)
+    for bx, by, hl in ((0.668, 0.821, 0.016), (0.790, -0.700, 0.012)):
+        y0, z0 = bx * u_m, by * u_m
+        rad = Vector((0.0, y0, z0)).normalized()
+        hl = max(0.004, min(hl, r_well - 0.004 - math.hypot(y0, z0)))      # nicht in die Felge ragen
+        cylinder(bm, s, x_front - 0.001, x_front + 0.010, 0.013, BOL, center=(y0, z0), seg=12)
+        p0 = Vector((s * (x_front + 0.010), y0, z0))
+        cylinder_dir(bm, p0, p0 + rad * hl, 0.0085, BLK, seg=12)
+    bm.normal_update()
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    for f in bm.faces:                                       # Foto-UV (vor dem Drehen): Position -> Fotokoordinate
+        if f.material_index == PH:
+            f.normal_update()
+            if abs(f.normal.x) > 0.9 and f.normal.x * s > 0:
+                for loop in f.loops:
+                    co = loop.vert.co
+                    loop[uv_lay].uv = uv_of(co.y / u_m, co.z / u_m)
+    # Schraubenköpfe: Deckel zeigt das Foto (Torx-Kopf), sonst Metall
+    for f in bm.faces:
+        if f.material_index == BOL:
+            f.normal_update()
+            cen = f.calc_center_median()
+            if f.normal.x * s > 0.9 and abs(cen.x * s - (x_front + 0.006)) < 1e-5:
+                f.material_index = PH
+                for loop in f.loops:
+                    co = loop.vert.co
+                    loop[uv_lay].uv = uv_of(co.y / u_m, co.z / u_m)
+    delta = math.radians(90.0 - c.caliper_angle)
+    if abs(delta) > 1e-6:
+        bmesh.ops.rotate(bm, cent=(0.0, 0.0, 0.0), matrix=Matrix.Rotation(delta, 3, 'X'), verts=bm.verts)
+    r_max = max(math.hypot(v.co.y, v.co.z) for v in bm.verts)
     bm.normal_update()
     me_c = bpy.data.meshes.new("Bremssattel " + name)
     bm.to_mesh(me_c)
@@ -642,7 +855,7 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
         me_c.materials.append(m)
     apply_smoothing(me_c, math.radians(35))
     me_c.update()
-    me_c["r_max"] = max(math.hypot(y, z) for y, z in yz)
+    me_c["r_max"] = r_max
     return me_d, me_c, x_d
 
 

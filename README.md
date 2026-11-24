@@ -15,6 +15,7 @@ Aus einem Felgenfoto (Frontansicht) werden in Sekunden **vier Räder mit Reifen*
 **Reiter „Package“** – vier Räder mit Reifen und Bremsen
 1. Felge wählen: *Generierte Felge* (aus Reiter 1) oder *Eigene Felge* (Picker für eine beliebige Collection, z.B. importierte FBX)
 2. Radstand, Spurweiten, **Zoll vorn/hinten** einstellen, **4 Räder erzeugen**
+3. Bremse: echtes 3D (belüftete Scheibe, Sattel mit Brücke/Belägen/Schrauben), Foto als Textur; Regler **Sattelposition** (0° oben, 90° hinten, Standard 45°)
 
 ## Updates
 Panel **Rim Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.

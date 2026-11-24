@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 27, 1),
+    "version": (0, 28, 0),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1315,8 +1315,8 @@ class Felge3DCar(PropertyGroup):
 
     disc_style: EnumProperty(name="Scheibentyp", default="GESCHLITZT", items=[
         ("GESCHLITZT", "Geschlitzt", ""), ("GELOCHT", "Gelocht", ""), ("GLATT", "Glatt", "")])
-    caliper_angle: FloatProperty(name="Sattelposition (Grad)", default=90, min=-180, max=180,
-                                 description="0 = oben, 90 = Richtung Heck, -90 = Richtung Front")
+    caliper_angle: FloatProperty(name="Sattelposition (Grad)", default=45, min=-180, max=180,
+                                 description="Sattel um die Achse gedreht: 0 = oben, 90 = Richtung Heck, -90 = Richtung Front")
     caliper_color: bpy.props.FloatVectorProperty(name="Sattelfarbe", subtype="COLOR", size=3, min=0, max=1,
                                                  default=(.55, .78, .02))
     decal_caliper: StringProperty(name="Sattel (PNG)", subtype="FILE_PATH", default="")
@@ -1673,6 +1673,8 @@ class FELGE3D_PT_pkg_opts(Panel):
         c = context.scene.felge3d_car
         L = self.layout
         L.prop(c, "use_brakes")
+        if c.use_brakes:
+            L.prop(c, "caliper_angle", slider=True)
         if s.source == "COLLECTION":
             L.prop(s, "fbx_flip")
 
