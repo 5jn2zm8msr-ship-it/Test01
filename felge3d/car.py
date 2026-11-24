@@ -79,7 +79,7 @@ def decal_mat(name, filepath, fallback, rough, metal):
     return m, img
 
 
-def photo_relief_mat(name, img, rough, contrast, bump, bump_dist, disp_scale, disp_mid, extension):
+def photo_relief_mat(name, img, rough, contrast, bump, bump_dist, disp_scale, disp_mid, extension, height_img=None):
     """Foto als Farbe (mit Kontrast), als Bump (hell = hoch) und als Shader-Displacement (Cycles)."""
     m = get_mat(name, (.02, .02, .02), rough, 0.0)
     nt = m.node_tree
@@ -98,7 +98,13 @@ def photo_relief_mat(name, img, rough, contrast, bump, bump_dist, disp_scale, di
         nt.links.new(bc.outputs["Color"], bsdf.inputs["Base Color"])
         bw = nt.nodes.new('ShaderNodeRGBToBW')
         bw.location = (x0 - 650, y0 - 120)
-        nt.links.new(tex.outputs["Color"], bw.inputs["Color"])
+        if height_img is not None:                       # eigene Höhenkarte (Non-Color), gleiche UV
+            th = nt.nodes.new('ShaderNodeTexImage')
+            th.image, th.extension, th.interpolation = height_img, extension, 'Cubic'
+            th.location = (x0 - 900, y0 - 300)
+            nt.links.new(th.outputs["Color"], bw.inputs["Color"])
+        else:
+            nt.links.new(tex.outputs["Color"], bw.inputs["Color"])
         bp = nt.nodes.new('ShaderNodeBump')
         bp.inputs["Strength"].default_value = bump
         bp.inputs["Distance"].default_value = bump_dist
@@ -131,12 +137,12 @@ def tire_photo_mat(img):
     return photo_relief_mat(PREFIX + "Reifenfoto", img, .82, 0.35, 0.7, 0.0015, 0.0012, 0.25, 'EXTEND')
 
 
-def tread_mat(img):
-    """Lauffläche: Profil aus dem Foto (dunkle Rillen liegen tiefer)."""
-    return photo_relief_mat(PREFIX + "Reifenprofil", img, .90, 0.25, 1.0, 0.002, 0.0012, 0.35, 'REPEAT')
+def tread_mat(img, height_img=None):
+    """Lauffläche: tiefschwarzes Gummi, Profil aus der Höhenkarte (Rillen tief, Rippen hoch)."""
+    return photo_relief_mat(PREFIX + "Reifenprofil", img, .94, 0.0, 2.2, 0.004, 0.0025, 0.5, 'REPEAT', height_img)
 
 
-def build_materials(c, tire_img=None, tread_img=None):
+def build_materials(c, tire_img=None, tread_img=None, tread_h=None):
     """Materialliste in der Reihenfolge RUB, RIM, BED, ROT, HAT, BLK, CAL, BOL, EMB, DEC_TOP, DEC_BOT, DEC_CAL, TPH."""
     top, top_img = decal_mat(PREFIX + "Decal Flanke oben", c.decal_sidewall_top, (.8, .8, .8), .55, 0)
     bot, bot_img = decal_mat(PREFIX + "Decal Flanke unten", c.decal_sidewall_bottom, (.8, .8, .8), .55, 0)
@@ -154,7 +160,7 @@ def build_materials(c, tire_img=None, tread_img=None):
         get_mat(PREFIX + "Emblem (unbenutzt)", (.5, .5, .52), .3, .7),
         top, bot, cal,
         tire_photo_mat(tire_img),
-        tread_mat(tread_img),
+        tread_mat(tread_img, tread_h),
     ]
     return mats, imgs
 
@@ -485,7 +491,7 @@ def add_relief(obj, flank_img, flank_mm, tread_img=None, tread_mm=0.0, level=1):
     if do_f:
         _displace(obj, "Reifen-Relief", "Flanke", fv, flank_img, "Reifenrelief", flank_mm, 0.25, uv_name)
     if do_t:
-        _displace(obj, "Profil-Relief", "Lauffläche", tv, tread_img, "Profilrelief", tread_mm, 0.35, uv_name)
+        _displace(obj, "Profil-Relief", "Lauffläche", tv, tread_img, "Profilrelief", tread_mm, 0.5, uv_name)
 
 
 # ---------------------------------------------------------------- Bremse

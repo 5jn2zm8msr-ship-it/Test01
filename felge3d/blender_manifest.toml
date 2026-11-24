@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "felge3d"
-version = "0.23.0"
-name = "Felge3D"
-tagline = "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell"
+version = "0.24.1"
+name = "Rim Generator"
+tagline = "Rim Generator: Felge aus Foto zu 4 Rädern mit Reifen"
 maintainer = "Felge3D"
 type = "add-on"
 tags = ["Import-Export", "Mesh"]

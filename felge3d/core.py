@@ -117,7 +117,7 @@ def _sample_rgb(rgb, X, Y):
     return np.stack([bilinear(rgb[..., c], X, Y) for c in range(3)], -1)
 
 
-def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
+def segment_auto(rgb, cx, cy, rx, ry, n, clean=2, return_all=False):
     """
     Automatische Erkennung ohne Einstellungen. Zwei Kandidaten:
       A) Helligkeit (Otsu; Material = was am Felgenhorn dominiert)
@@ -216,6 +216,7 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
     sa = score(A) + (0 if plausible(A) else -10)
     sb = score(B) + (0 if plausible(B) else -10)
     M, method = (B, "Hintergrund") if sb >= sa else (A, "Helligkeit")
+    cand = {"A": A & inside, "B": B & inside}
     if uniform_bg:
         # Einfarbiger Hintergrund: Material = jeder Pixel, der sich messbar vom Hintergrundton
         # unterscheidet (auch helles Silber auf Weiß). Fenster = exakt Hintergrundfarbe.
@@ -224,12 +225,113 @@ def segment_auto(rgb, cx, cy, rx, ry, n, clean=2):
         frac = U[inside & (rn > 0.15)].mean() if inside.any() else 0
         if plausible(U) and 0.08 < frac < 0.85:
             M, method = U, "Hintergrund (einfarbig)"
+            cand["U"] = U & inside
     m = (M & inside).astype(np.float32)
     if clean > 0:
         m = (blur((blur(m, clean, 1) > 0.999).astype(np.float32), clean, 1) > 0.001).astype(np.float32)
         m = (blur((blur(m, clean, 1) > 0.001).astype(np.float32), clean, 1) > 0.999).astype(np.float32)
         m *= inside
+    if return_all:
+        return m, method, {k: v.astype(np.float32) for k, v in cand.items()}
     return m, method
+
+
+def depth_candidate(depth, cx, cy, rx, ry):
+    """Maske aus der KI-Tiefe: nah = Material. Hochpass entfernt die Schüsselform."""
+    d = np.nan_to_num(depth, nan=float(np.nanmin(depth)))
+    rn = norm_radius(d.shape, cx, cy, rx, ry)
+    ins = (rn < 0.97) & (rn > 0.12)
+    hp = d - blur(d, max(4, int(rx * 0.25)), 3)
+    lo, hi = np.percentile(hp[ins], [1, 99])
+    hn = (hp - lo) / max(hi - lo, 1e-6)
+    thr = otsu(np.clip(hn[ins], 0, 1))
+    return ((hn > thr) & (rn < 1.0)).astype(np.float32)
+
+
+def _sector_features(S):
+    """Merkmale eines Segments (n_r x m, bool): Fläche, Randlänge, kleine Löcher, lose Reste."""
+    bad, edges, area = _sector_defects(S[::2, ::2])
+    return bad, edges, area
+
+
+def fuse_candidates(cands, cx, cy, rx, ry, n, hub_n=None, split=0.33, n_r=140, base_t=1800, top_m=3):
+    """
+    Ensemble-Fusion: Jede Kandidatenmaske wird in Polarkoordinaten in n Speichen-Segmente geschnitten.
+    Jedes (Methode, Segment) wird einzeln bewertet; die besten Segmente bestimmen die Vorlage, die auf alle
+    n Speichen kopiert wird. Nabenbereich (r < split) mit hub_n, Rest mit n.
+    Gibt (Maske im Bild, Bericht) zurück.
+    """
+    hub_n = hub_n or n
+    lcm = int(np.lcm(max(1, n), max(1, hub_n)))
+    n_t = max(lcm, int(round(base_t / lcm)) * lcm)
+    radii = np.linspace(0.10, 0.985, n_r)
+    names = list(cands)
+    P = {k: sample_polar(blur(v, max(1, int(round(rx / 250.0))), 1), cx, cy, rx, ry, radii, n_t) >= 0.5
+         for k, v in cands.items()}
+    out = np.zeros((n_r, n_t), bool)
+    report = {"zones": {}}
+    for zone_name, rows, nn in (("outer", radii > split, n), ("hub", radii <= split, hub_n)):
+        if nn <= 1 or rows.sum() < 4:
+            # keine Symmetrie: Mehrheitsentscheid
+            votes = np.mean([P[k][rows] for k in names], axis=0)
+            out[rows] = votes >= 0.5
+            continue
+        m = n_t // nn
+        # gemeinsamer Schnitt: Winkel mit dem wenigsten Material (alle Kandidaten gefaltet)
+        fold = np.mean([P[k][rows].mean(axis=0) for k in names], axis=0).reshape(nn, m).mean(axis=0)
+        w_ = max(3, m // 20)
+        sm = np.convolve(np.r_[fold, fold, fold], np.ones(w_) / w_, mode="same")[m:2 * m]
+        j0 = int(np.argmin(sm))
+        secs = {}
+        for k in names:
+            G = np.roll(P[k][rows], -j0, axis=1)
+            secs[k] = [G[:, i * m:(i + 1) * m] for i in range(nn)]
+        allsec = [(k, i) for k in names for i in range(nn)]
+        Q = np.mean([secs[k][i] for k, i in allsec], axis=0) >= 0.5          # Mehrheitsvorlage
+        rr = radii[rows]
+        ring = rr > 0.90
+        hubz = rr < 0.22
+        feats = {}
+        for k, i in allsec:
+            S = secs[k][i]
+            bad, edges, area = _sector_features(S)
+            feats[(k, i)] = (bad, edges, area)
+        med_a = max(np.median([f[2] for f in feats.values()]), 1.0)
+        med_e = max(np.median([f[1] for f in feats.values()]), 1.0)
+        for it in range(2):                                                    # Vorlage verfeinern
+            scored = []
+            for (k, i) in allsec:
+                S = secs[k][i]; bad, edges, area = feats[(k, i)]
+                iou = (S & Q).sum() / max(1, (S | Q).sum())
+                defect = bad / med_a * 8.0 + max(0.0, edges / med_e - 1.0) * 1.5
+                prior = 1.0
+                if S[ring].mean() < 0.65: prior -= 0.45                       # Felgenrand muss Material sein
+                if zone_name == "outer" and hubz.any() and S[hubz].mean() < 0.5: prior -= 0.2
+                frac = S[(rr > 0.25) & (rr < 0.85)].mean() if ((rr > 0.25) & (rr < 0.85)).any() else 0.5
+                if frac < 0.12 or frac > 0.90: prior -= 0.35                  # fast leer / fast voll = unplausibel
+                score = iou - 0.5 * defect + prior
+                scored.append((score, k, i))
+            scored.sort(key=lambda t: -t[0])
+            top = scored[:min(top_m, len(scored))]
+            Q = np.mean([secs[k][i] for _, k, i in top], axis=0) >= 0.5
+        master = Q
+        tiled = np.roll(np.tile(master, (1, nn)), j0, axis=1)
+        out[rows] = tiled
+        report["zones"][zone_name] = dict(n=nn, best=[(k, i + 1, round(float(s), 2)) for s, k, i in top],
+                                          per_method={k: round(float(np.mean([s for s, kk, ii in scored if kk == k])), 2) for k in names})
+    # zurück ins Bild
+    h, w = next(iter(cands.values())).shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    u, v = (xx - cx) / rx, (yy - cy) / ry
+    r, th = np.hypot(u, v), np.mod(np.arctan2(u, v), 2 * np.pi)
+    fi = np.interp(r, radii, np.arange(n_r)).astype(np.float32)
+    fj = th / (2 * np.pi / n_t)
+    i0 = np.clip(np.round(fi).astype(int), 0, n_r - 1); j0_ = np.round(fj).astype(int) % n_t
+    img = out[i0, j0_].astype(np.float32)
+    img[r > 0.985] = 1.0                       # Felgenhorn
+    img[r < 0.10] = 1.0                        # Nabenmitte
+    img[r >= 1.0] = 0.0
+    return img, report
 
 
 def fill_background(rgb, valid, iters=12, radius=4):
@@ -414,6 +516,21 @@ def symmetrize_zones(F, radii, split_r, n_hub, n_spoke):
     if n_hub > 1:
         out[inner], report["hub"] = symmetrize_checked(F[inner], n_hub)
     return out, report
+
+
+def detect_symmetry_multi(gray, cx, cy, rx, ry, depth=None, n_max=24, rel=0.8, min_corr=0.3):
+    """Speichenzahl aus Farbe UND Tiefe (falls vorhanden): beide Korrelationen werden gemittelt."""
+    n_c, cc = detect_symmetry_gray(gray, cx, cy, rx, ry, n_max=n_max, rel=rel, min_corr=min_corr)
+    if depth is None:
+        return n_c, cc
+    d = np.nan_to_num(depth, nan=float(np.nanmin(depth)))
+    hp = d - blur(d, max(4, int(rx * 0.25)), 3)
+    n_d, cd = detect_symmetry_gray(hp, cx, cy, rx, ry, n_max=n_max, rel=rel, min_corr=min_corr, band=(0.25, 0.88))
+    comb = {k: 0.5 * cc.get(k, 0.0) + 0.5 * cd.get(k, 0.0) for k in cd}
+    best = max(comb.values())
+    if best < min_corr:
+        return 1, comb
+    return max(k for k, v in comb.items() if v >= rel * best), comb
 
 
 def symmetrize_polar(F, n):

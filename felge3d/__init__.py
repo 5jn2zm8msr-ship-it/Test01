@@ -7,12 +7,12 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 """
 
 bl_info = {
-    "name": "Felge3D",
+    "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 23, 0),
+    "version": (0, 24, 1),
     "blender": (3, 6, 0),
-    "location": "3D-Viewport > Seitenleiste (N) > Felge",
-    "description": "Erzeugt aus einem Frontfoto einer Felge ein 3D-Modell",
+    "location": "3D-Viewport > Seitenleiste (N) > Rim Generator",
+    "description": "Rim Generator: Felge aus Foto (oder 3D) -> 4 Räder mit Reifen",
     "category": "Import-Export",
 }
 
@@ -66,6 +66,10 @@ class Felge3DSettings(PropertyGroup):
         ("YES", "Ja – Reifen sichtbar", "Äußeren Kreis (Reifen) überspringen und das Felgenhorn davor nehmen"),
         ("NO", "Nein – nur Felge", "Äußersten deutlichen Kreis als Felge nehmen"),
     ])
+    use_fusion: BoolProperty(name="Erkennung per Fusion", default=True,
+                             description="Mehrere Methoden (Helligkeit, Hintergrund, KI-Tiefe) je Speiche bewerten; die besten "
+                                         "Segmente werden auf alle Speichen kopiert (behebt fehlende Speichen, Löcher, Negativ)")
+    fusion_info: StringProperty(default="")
     warning: StringProperty(default="")
     check_text: StringProperty(default="")
     auto_detect: BoolProperty(name="Felge automatisch finden", default=True,
@@ -244,9 +248,10 @@ def prepare(s):
 _depth_cache = {}
 
 
-def ai_depth(s, cx, cy, rx, ry):
-    """KI-Tiefenkarte im Arbeitsbild – oder None, wenn KI aus/nicht installiert."""
-    if s.ai_depth <= 0 or not s.use_ai or not ai.is_ready(s.ai_quality):
+def ai_depth(s, cx, cy, rx, ry, force=False):
+    """KI-Tiefenkarte im Arbeitsbild – oder None, wenn KI aus/nicht installiert.
+    force=True: auch wenn das KI-Relief aus ist (die Erkennung nutzt die Tiefe)."""
+    if not ai.is_ready(s.ai_quality) or not (force or (s.ai_depth > 0 and s.use_ai)):
         return None
     key = (s.image.name, s.proc_size, s.ai_quality, round(cx, 1), round(cy, 1), round(rx, 1), round(ry, 1))
     if key not in _depth_cache:
@@ -256,9 +261,9 @@ def ai_depth(s, cx, cy, rx, ry):
     return _depth_cache[key]
 
 
-def symmetry_order(s, gray, cx, cy, rx, ry):
+def symmetry_order(s, gray, cx, cy, rx, ry, depth=None):
     if s.sym_mode == "AUTO":
-        n, _ = core.detect_symmetry_gray(gray, cx, cy, rx, ry)
+        n, _ = core.detect_symmetry_multi(gray, cx, cy, rx, ry, depth)
     elif s.sym_mode == "MANUAL":
         n = s.sym_n
     else:
@@ -275,7 +280,7 @@ def hub_symmetry(s, gray, cx, cy, rx, ry, n):
     return core.detect_hub_symmetry(gray, cx, cy, rx, ry, n)
 
 
-def compute_mask(s, gray, cx, cy, rx, ry, n=None):
+def compute_mask(s, gray, cx, cy, rx, ry, n=None, depth=None, hub_n=None):
     if s.mask_image:
         m = image_to_gray(s.mask_image)
         if m.shape != gray.shape:
@@ -286,9 +291,19 @@ def compute_mask(s, gray, cx, cy, rx, ry, n=None):
         return (m > 0.5).astype(np.float32), None
     if s.seg_mode == "AUTO":
         if n is None:
-            n = symmetry_order(s, gray, cx, cy, rx, ry)
+            n = symmetry_order(s, gray, cx, cy, rx, ry, depth)
         rgb = _rgb_cache[next(iter(_rgb_cache))]
-        mask, method = core.segment_auto(rgb, cx, cy, rx, ry, n, s.clean)
+        mask, method, cand = core.segment_auto(rgb, cx, cy, rx, ry, n, s.clean, return_all=True)
+        if s.use_fusion:
+            if depth is not None:
+                cand["D"] = core.depth_candidate(depth, cx, cy, rx, ry)
+            if len(cand) >= 2:
+                hn = hub_n if hub_n else n
+                mask, rep = core.fuse_candidates(cand, cx, cy, rx, ry, n, hub_n=hn, split=0.33)
+                z = rep["zones"].get("outer", {})
+                best = z.get("best", [])
+                method = "Fusion (" + "+".join(sorted(cand)) + ")"
+                s["fusion_info"] = "Beste Segmente: " + ", ".join("%s%s" % (k, i) for k, i, _ in best) if best else ""
         s["method_used"] = method
         return mask, None
     return core.segment(gray, cx, cy, rx, ry, s.seg_mode, s.auto_threshold,
@@ -520,8 +535,10 @@ def make_rim_meshes(context, s, overrides=None):
     Gibt dict(star_me, barrel_me, res, n, depth, p, mask) zurück.
     """
     gray, cx, cy, rx, ry = prepare(s)
-    n = symmetry_order(s, gray, cx, cy, rx, ry)
-    mask, thr = compute_mask(s, gray, cx, cy, rx, ry, n)
+    depth_pre = ai_depth(s, cx, cy, rx, ry, force=True) if s.use_fusion else None   # Tiefe hilft der Erkennung
+    n = symmetry_order(s, gray, cx, cy, rx, ry, depth_pre)
+    hub_n0 = hub_symmetry(s, gray, cx, cy, rx, ry, n)
+    mask, thr = compute_mask(s, gray, cx, cy, rx, ry, n, depth_pre, hub_n0)
     if thr is not None and s.auto_threshold:
         s["threshold"] = thr          # anzeigen, ohne Update-Callback auszulösen
 
@@ -542,8 +559,8 @@ def make_rim_meshes(context, s, overrides=None):
     p = make_params(s)
     for k_, v_ in (overrides or {}).items():
         setattr(p, k_, v_)
-    depth = ai_depth(s, cx, cy, rx, ry)
-    hub_n = hub_symmetry(s, gray, cx, cy, rx, ry, n)
+    depth = ai_depth(s, cx, cy, rx, ry)          # nur für das optionale KI-Relief
+    hub_n = hub_n0
     res = core.build(mask, cx, cy, rx, ry, p, symmetry_n=n, depth=depth, hub_n=hub_n, gray=gray)
     s["tone_info"] = res.get("tone_info", "")
     chk = res.get("selfcheck") or {}
@@ -741,7 +758,9 @@ class FELGE3D_OT_preview(Operator):
         s = context.scene.felge3d
         try:
             gray, cx, cy, rx, ry = prepare(s)
-            mask, _ = compute_mask(s, gray, cx, cy, rx, ry)
+            dp = ai_depth(s, cx, cy, rx, ry, force=True) if s.use_fusion else None
+            nn = symmetry_order(s, gray, cx, cy, rx, ry, dp)
+            mask, _ = compute_mask(s, gray, cx, cy, rx, ry, nn, dp, hub_symmetry(s, gray, cx, cy, rx, ry, nn))
         except Exception as e:  # noqa: BLE001
             self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
@@ -940,11 +959,11 @@ class FELGE3D_OT_install_update(Operator):
 
 # ============================================================ Oberfläche
 class FELGE3D_PT_main(Panel):
-    bl_label = "Felge3D"
+    bl_label = "Rim Generator"
     bl_idname = "FELGE3D_PT_main"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
 
     def draw(self, context):
         s = context.scene.felge3d
@@ -969,7 +988,7 @@ class FELGE3D_PT_shape(Panel):
     bl_label = "Felge: Maße & Form"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -995,7 +1014,7 @@ class FELGE3D_PT_check(Panel):
     bl_label = "Erkennung & Prüfung"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1020,7 +1039,7 @@ class FELGE3D_PT_look(Panel):
     bl_label = "Aussehen"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1041,7 +1060,7 @@ class FELGE3D_PT_ai(Panel):
     bl_label = "KI-Relief (optional)"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1068,7 +1087,7 @@ class FELGE3D_PT_dims(Panel):
     bl_label = "Form & Details"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1092,7 +1111,7 @@ class FELGE3D_PT_detect(Panel):
     bl_label = "Erkennung (Feinabstimmung)"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1106,6 +1125,7 @@ class FELGE3D_PT_detect(Panel):
         c.prop(s, "radius")
         c.prop(s, "aspect")
         L.prop(s, "tire_mode")
+        L.prop(s, "use_fusion")
         L.operator("felge3d.detect", icon="VIEWZOOM")
         L.separator()
         L.prop(s, "seg_mode")
@@ -1137,11 +1157,11 @@ class FELGE3D_PT_detect(Panel):
 
 class FELGE3D_PT_update(Panel):
     """Eigenes Top-Level-Panel, immer sichtbar und unabhängig vom Hauptpanel (Update-Knopf darf nie fehlen)."""
-    bl_label = "Felge3D · Update"
+    bl_label = "Rim Generator · Update"
     bl_idname = "FELGE3D_PT_update"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
 
     def draw(self, context):
         L = self.layout
@@ -1166,7 +1186,7 @@ class FELGE3D_PT_advanced(Panel):
     bl_label = "Erweitert"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1207,9 +1227,11 @@ class Felge3DCar(PropertyGroup):
     tire_rotation: FloatProperty(name="Reifentextur drehen (Grad)", default=0, min=-180, max=180,
                                  description="Dreht die Reifentextur auf der Flanke (Beschriftung oben/unten)")
     tire_flip: BoolProperty(name="Reifentextur spiegeln", default=False)
+    tire_text_shift: FloatProperty(name="Beschriftung: Lage", default=0.0, min=-0.2, max=0.2,
+                                   description="Verschiebt die Reifen-Beschriftung auf der Flanke: negativ = näher an die Felge, positiv = zum Reifenrand")
     tire_relief: FloatProperty(name="Schrift-Relief (mm)", default=1.2, min=0, max=4,
                                description="Wie weit die Beschriftung der Reifenflanke hervorsteht (Displacement). 0 = nur Bump")
-    tread_relief: FloatProperty(name="Profil-Relief (mm)", default=1.5, min=0, max=5,
+    tread_relief: FloatProperty(name="Profil-Relief (mm)", default=2.5, min=0, max=6,
                                 description="Tiefe des Laufflächenprofils (Displacement). 0 = nur Bump")
     tread_grooves: IntProperty(name="Zusätzliche Längsrillen", default=0, min=0, max=4,
                                description="Zusätzlich zum Profil aus dem Foto (Standard 0: Profil kommt aus der Textur)")
@@ -1240,15 +1262,27 @@ def tire_texture_file():
     return path
 
 
-def tread_texture():
-    """Eingebettete Laufflächen-Kachel auspacken; gibt (Bild, meta) zurück."""
+def _unpack_image(b64parts, filename, noncolor=False):
     import base64
-    path = os.path.join(ai.data_dir(), "reifenprofil_kachel.jpg")
-    data = base64.b64decode("".join(tire_data.TREAD_B64))
+    path = os.path.join(ai.data_dir(), filename)
+    data = base64.b64decode("".join(b64parts))
     if not (os.path.isfile(path) and os.path.getsize(path) == len(data)):
         with open(path, "wb") as f:
             f.write(data)
-    return bpy.data.images.load(path, check_existing=True), dict(tire_data.TREAD_META)
+    img = bpy.data.images.load(path, check_existing=True)
+    if noncolor:
+        try:
+            img.colorspace_settings.name = "Non-Color"
+        except TypeError:
+            pass
+    return img
+
+
+def tread_texture():
+    """Laufflächen-Kachel (Farbe, tiefschwarz) und Höhenkarte aus dem Code auspacken; gibt (Farbe, Höhe, meta) zurück."""
+    col = _unpack_image(tire_data.TREAD_B64, "reifenprofil_farbe_v2.jpg")
+    hgt = _unpack_image(tire_data.TREAD_H_B64, "reifenprofil_hoehe_v2.jpg", noncolor=True)
+    return col, hgt, dict(tire_data.TREAD_META)
 
 
 def tire_texture_params(c):
@@ -1261,8 +1295,9 @@ def tire_texture_params(c):
     W, H = j["width"], j["height"]
     o = j["outer"]
     R = o["a"] / W
+    sh = c.tire_text_shift
     return img, dict(cx=o["cx"] / W, cy=1.0 - o["cy"] / H,          # Blender-UV: y von unten
-                     r_in=R * j.get("map_inner_ratio", 0.765), r_out=R * j.get("map_outer_ratio", 0.968),
+                     r_in=R * (j.get("map_inner_ratio", 0.76) - sh), r_out=R * (j.get("map_outer_ratio", 1.05) - sh),
                      asp=o["b"] / o["a"], w_over_h=W / H, rot=c.tire_rotation, flip=c.tire_flip)
 
 
@@ -1279,8 +1314,8 @@ def build_car(context, s, c):
     context.scene.collection.children.link(col)
 
     tire_img, tex = tire_texture_params(c)
-    tread_img, tread = tread_texture()
-    mats, imgs = car.build_materials(c, tire_img, tread_img)
+    tread_img, tread_h, tread = tread_texture()
+    mats, imgs = car.build_materials(c, tire_img, tread_img, tread_h)
 
     axles = {}
     for front in (True, False):
@@ -1325,7 +1360,7 @@ def build_car(context, s, c):
             ob = bpy.data.objects.new("Reifen " + name, me_t)
             ob.parent = parent
             col.objects.link(ob)
-            car.add_relief(ob, tire_img, c.tire_relief, tread_img, c.tread_relief)
+            car.add_relief(ob, tire_img, c.tire_relief, tread_h, c.tread_relief)
             # Bremsscheibe und Sattel: Code liegt in car.build_brake bereit, kommt später dazu
     for o in context.view_layer.objects:
         o.select_set(False)
@@ -1369,7 +1404,7 @@ class FELGE3D_PT_car_axle(Panel):
     bl_label = "Achsen: Felge und Reifen"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1388,7 +1423,7 @@ class FELGE3D_PT_car_extra(Panel):
     bl_label = "Reifen: Profil, Textur, Decals"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Felge"
+    bl_category = "Rim Generator"
     bl_parent_id = "FELGE3D_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -1398,6 +1433,7 @@ class FELGE3D_PT_car_extra(Panel):
         row = L.row(align=True)
         row.prop(c, "tire_rotation")
         row.prop(c, "tire_flip", text="", icon="MOD_MIRROR")
+        L.prop(c, "tire_text_shift")
         L.prop(c, "tire_relief")
         L.prop(c, "tread_relief")
         L.prop(c, "tread_grooves")
