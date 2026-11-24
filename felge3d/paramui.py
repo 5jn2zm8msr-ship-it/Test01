@@ -1,17 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Oberfläche und Collection-Verwaltung für die parametrische Felge (Geometry Nodes, ab Blender 5.3)."""
+import json
+
 import bpy
 from bpy.types import Operator, Panel
 
 from . import paramrim
 
 PARAM_OK = bpy.app.version >= (5, 3, 0)
-MOD_NAME = "Parametrische Felge"
-ROLE_PARAM = "param"
+ROLE_PARAM, ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED = "param", "template", "template_baked"
+KEEP_ROLES = (ROLE_PARAM, "param_applied", ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED)
 AI_ROLES = ("star", "barrel", "body")
+MOD_RIM, MOD_TEMPLATE = "Parametrische Felge", "Musterspeiche"
 
 
-# ---------------------------------------------------------------- Collections
+# ---------------------------------------------------------------- Collections / Objekte
 def next_rim_name():
     i = 1
     while True:
@@ -25,20 +28,76 @@ def rim_collections():
     return sorted((c for c in bpy.data.collections if c.get("felge3d_rim")), key=lambda c: c.name)
 
 
-def param_object_of(col):
+def _object_with_role(col, roles):
     if col is None or col.name not in bpy.data.collections:
         return None
     for ob in col.objects:
-        if ob.get("felge3d_role") == ROLE_PARAM and ob.type == "MESH":
+        if ob.get("felge3d_role") in roles and ob.type == "MESH":
             return ob
     return None
 
 
-def param_modifier(ob):
+def param_object_of(col):
+    return _object_with_role(col, (ROLE_PARAM,))
+
+
+def template_object_of(col):
+    return _object_with_role(col, (ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED))
+
+
+def _nodes_modifier(ob, with_node):
     if ob is None:
         return None
-    return next((m for m in ob.modifiers if m.type == "NODES" and m.node_group is not None
-                 and paramrim.CURVE_SECTION in m.node_group.nodes), None)
+    return next((m for m in ob.modifiers if m.type == "NODES" and m.node_group is not None and with_node in m.node_group.nodes), None)
+
+
+def param_modifier(ob):
+    return _nodes_modifier(ob, paramrim.CURVE_SECTION)
+
+
+def template_modifier(tob):
+    return _nodes_modifier(tob, paramrim.CURVE_WIDTH)
+
+
+class Rim:
+    """Felge + Muster als Einheit: Werte lesen/setzen, jeweils am richtigen Objekt."""
+
+    def __init__(self, col):
+        self.col = col
+        self.ob = param_object_of(col)
+        self.tob = template_object_of(col)
+        self.md = param_modifier(self.ob)
+        self.tmd = template_modifier(self.tob)
+
+    @property
+    def ok(self):
+        return self.md is not None
+
+    @property
+    def baked(self):
+        return self.tob is not None and self.tmd is None
+
+    def _target(self, name):
+        if name in paramrim.SLICE_ONLY:
+            return self.tmd
+        return self.md
+
+    def get(self, name):
+        md = self._target(name)
+        if md is None:                                    # Muster fest: letzte Werte aus dem Merkzettel
+            data = json.loads(self.tob.get("felge3d_slice_params", "{}")) if self.tob is not None else {}
+            return data.get(name)
+        return paramrim.get_param(md, name)
+
+    def set(self, name, value):
+        if name == "Speichen":
+            for md in (self.md, self.tmd):
+                if md is not None:
+                    paramrim.set_param(md, name, value)
+            return
+        md = self._target(name)
+        if md is not None:
+            paramrim.set_param(md, name, value)
 
 
 def hide_ai(col):
@@ -52,38 +111,48 @@ def hide_ai(col):
             ob.hide_render = True
 
 
-def apply_detected(md, det, section_pts=None):
-    """Erkannte Werte (paramdetect.detect) und die Tiefenkurve des KI-Meshes auf die parametrische Felge übertragen."""
+def apply_detected(rim, det, section_pts=None):
+    """Erkannte Werte (paramdetect.detect) und die Tiefenkurve des KI-Meshes auf Felge und Muster übertragen."""
     if det:
         for k, v in (("Speichen", det["n"]), ("Drehung (Grad)", det["drehung_deg"]), ("Biegung (Grad)", det["biegung_deg"]),
                      ("Speichenbreite (mm)", det["breite_mm"]), ("Nabenradius (mm)", min(max(det["hub_r_mm"], 40.0), 130.0))):
             try:
-                paramrim.set_param(md, k, v)
+                rim.set(k, v)
             except (KeyError, TypeError, ValueError):
                 pass
-        paramrim.set_curve_points(paramrim.curve_node(md, paramrim.CURVE_WIDTH).mapping, det["width_pts"])
-        paramrim.set_curve_points(paramrim.curve_node(md, paramrim.CURVE_SWEEP).mapping, det["sweep_pts"])
-    if section_pts:
-        paramrim.set_curve_points(paramrim.curve_node(md).mapping, section_pts)
-    md.node_group.update_tag()
+        if rim.tmd is not None:
+            paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_WIDTH).mapping, det["width_pts"])
+            paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_SWEEP).mapping, det["sweep_pts"])
+    if section_pts and rim.md is not None:
+        paramrim.set_curve_points(paramrim.curve_node(rim.md).mapping, section_pts)
+    for ob in (rim.ob, rim.tob):
+        if ob is not None:
+            ob.update_tag()
 
 
 def ensure_param(context, s, col, root, defaults, detected=None, section_pts=None):
-    """Parametrische Felge in der Collection anlegen (vorhandene bleibt mit den Werten des Nutzers erhalten)."""
+    """Felge + Musterspeiche in der Collection anlegen (vorhandene bleiben mit den Werten des Nutzers erhalten)."""
     ob = param_object_of(col)
     if ob is None:
         d = dict(defaults)
         hub_x = d.pop("hub_x", 0.34)
-        ob, md = paramrim.make_object("%s parametrisch" % col.name, col, None, hub_x=hub_x)
+        ob, tob, md = paramrim.make_object("%s parametrisch" % col.name, col, None, hub_x=hub_x)
         ob["felge3d_role"] = ROLE_PARAM
+        tob["felge3d_role"] = ROLE_TEMPLATE
         if root is not None:
             ob.parent = root
+            tob.parent = root
+        rim = Rim(col)
         for k, v in d.items():
             try:
-                paramrim.set_param(md, k, v)
+                rim.set(k, v)
             except (KeyError, TypeError, ValueError):
                 pass
-        apply_detected(md, detected, section_pts)
+        for k, v in (("Referenz-Durchmesser (Zoll)", d.get("Durchmesser (Zoll)")), ("Referenz-Wandstärke (mm)", d.get("Wandstärke (mm)"))):
+            if v is not None:                              # Muster wird für diese Größe gebaut
+                paramrim.set_param(rim.tmd, k, float(v))
+                paramrim.set_param(rim.md, k, float(v))
+        apply_detected(rim, detected, section_pts)
     hide_ai(col)
     return ob
 
@@ -116,24 +185,30 @@ def rim_switched(self, context):
         switch_rim(context, self, self.active_rim)
 
 
-def param_rim_mesh(context, src_ob, diameter_in, width_in, dish_mm, name):
-    """
-    Mesh der parametrischen Felge in anderer Größe (für die vier Räder): Node-Baum kopieren, Zoll/Breite/Tiefe setzen,
-    auswerten (inkl. Bevel/Weighted Normal) und als normales Mesh zurückgeben. Die Felge des Nutzers bleibt unverändert.
-    """
+# ---------------------------------------------------------------- Größen für die vier Räder (geteilte Node-Group)
+def _rim_inputs(src_md):
+    return {nm: paramrim.get_param(src_md, nm) for nm in paramrim.socket_ids(src_md.node_group)}
+
+
+def attach_modifiers(ob, src_md, cfg):
+    """Rad-Objekt mit derselben Node-Group wie die Felge (live gekoppelt), eigene Zoll-/Breiten-/Tiefenwerte."""
+    md = ob.modifiers.new(MOD_RIM, "NODES")
+    md.node_group = src_md.node_group
+    vals = _rim_inputs(src_md)
+    vals.update(cfg)
+    for nm, v in vals.items():
+        paramrim.set_param(md, nm, v)
+    paramrim.add_finish_modifiers(ob)
+    return md
+
+
+def param_rim_mesh(context, src_ob, cfg, name):
+    """Auswertung der Felge in der Größe einer Achse (für Hinterkante/Radhaus); Node-Group und Felge bleiben unverändert."""
     src_md = param_modifier(src_ob)
-    ng = src_md.node_group.copy()
     ob = bpy.data.objects.new(name, bpy.data.meshes.new(name))
     context.scene.collection.objects.link(ob)
     try:
-        md = ob.modifiers.new("GN", "NODES")
-        md.node_group = ng
-        paramrim.add_finish_modifiers(ob)
-        for nm in paramrim.socket_ids(src_md.node_group):
-            paramrim.set_param(md, nm, paramrim.get_param(src_md, nm))
-        paramrim.set_param(md, "Durchmesser (Zoll)", float(diameter_in))
-        paramrim.set_param(md, "Breite J (Zoll)", float(width_in))
-        paramrim.set_param(md, "Schüsseltiefe (mm)", float(dish_mm))
+        attach_modifiers(ob, src_md, cfg)
         context.view_layer.update()
         dg = context.evaluated_depsgraph_get()
         me = bpy.data.meshes.new_from_object(ob.evaluated_get(dg), depsgraph=dg)
@@ -143,7 +218,6 @@ def param_rim_mesh(context, src_ob, diameter_in, width_in, dish_mm, name):
         old = ob.data
         bpy.data.objects.remove(ob)
         bpy.data.meshes.remove(old)
-        bpy.data.node_groups.remove(ng)
     return me
 
 
@@ -173,11 +247,65 @@ def back_profile_of(me, half_width, r_inner):
     return f
 
 
+# ---------------------------------------------------------------- Varianten
+def make_variant(context, s):
+    """Kopiert die aktive Felgen-Collection (Muster inkl. Handarbeit, Kurven, Materialien) nach <Name>_v2 …; das Original bleibt."""
+    src = s.collection
+    if src is None:
+        raise RuntimeError("Keine Felgen-Collection aktiv.")
+    base = src.get("felge3d_variant_of") or src.name
+    i = 2
+    while "%s_v%d" % (base, i) in bpy.data.collections:
+        i += 1
+    new = bpy.data.collections.new("%s_v%d" % (base, i))
+    context.scene.collection.children.link(new)
+    for k in ("felge3d_image", "felge3d_detect", "felge3d_detect_info"):
+        if k in src:
+            new[k] = src[k]
+    new["felge3d_rim"] = True
+    new["felge3d_variant_of"] = base
+    mapping = {}
+    for ob in src.objects:
+        cp = ob.copy()
+        if ob.data is not None:
+            cp.data = ob.data.copy()
+        new.objects.link(cp)
+        mapping[ob] = cp
+    for ob, cp in mapping.items():
+        cp.parent = mapping.get(ob.parent, ob.parent)
+        cp.matrix_parent_inverse = ob.matrix_parent_inverse.copy()
+    rim_ob, tmpl_ob = mapping.get(param_object_of(src)), mapping.get(template_object_of(src))
+    # Node-Groups und Materialien eigenständig kopieren, Muster-Verweis auf die Kopie umlenken
+    tag = " " + new.name
+    mats = {}
+    for ob in (rim_ob, tmpl_ob):
+        if ob is None:
+            continue
+        for md in ob.modifiers:
+            if md.type == "NODES" and md.node_group is not None:
+                ng = md.node_group.copy()
+                ng.name = md.node_group.name + tag
+                md.node_group = ng
+                for n in ng.nodes:
+                    if n.bl_idname == "GeometryNodeObjectInfo" and tmpl_ob is not None:
+                        n.inputs["Object"].default_value = tmpl_ob
+                    if n.bl_idname == "GeometryNodeSetMaterial":
+                        m0 = n.inputs["Material"].default_value
+                        if m0 is not None:
+                            if m0 not in mats:
+                                mats[m0] = m0.copy()
+                                mats[m0].name = m0.name + tag
+                            n.inputs["Material"].default_value = mats[m0]
+    for ob in new.objects:
+        if ob.get("felge3d_role") in AI_ROLES:
+            ob.hide_render = True
+    return new
+
+
 # ---------------------------------------------------------------- Operatoren
 def _current(context):
     s = context.scene.felge3d
-    ob = param_object_of(s.collection)
-    return s, ob, param_modifier(ob)
+    return s, Rim(s.collection)
 
 
 class FELGE3D_OT_param_build(Operator):
@@ -195,12 +323,12 @@ class FELGE3D_OT_param_build(Operator):
             col["felge3d_rim"] = True
             context.scene.collection.children.link(col)
             s.collection = col
-        old = param_object_of(col)
-        if old is not None:
-            me = old.data
-            bpy.data.objects.remove(old)
-            if me and me.users == 0:
-                bpy.data.meshes.remove(me)
+        for old in (param_object_of(col), template_object_of(col)):
+            if old is not None:
+                me = old.data
+                bpy.data.objects.remove(old)
+                if me and me.users == 0:
+                    bpy.data.meshes.remove(me)
         root = next((o for o in col.objects if o.get("felge3d_role") == "root"), None)
         ensure_param(context, s, col, root, build_param_defaults(s))
         s.active_rim = col.name
@@ -213,29 +341,114 @@ class FELGE3D_OT_param_refresh(Operator):
     bl_label = "Refresh"
 
     def execute(self, context):
-        s, ob, md = _current(context)
-        if ob is None:
+        s, rim = _current(context)
+        if not rim.ok:
             return {"CANCELLED"}
-        md.node_group.update_tag()
-        ob.update_tag()
+        for md in (rim.md, rim.tmd):
+            if md is not None:
+                md.node_group.update_tag()
+        for ob in (rim.ob, rim.tob):
+            if ob is not None:
+                ob.update_tag()
         context.view_layer.update()
         return {"FINISHED"}
 
 
 class FELGE3D_OT_param_apply(Operator):
-    """Modifier-Stack festschreiben (Node-Baum, Bevel, Weighted Normal): normales Mesh zum Nacharbeiten"""
+    """Felge festschreiben (Node-Baum, Bevel, Weighted Normal): normales Mesh zum Nacharbeiten"""
     bl_idname = "felge3d.param_apply"
-    bl_label = "Anwenden"
+    bl_label = "Felge anwenden"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        s, ob, md = _current(context)
-        if ob is None:
+        s, rim = _current(context)
+        if not rim.ok:
             self.report({"ERROR"}, "Keine parametrische Felge in der aktuellen Collection.")
             return {"CANCELLED"}
-        paramrim.apply_all(context, ob)
-        ob["felge3d_role"] = "param_applied"          # nicht mehr parametrisch: wird nicht mehr überschrieben
+        paramrim.apply_all(context, rim.ob)
+        rim.ob["felge3d_role"] = "param_applied"          # nicht mehr parametrisch: wird nicht mehr überschrieben
         self.report({"INFO"}, "Angewendet: normales Mesh, Nachbearbeitung möglich.")
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_template_bake(Operator):
+    """Musterspeiche (Pizzastück) zum Bearbeiten festschreiben: danach im Edit Mode ändern, die Felge folgt live"""
+    bl_idname = "felge3d.template_bake"
+    bl_label = "Muster zum Bearbeiten anwenden"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        s, rim = _current(context)
+        if rim.tob is None or rim.tmd is None:
+            self.report({"WARNING"}, "Das Muster ist schon ein festes Mesh.")
+            return {"CANCELLED"}
+        vals = {nm: paramrim.get_param(rim.tmd, nm) for nm in paramrim.socket_ids(rim.tmd.node_group)}
+        rim.tob["felge3d_slice_params"] = json.dumps(vals)
+        rim.tob["felge3d_slice_group"] = rim.tmd.node_group.name
+        rim.tmd.node_group.use_fake_user = True
+        dg = context.evaluated_depsgraph_get()
+        me = bpy.data.meshes.new_from_object(rim.tob.evaluated_get(dg), depsgraph=dg)
+        old = rim.tob.data
+        rim.tob.modifiers.clear()
+        rim.tob.data = me
+        me.name = rim.tob.name
+        if old.users == 0:
+            bpy.data.meshes.remove(old)
+        rim.tob["felge3d_role"] = ROLE_TEMPLATE_BAKED
+        rim.tob.display_type = "SOLID"
+        for o in context.view_layer.objects:
+            o.select_set(False)
+        rim.tob.select_set(True)
+        context.view_layer.objects.active = rim.tob
+        self.report({"INFO"}, "Muster ist jetzt ein Mesh: Tab = Edit Mode. Nahtpunkte (±180°/Speichen) nicht verschieben.")
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_template_regen(Operator):
+    """Muster neu aus den Parametern erzeugen (verwirft Handarbeit am Muster)"""
+    bl_idname = "felge3d.template_regen"
+    bl_label = "Muster neu erzeugen"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        s, rim = _current(context)
+        if rim.tob is None or rim.tmd is not None:
+            return {"CANCELLED"}
+        ng = bpy.data.node_groups.get(rim.tob.get("felge3d_slice_group", ""))
+        if ng is None:
+            self.report({"ERROR"}, "Die Parameter des Musters sind nicht mehr vorhanden.")
+            return {"CANCELLED"}
+        old = rim.tob.data
+        rim.tob.data = bpy.data.meshes.new(rim.tob.name)
+        if old.users == 0:
+            bpy.data.meshes.remove(old)
+        md = rim.tob.modifiers.new(MOD_TEMPLATE, "NODES")
+        md.node_group = ng
+        for nm, v in json.loads(rim.tob.get("felge3d_slice_params", "{}")).items():
+            try:
+                paramrim.set_param(md, nm, v)
+            except (KeyError, TypeError, ValueError):
+                pass
+        rim.tob["felge3d_role"] = ROLE_TEMPLATE
+        rim.tob.display_type = "WIRE"
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_param_variant(Operator):
+    """Als neue Variante speichern: kopiert Felge, Muster (inkl. Handarbeit), Kurven und Materialien in eine neue Collection"""
+    bl_idname = "felge3d.param_variant"
+    bl_label = "Als neue Variante speichern"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        try:
+            new = make_variant(context, s)
+        except RuntimeError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        s.active_rim = new.name
+        self.report({"INFO"}, "Variante gespeichert: %s (Original unverändert)" % new.name)
         return {"FINISHED"}
 
 
@@ -246,22 +459,23 @@ class FELGE3D_OT_param_redetect(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        import json
         from . import build_param_defaults, profile_node
-        s, ob, md = _current(context)
-        if md is None:
+        s, rim = _current(context)
+        if not rim.ok:
+            return {"CANCELLED"}
+        if rim.baked:
+            self.report({"WARNING"}, "Das Muster ist ein festes Mesh: erst ‚Muster neu erzeugen‘.")
             return {"CANCELLED"}
         raw = s.collection.get("felge3d_detect")
         det = json.loads(raw) if raw else None
         for k, v in build_param_defaults(s, det["n"] if det else None).items():
             if k != "hub_x":
                 try:
-                    paramrim.set_param(md, k, v)
+                    rim.set(k, v)
                 except (KeyError, TypeError, ValueError):
                     pass
         pts = sorted((p.location[0], p.location[1]) for p in profile_node().mapping.curves[0].points)
-        apply_detected(md, det, pts)
-        ob.update_tag()
+        apply_detected(rim, det, pts)
         return {"FINISHED"}
 
 
@@ -272,13 +486,13 @@ class FELGE3D_OT_param_reset_curve(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        s, ob, md = _current(context)
-        if md is None:
+        s, rim = _current(context)
+        if not rim.ok:
             return {"CANCELLED"}
         from . import default_hub_x
-        paramrim.set_curve_points(paramrim.curve_node(md).mapping, paramrim.default_section_points(default_hub_x(s)))
-        md.node_group.update_tag()
-        ob.update_tag()
+        paramrim.set_curve_points(paramrim.curve_node(rim.md).mapping, paramrim.default_section_points(default_hub_x(s)))
+        rim.md.node_group.update_tag()
+        rim.ob.update_tag()
         return {"FINISHED"}
 
 
@@ -286,30 +500,43 @@ class FELGE3D_OT_param_reset_curve(Operator):
 GROUPS = [
     ("Form", ("Durchmesser (Zoll)", "Breite J (Zoll)")),
     ("Speichen", ("Speichen", "Drehung (Grad)", "Speichenbreite (mm)", "Biegung (Grad)", "Wölbung (mm)", "Dicke Speiche (mm)")),
-    ("Nabe", ("Zentralverschluss", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)")),
-    ("Tiefe", ("Konkavität", "Schüsseltiefe (mm)", "Front-Einzug (mm)", "Ring (mm)")),
+    ("Nabe", ("Zentralverschluss", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)", "Ring (mm)")),
+    ("Tiefe", ("Konkavität", "Schüsseltiefe (mm)", "Front-Einzug (mm)")),
     ("Felgenbett", ("Flansch (mm)", "Wandstärke (mm)", "Tiefbett (mm)", "Auflösung")),
     ("Material", ("Diamond Cut",)),
 ]
 
 
-def _draw_param(layout, md, name):
+def _draw_param(layout, md, name, enabled=True):
+    if md is None:
+        return
     ident = paramrim.socket_ids(md.node_group).get(name)
     if ident is None:
         return
     st = paramrim._input_struct(md, ident)
+    row = layout.row()
+    row.enabled = enabled
     if st is not None:
-        layout.prop(st, "value", text=name)
+        row.prop(st, "value", text=name)
     else:
-        layout.prop(md, '["%s"]' % ident, text=name)
+        row.prop(md, '["%s"]' % ident, text=name)
 
 
 def _material_of(md, node_name):
     """Das zur Felge gehörende Material mit dem Farbknoten (je Felge eigene Materialien)."""
     suffix = " " + md.node_group.name
     base = paramrim.MATERIAL_FRONT if node_name == paramrim.FRONT_COLOR_NODE else paramrim.MATERIAL_BODY
-    mat = bpy.data.materials.get(base + suffix)
-    return mat if mat is not None and mat.node_tree and node_name in mat.node_tree.nodes else None
+    for nm in (base + suffix, base + " " + md.id_data.name):
+        mat = bpy.data.materials.get(nm)
+        if mat is not None and mat.node_tree and node_name in mat.node_tree.nodes:
+            return mat
+    return None
+
+
+def _set_material_of(rim):
+    for n in rim.md.node_group.nodes:
+        if n.bl_idname == "GeometryNodeSetMaterial" and n.inputs["Material"].default_value is not None:
+            yield n.inputs["Material"].default_value
 
 
 class FELGE3D_PT_param(Panel):
@@ -325,16 +552,15 @@ class FELGE3D_PT_param(Panel):
         if not PARAM_OK:
             L.label(text="Benötigt Blender 5.3 oder neuer", icon="INFO")
             return
-        ob = param_object_of(s.collection)
-        md = param_modifier(ob)
-        if md is None:
+        rim = Rim(s.collection)
+        if not rim.ok:
             L.operator("felge3d.param_build", icon="MESH_GRID")
             return
         c = L.column(align=True)
-        _draw_param(c, md, "Konkavität")
+        _draw_param(c, rim.md, "Konkavität")
         L.label(text="Kurve: x = Radius (Nabe → Horn), y = Tiefe")
         try:
-            L.template_curve_mapping(paramrim.curve_node(md), "mapping", type="NONE")
+            L.template_curve_mapping(paramrim.curve_node(rim.md), "mapping", type="NONE")
         except Exception as e:  # noqa: BLE001
             L.label(text="Kurve nicht verfügbar: %s" % e, icon="ERROR")
         row = L.row(align=True)
@@ -345,11 +571,17 @@ class FELGE3D_PT_param(Panel):
             box.label(text=title)
             col = box.column(align=True)
             for nm in names:
-                if nm != "Konkavität":
-                    _draw_param(col, md, nm)
+                if nm == "Konkavität":
+                    continue
+                if nm in paramrim.SLICE_ONLY:
+                    _draw_param(col, rim.tmd, nm, enabled=not rim.baked)
+                elif nm == "Speichen":
+                    _draw_param(col, rim.md, nm, enabled=not rim.baked)
+                else:
+                    _draw_param(col, rim.md, nm)
             if title == "Material":
                 for node_name, label in ((paramrim.FRONT_COLOR_NODE, "Frontfläche (Diamond Cut)"), (paramrim.BODY_COLOR_NODE, "Grundfarbe")):
-                    mat = _material_of(md, node_name)
+                    mat = _material_of(rim.md, node_name)
                     if mat is not None:
                         col.prop(mat.node_tree.nodes[node_name].outputs[0], "default_value", text=label)
         info = s.collection.get("felge3d_detect_info") if s.collection else None
@@ -359,6 +591,32 @@ class FELGE3D_PT_param(Panel):
         row.operator("felge3d.param_redetect", icon="FILE_REFRESH")
         row.operator("felge3d.param_build", text="Standardwerte", icon="LOOP_BACK")
         L.operator("felge3d.param_apply", icon="CHECKMARK")
+
+
+class FELGE3D_PT_param_template(Panel):
+    bl_label = "Musterspeiche bearbeiten"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "2D to 3D Rim"
+    bl_parent_id = "FELGE3D_PT_param"
+
+    @classmethod
+    def poll(cls, context):
+        return PARAM_OK and Rim(context.scene.felge3d.collection).ok
+
+    def draw(self, context):
+        L = self.layout
+        rim = Rim(context.scene.felge3d.collection)
+        L.label(text="Pizzastück: Nabenkeil + Speiche + Ringkeil", icon="MESH_GRID")
+        if rim.tob is not None:
+            L.label(text="Objekt: " + rim.tob.name)
+        if rim.baked:
+            L.label(text="Fest: Edit Mode bearbeiten, Felge folgt live", icon="EDITMODE_HLT")
+            L.operator("felge3d.template_regen", icon="LOOP_BACK")
+        else:
+            L.operator("felge3d.template_bake", icon="MODIFIER")
+        L.separator()
+        L.operator("felge3d.param_variant", icon="DUPLICATE")
 
 
 class FELGE3D_PT_param_curves(Panel):
@@ -371,16 +629,16 @@ class FELGE3D_PT_param_curves(Panel):
 
     @classmethod
     def poll(cls, context):
-        return PARAM_OK and param_modifier(param_object_of(context.scene.felge3d.collection)) is not None
+        return PARAM_OK and Rim(context.scene.felge3d.collection).tmd is not None
 
     def draw(self, context):
         L = self.layout
-        md = param_modifier(param_object_of(context.scene.felge3d.collection))
-        if md is None:
+        rim = Rim(context.scene.felge3d.collection)
+        if rim.tmd is None:
             return
         for title, node in (("Speichenbreite (Nabe → Rand)", paramrim.CURVE_WIDTH), ("Speichenbiegung (Nabe → Rand)", paramrim.CURVE_SWEEP)):
             L.label(text=title)
-            L.template_curve_mapping(paramrim.curve_node(md, node), "mapping", type="NONE")
+            L.template_curve_mapping(paramrim.curve_node(rim.tmd, node), "mapping", type="NONE")
 
 
 class FELGE3D_PT_rims(Panel):
@@ -416,6 +674,6 @@ class FELGE3D_OT_rim_show(Operator):
         return {"FINISHED"}
 
 
-classes = (FELGE3D_OT_param_build, FELGE3D_OT_param_refresh, FELGE3D_OT_param_apply, FELGE3D_OT_param_redetect,
-           FELGE3D_OT_param_reset_curve,
-           FELGE3D_OT_rim_show, FELGE3D_PT_param, FELGE3D_PT_param_curves, FELGE3D_PT_rims)
+classes = (FELGE3D_OT_param_build, FELGE3D_OT_param_refresh, FELGE3D_OT_param_apply, FELGE3D_OT_template_bake,
+           FELGE3D_OT_template_regen, FELGE3D_OT_param_variant, FELGE3D_OT_param_redetect, FELGE3D_OT_param_reset_curve,
+           FELGE3D_OT_rim_show, FELGE3D_PT_param, FELGE3D_PT_param_template, FELGE3D_PT_param_curves, FELGE3D_PT_rims)

@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 30, 0),
+    "version": (0, 31, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -38,11 +38,12 @@ if "core" in locals():
     tire_data = importlib.reload(tire_data)
     brake_data = importlib.reload(brake_data)
     fbx = importlib.reload(fbx)
+    cloud = importlib.reload(cloud)
     paramdetect = importlib.reload(paramdetect)
     paramrim = importlib.reload(paramrim)
     paramui = importlib.reload(paramui)
 else:
-    from . import ai, brake_data, car, core, fbx, paramdetect, paramrim, paramui, tire_data, updater
+    from . import ai, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -65,6 +66,12 @@ class Felge3DSettings(PropertyGroup):
         name="Eigene Maske", type=bpy.types.Image,
         description="Optional: Schwarz/Weiß-Bild (weiß = Material) statt automatischer Erkennung")
     collection: PointerProperty(name="Collection", type=bpy.types.Collection)
+    mesh_source: EnumProperty(name="Mesh-Quelle", default="LOCAL", items=[
+        ("LOCAL", "Lokal (Standard)", "Foto -> KI-Mesh auf diesem Rechner, kostenlos"),
+        ("CLOUD", "Cloud-API", "Mesh bei einem Anbieter erzeugen lassen (kostenpflichtig, Key in den Preferences)")])
+    cloud_provider: EnumProperty(name="Anbieter", default="TRIPO", items=[("TRIPO", "Tripo", "Tripo API")])
+    cloud_confirm: BoolProperty(name="Ich weiß: kostenpflichtig", default=False,
+                                description="Bestätigung, dass diese Generierung Credits beim Anbieter verbraucht")
     use_param: BoolProperty(name="Parametrische Felge erzeugen (Blender 5.3)", default=True,
                             description="Zusätzlich zum KI-Mesh eine saubere Quad-Felge (Geometry Nodes) in dieselbe Collection setzen")
     active_rim: EnumProperty(name="Felge", items=paramui.rim_items, update=paramui.rim_switched,
@@ -726,7 +733,7 @@ def build_wheel(context, s, new_collection=True):
     for ob in list(col.objects):
         if ob.get("felge3d_role") == "root":
             root = ob
-        elif ob.get("felge3d_role") in (paramui.ROLE_PARAM, "param_applied"):
+        elif ob.get("felge3d_role") in paramui.KEEP_ROLES:
             continue
         else:
             me = ob.data
@@ -808,7 +815,7 @@ class FELGE3D_OT_import_image(Operator, ImportHelper):
             pass
         if s.auto_detect:
             bpy.ops.felge3d.detect()
-        same = next((c for c in paramui.rim_collections() if c.get("felge3d_image") == img.name), None)
+        same = next((c for c in paramui.rim_collections() if c.get("felge3d_image") == img.name and not c.get("felge3d_variant_of")), None)
         if same is not None:                    # gleiches Bild: bestehende Collection aktualisieren
             s.collection = same
         try:
@@ -1016,11 +1023,18 @@ class Felge3DPreferences(AddonPreferences):
     token: StringProperty(name="Token (nur privates Repo)", default="", subtype="PASSWORD",
                           description="GitHub Fine-grained Token mit Leserecht 'Contents' – bei öffentlichem Repo leer lassen")
 
+    tripo_key: StringProperty(name="Tripo API-Key", default="", subtype="PASSWORD",
+                              description="Nur hier speichern (nie im Code, in der .blend oder im Repo). Wird von Tripo bei jeder Generierung belastet")
+
     def draw(self, context):
         L = self.layout
         L.prop(self, "repo")
         L.prop(self, "branch")
         L.prop(self, "token")
+        box = L.box()
+        box.label(text="Cloud-Mesh (optional, kostenpflichtig)", icon="WORLD")
+        box.prop(self, "tripo_key")
+        box.label(text="Der Key bleibt in den Blender-Preferences dieses Rechners.")
         draw_update_box(L)
 
 
@@ -1469,6 +1483,10 @@ def _fbx_meshes(s):
     return [o for o in col.all_objects if o.type == "MESH" and len(o.data.vertices) > 0]
 
 
+def axle_tag(front):
+    return "vorn" if front else "hinten"
+
+
 def build_car(context, s, c):
     use_fbx = s.source == "COLLECTION"
     if use_fbx:
@@ -1506,17 +1524,19 @@ def build_car(context, s, c):
             back_fn = fbx.back_profile(parts, d["rim_out"], finfo["width"] * scale)
             base = lambda sgn: Matrix.Rotation(math.pi, 4, "Z") if sgn < 0 else Matrix.Identity(4)
             rim_parts = [(label, me) for label, me in parts]
-        elif pob is not None:                      # parametrische Felge (Geometry Nodes) in der Größe dieser Achse
-            md_p = paramui.param_modifier(pob)
+        elif pob is not None:                      # parametrische Felge: alle Räder teilen Node-Group und Muster (live gekoppelt)
+            rim_p = paramui.Rim(s.collection)
             half = d["rim_width_in"] * 0.0254 / 2.0
             behind = d["rim_width_in"] * 25.4 / 2.0 - d["et"] * 1000.0          # Nabenanlage hinter dem Horn (mm)
-            dish_mm = behind - paramrim.get_param(md_p, "Dicke Nabe (mm)") - paramrim.get_param(md_p, "Front-Einzug (mm)")
-            me_p = paramui.param_rim_mesh(context, pob, d["rim_in"], d["rim_width_in"], dish_mm, "Felge " + ("vorn" if front else "hinten"))
-            wall_m = paramrim.get_param(md_p, "Wandstärke (mm)") / 1000.0
+            dish_mm = behind - float(rim_p.get("Dicke Nabe (mm)") or 24.0) - paramrim.get_param(rim_p.md, "Front-Einzug (mm)")
+            cfg = {"Durchmesser (Zoll)": float(d["rim_in"]), "Breite J (Zoll)": float(d["rim_width_in"]), "Schüsseltiefe (mm)": float(dish_mm)}
+            me_p = paramui.param_rim_mesh(context, pob, cfg, "Felge " + ("vorn" if front else "hinten"))
+            wall_m = paramrim.get_param(rim_p.md, "Wandstärke (mm)") / 1000.0
             back_fn = paramui.back_profile_of(me_p, half, d["r_rim"] - wall_m - 0.002)
-            r_well = d["r_rim"] - (paramrim.get_param(md_p, "Tiefbett (mm)") + paramrim.get_param(md_p, "Wandstärke (mm)")) / 1000.0
+            r_well = d["r_rim"] - (paramrim.get_param(rim_p.md, "Tiefbett (mm)") + paramrim.get_param(rim_p.md, "Wandstärke (mm)")) / 1000.0
+            bpy.data.meshes.remove(me_p)
             base = lambda sgn, half=half: Matrix.Translation((sgn * half, 0, 0)) @ car.rim_matrix(sgn)
-            rim_parts = [("Felge", me_p)]
+            rim_parts = [("Felge", bpy.data.meshes.new("Felge " + axle_tag(front)), (rim_p.md, cfg))]
         else:
             rim = make_rim_meshes(context, s, dict(diameter=float(d["rim_in"]), width=d["rim_width_in"],
                                                    et=d["et"] * 1000.0, use_et=True))
@@ -1549,11 +1569,14 @@ def build_car(context, s, c):
             created.append(parent)
 
             m_rim = base(sgn)
-            for label, me in rim_parts:
+            for item in rim_parts:
+                label, me = item[0], item[1]
                 ob = bpy.data.objects.new("%s %s" % (label, name), me)
                 ob.matrix_basis = m_rim
                 ob.parent = parent
                 col.objects.link(ob)
+                if len(item) > 2:                  # parametrisch: gleiche Node-Group wie die Felge, eigene Größe
+                    paramui.attach_modifiers(ob, item[2][0], item[2][1])
 
             me_t = car.build_tire(c, d, sgn, mats, imgs, "Reifen " + name, tex, r_well, tread)
             ob = bpy.data.objects.new("Reifen " + name, me_t)
@@ -1575,6 +1598,121 @@ def build_car(context, s, c):
     context.view_layer.objects.active = created[0]
     return col, ("4 Räder erzeugt (%s): vorn %g\"/%gJ ET%g, hinten %g\"/%gJ ET%g" % (
         "3D-Felge" if use_fbx else "Foto", c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et))
+
+
+# ============================================================ Cloud-Mesh (optional)
+_CLOUD = {"job": None}
+
+
+def cloud_key():
+    try:
+        return bpy.context.preferences.addons[__package__].preferences.tripo_key.strip()
+    except (KeyError, AttributeError):
+        return ""
+
+
+class FELGE3D_OT_cloud_generate(Operator):
+    """Mesh per Cloud-API erzeugen (kostenpflichtig, läuft im Hintergrund) und danach in die normale Pipeline übernehmen"""
+    bl_idname = "felge3d.cloud_generate"
+    bl_label = "Cloud-Mesh erzeugen"
+    _timer = None
+
+    def invoke(self, context, event):
+        s = context.scene.felge3d
+        if not s.image:
+            self.report({"ERROR"}, "Erst ein Felgenbild laden.")
+            return {"CANCELLED"}
+        if not cloud_key():
+            self.report({"ERROR"}, "Kein API-Key: in den Add-on-Preferences eintragen.")
+            return {"CANCELLED"}
+        if _CLOUD["job"] is not None and not _CLOUD["job"].done:
+            self.report({"WARNING"}, "Es läuft bereits eine Cloud-Generierung.")
+            return {"CANCELLED"}
+        s.cloud_confirm = False
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        prov = cloud.PROVIDERS[s.cloud_provider]
+        L = self.layout
+        L.label(text="Achtung: kostenpflichtig", icon="ERROR")
+        L.label(text=prov.cost_note)
+        L.label(text="Das Bild wird an den Anbieter gesendet.")
+        L.prop(s, "cloud_confirm")
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        if not s.cloud_confirm:
+            self.report({"WARNING"}, "Bitte die Kosten bestätigen.")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(s.image.filepath) if s.image.filepath else ""
+        if not os.path.isfile(path):
+            self.report({"ERROR"}, "Das Bild muss als Datei vorliegen (nicht nur im Speicher).")
+            return {"CANCELLED"}
+        provider = cloud.PROVIDERS[s.cloud_provider](cloud_key())
+        job = cloud.Job(provider, path, ai.data_dir())
+        _CLOUD["job"] = job
+        job.start()
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.5, window=context.window)
+        wm.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        job = _CLOUD["job"]
+        if event.type == "ESC" and event.value == "PRESS" and job:
+            job.cancel.set()
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+        s = context.scene.felge3d
+        s["cloud_status"] = "%s (%d %%)" % (job.text, int(job.progress * 100))
+        for area in context.screen.areas:
+            area.tag_redraw()
+        if not job.done:
+            return {"PASS_THROUGH"}
+        context.window_manager.event_timer_remove(self._timer)
+        if job.error:
+            s["cloud_status"] = "Fehler: " + job.error
+            self.report({"ERROR"}, job.error)
+            return {"CANCELLED"}
+        s["cloud_status"] = "Fertig – Mesh wird übernommen"
+        try:
+            bpy.ops.felge3d.import_fbx(filepath=job.result)        # glTF/GLB -> normale 3D-Datei-Pipeline
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, "Import des Cloud-Meshes fehlgeschlagen: %s" % e)
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+    def cancel(self, context):
+        if _CLOUD["job"]:
+            _CLOUD["job"].cancel.set()
+
+
+class FELGE3D_PT_cloud(Panel):
+    bl_label = "Mesh-Quelle"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "2D to 3D Rim"
+    bl_parent_id = "FELGE3D_PT_main"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        L.prop(s, "mesh_source", expand=True)
+        if s.mesh_source != "CLOUD":
+            return
+        has_key = bool(cloud_key())
+        col = L.column()
+        col.prop(s, "cloud_provider")
+        if not has_key:
+            L.label(text="Kein API-Key: Edit → Preferences → Add-ons → Rim Generator", icon="INFO")
+        row = L.row()
+        row.enabled = has_key and bool(s.image)
+        row.operator("felge3d.cloud_generate", icon="WORLD")
+        L.label(text="Kostenpflichtig – vor jedem Aufruf Hinweis; ESC bricht ab", icon="ERROR")
+        if s.get("cloud_status"):
+            L.label(text=s["cloud_status"])
 
 
 class FELGE3D_OT_refresh_profile(Operator):
@@ -1870,6 +2008,7 @@ classes = (
     Felge3DCar,
     FELGE3D_OT_car_generate,
     FELGE3D_OT_import_fbx,
+    FELGE3D_OT_cloud_generate,
     FELGE3D_OT_refresh_profile,
     FELGE3D_OT_reset_profile,
     FELGE3D_OT_curve_add,
@@ -1888,6 +2027,7 @@ classes = (
     FELGE3D_OT_export_obj,
     # Reiter 1: 2D to 3D Rim
     FELGE3D_PT_main,
+    FELGE3D_PT_cloud,
     *paramui.classes,
     FELGE3D_PT_section,
     FELGE3D_PT_shape,

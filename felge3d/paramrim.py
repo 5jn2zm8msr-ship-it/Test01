@@ -16,30 +16,41 @@ GROUP_NAME = "Rim Generator | Parametrische Felge"
 CURVE_SECTION, CURVE_WIDTH, CURVE_SWEEP = "Schnitt", "Speichenbreite", "Speichenbiegung"
 
 # (Name, Typ, Standard, min, max, Beschreibung)
-INPUTS = [
-    ("Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Felgendurchmesser in Zoll"),
-    ("Breite J (Zoll)", "FLOAT", 9.0, 5.0, 14.0, "Maulweite in Zoll"),
-    ("Speichen", "INT", 5, 3, 24, "Anzahl der Speichen"),
-    ("Drehung (Grad)", "FLOAT", 0.0, -180.0, 180.0, "Dreht das Speichenmuster um die Achse"),
-    ("Schüsseltiefe (mm)", "FLOAT", 60.0, -80.0, 160.0, "Tiefe der Nabe bei Kurvenwert 1 (+ = konkav)"),
-    ("Konkavität", "FLOAT", 1.0, 0.0, 2.5, "Globaler Multiplikator auf die Schnittkurve"),
-    ("Front-Einzug (mm)", "FLOAT", 12.0, 0.0, 40.0, "Abstand der Speichen-Außenkante hinter dem Horn"),
+# Musterspeiche („Pizzastück“: Nabenkeil + Speiche + Ringkeil aus einem Gitter), eigene Node-Group am Muster-Objekt
+SLICE_INPUTS = [
+    ("Speichen", "INT", 5, 3, 24, "Anzahl der Speichen (Winkel des Pizzastücks = 360°/Speichen)"),
+    ("Referenz-Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Größe, für die das Muster gebaut ist (die Felge skaliert es auf ihren Durchmesser)"),
+    ("Referenz-Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, ""),
     ("Nabenradius (mm)", "FLOAT", 85.0, 40.0, 130.0, "Radius der flachen Nabenanlage"),
-    ("Dicke Nabe (mm)", "FLOAT", 24.0, 10.0, 50.0, ""),
-    ("Dicke Speiche (mm)", "FLOAT", 14.0, 6.0, 40.0, ""),
     ("Ring (mm)", "FLOAT", 12.0, 4.0, 30.0, "Breite des Außenrings, der Speichen und Bett verbindet"),
     ("Speichenbreite (mm)", "FLOAT", 62.0, 15.0, 150.0, "Maximale Speichenbreite (Verlauf: Kurve Speichenbreite)"),
     ("Biegung (Grad)", "FLOAT", 0.0, -90.0, 90.0, "Verdrehung der Speiche zum Rand (Verlauf: Kurve Speichenbiegung)"),
     ("Wölbung (mm)", "FLOAT", 3.0, 0.0, 15.0, "Speichenrücken (Querschnitt gewölbt)"),
+    ("Dicke Nabe (mm)", "FLOAT", 24.0, 10.0, 50.0, ""),
+    ("Dicke Speiche (mm)", "FLOAT", 14.0, 6.0, 40.0, ""),
+]
+# Felge: Bett, Instanzierung des Musters, Nabe, Schnittkurve, Materialien
+INPUTS = [
+    ("Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Felgendurchmesser in Zoll"),
+    ("Breite J (Zoll)", "FLOAT", 9.0, 5.0, 14.0, "Maulweite in Zoll"),
+    ("Speichen", "INT", 5, 3, 24, "Anzahl der Instanzen (muss zum Muster passen)"),
+    ("Drehung (Grad)", "FLOAT", 0.0, -180.0, 180.0, "Dreht das Speichenmuster um die Achse"),
+    ("Schüsseltiefe (mm)", "FLOAT", 60.0, -80.0, 160.0, "Tiefe der Nabe bei Kurvenwert 1 (+ = konkav)"),
+    ("Konkavität", "FLOAT", 1.0, 0.0, 2.5, "Globaler Multiplikator auf die Schnittkurve"),
+    ("Front-Einzug (mm)", "FLOAT", 12.0, 0.0, 40.0, "Abstand der Speichen-Außenkante hinter dem Horn"),
     ("Zentralverschluss", "BOOL", False, 0, 1, "Aus = Radschrauben, an = Zentralverschluss"),
     ("Radschrauben", "INT", 5, 3, 8, ""),
     ("Lochkreis (mm)", "FLOAT", 112.0, 90.0, 140.0, ""),
     ("Flansch (mm)", "FLOAT", 17.0, 8.0, 30.0, "Höhe des Felgenhorns"),
     ("Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, ""),
     ("Tiefbett (mm)", "FLOAT", 22.0, 8.0, 40.0, ""),
-    ("Auflösung", "INT", 96, 24, 256, "Segmente um die Achse (Bett, Ring, Nabe)"),
+    ("Auflösung", "INT", 96, 24, 256, "Segmente um die Achse (Bett)"),
     ("Diamond Cut", "BOOL", True, 0, 1, "Speichen-Frontflächen als eigenes Material (glanzgedreht); aus = alles in der Grundfarbe"),
+    ("Referenz-Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Größe des Musters (nicht ändern)"),
+    ("Referenz-Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, "Wandstärke des Musters (nicht ändern)"),
 ]
+SLICE_ONLY = [n for n, *_ in SLICE_INPUTS if n not in ("Speichen", "Referenz-Durchmesser (Zoll)", "Referenz-Wandstärke (mm)")]
+ROLE_TEMPLATE = "template"
 MATERIAL_FRONT, MATERIAL_BODY = "Felge Front", "Felge Körper"
 PARTS = {}          # Zwischenergebnisse (nur für Tests)
 FRONT_COLOR_NODE, BODY_COLOR_NODE = "Farbe Front", "Farbe Grund"
@@ -279,17 +290,108 @@ def _materials(suffix=""):
     return (_front_material(MATERIAL_FRONT + suffix), _body_material(MATERIAL_BODY + suffix))
 
 
-def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix=""):
-    """Erzeugt den Geometry-Nodes-Baum. Gibt die Node-Group zurück."""
+def _new_group(name, inputs):
     ng = bpy.data.node_groups.new(name, "GeometryNodeTree")
     ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
-    for nm, typ, dv, lo, hi, desc in INPUTS:
+    for nm, typ, dv, lo, hi, desc in inputs:
         sock_t = {"FLOAT": "NodeSocketFloat", "INT": "NodeSocketInt", "BOOL": "NodeSocketBool"}[typ]
-        s = ng.interface.new_socket(nm, in_out="INPUT", socket_type=sock_t)
-        s.default_value = dv
+        sk = ng.interface.new_socket(nm, in_out="INPUT", socket_type=sock_t)
+        sk.default_value = dv
         if typ != "BOOL":
-            s.min_value, s.max_value = lo, hi
-        s.description = desc
+            sk.min_value, sk.max_value = lo, hi
+        sk.description = desc
+    return ng
+
+
+def build_slice_group(name):
+    """
+    Musterspeiche als „Pizzastück“: EIN Gitter (Zeilen = Radius, Spalten = quer) deckt Nabenkeil, Speiche und Ringkeil ab.
+    In Nabe und Ring ist die Spaltenbreite der volle Keilwinkel (±180°/N), im Speichenbereich wird sie auf die Speichenbreite
+    verengt – dazwischen entsteht ein rundes Fenster. An den Nähten (±180°/N) passen die Nachbarn Punkt für Punkt, nach dem
+    Instanzieren werden sie verschweißt: eine durchgehende Fläche ohne Überschneidungen.
+    """
+    ng = _new_group(name, SLICE_INPUTS)
+    B = Builder(ng)
+    I = B.inp
+    mm = 0.001
+    N = I("Speichen")
+    half = math.pi / N
+    r_face = I("Referenz-Durchmesser (Zoll)") * (0.0254 / 2.0) - I("Referenz-Wandstärke (mm)") * mm + 0.001
+    r_hub = I("Nabenradius (mm)") * mm
+    ring = I("Ring (mm)") * mm
+    t_spoke, t_hub = I("Dicke Speiche (mm)") * mm, I("Dicke Nabe (mm)") * mm
+    r_a, L = 0.012, 0.03
+
+    grid = B.node("GeometryNodeMeshGrid")
+    grid.inputs["Size X"].default_value = grid.inputs["Size Y"].default_value = 1.0
+    grid.inputs["Vertices X"].default_value, grid.inputs["Vertices Y"].default_value = 72, 9
+    px, py, _pz = B.sep(B.position())
+    rho, u = px + 0.5, py * 2.0
+    r = r_a + (r_face - r_a) * rho
+    # Zonen: b = 0 in Nabe/Ring (ganzer Keil), b = 1 im Speichenbereich; Fensterenden als Viertelkreis (runde Ecken)
+    x1 = B.clamp01((r - r_hub) / L)
+    s1 = B.sqrt(B.maximum(1.0 - (1.0 - x1) * (1.0 - x1), 0.0))
+    x2 = B.clamp01((r - (r_face - ring - L)) / L)
+    s2 = B.sqrt(B.maximum(1.0 - x2 * x2, 0.0))
+    b = s1 * s2
+    r0, r1 = 0.8 * r_hub, r_face - 0.5 * ring
+    t = B.clamp01((r - r0) / (r1 - r0))
+    hw_ang = B.minimum(I("Speichenbreite (mm)") * mm * 0.5 * B.curve(CURVE_WIDTH, t, [(0.0, 0.85), (0.5, 0.7), (1.0, 1.0)]) / r, 0.92 * half)
+    th = I("Biegung (Grad)") * (math.pi / 180.0) * B.curve(CURVE_SWEEP, t, [(0.0, 0.0), (1.0, 1.0)], -1.0, 1.0)
+    A = half + (hw_ang - half) * b
+    cmax = B.maximum(0.96 * half - A, 0.0)
+    c = B.minimum(B.maximum(b * th, -cmax), cmax)
+    ang = c + u * A
+    z_top = I("Wölbung (mm)") * mm * b * (1.0 - u * u)
+    sp = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(grid.outputs["Mesh"], sp.inputs["Geometry"])
+    B.ng.links.new(B.comb(r * B.cos(ang), r * B.sin(ang), z_top), sp.inputs["Position"])
+    # Solid: Region-Extrusion nach unten, Unterseite umdrehen, Oberseite dazu, Nähte verschweißen
+    ex = B.node("GeometryNodeExtrudeMesh")
+    B.ng.links.new(sp.outputs[0], ex.inputs["Mesh"])
+    ex.inputs["Offset Scale"].default_value = -0.001
+    ex.inputs["Individual"].default_value = False
+    sp2 = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(ex.outputs["Mesh"], sp2.inputs["Geometry"])
+    B.ng.links.new(ex.outputs["Top"], sp2.inputs["Selection"])
+    qx, qy, _qz = B.sep(B.position())
+    s_of = B.clamp01((r_face - B.sqrt(qx * qx + qy * qy)) / (r_face - r_hub))
+    thick = t_spoke + (t_hub - t_spoke) * s_of
+    B.ng.links.new(B.comb(0.0, 0.0, -(thick - 0.001)), sp2.inputs["Offset"])
+    # Seitenwände auf den Nähten entfallen (dort schließt der Nachbar die Fläche)
+    fx, fy, _fz = B.sep(B.position())
+    at = B.node("ShaderNodeMath", operation="ARCTAN2")
+    B.ng.links.new(fy.s, at.inputs[0])
+    B.ng.links.new(fx.s, at.inputs[1])
+    ab = B.node("ShaderNodeMath", operation="ABSOLUTE")
+    B.ng.links.new(at.outputs[0], ab.inputs[0])
+    seam = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    B.ng.links.new(ab.outputs[0], seam.inputs[0])
+    B.ng.links.new((half - 0.0004).s, seam.inputs[1])
+    both = B.node("FunctionNodeBooleanMath", operation="AND")
+    B.ng.links.new(ex.outputs["Side"], both.inputs[0])
+    B.ng.links.new(seam.outputs[0], both.inputs[1])
+    dl = B.node("GeometryNodeDeleteGeometry", domain="FACE", mode="ALL")
+    B.ng.links.new(sp2.outputs[0], dl.inputs["Geometry"])
+    B.ng.links.new(both.outputs[0], dl.inputs["Selection"])
+    fw = B.node("GeometryNodeFlipFaces")                  # Seitenwände zeigen sonst nach innen
+    B.ng.links.new(dl.outputs[0], fw.inputs["Mesh"])
+    B.ng.links.new(ex.outputs["Side"], fw.inputs["Selection"])
+    fl = B.node("GeometryNodeFlipFaces")
+    B.ng.links.new(fw.outputs[0], fl.inputs["Mesh"])
+    B.ng.links.new(ex.outputs["Top"], fl.inputs["Selection"])
+    mg = B.node("GeometryNodeMergeByDistance")
+    mg.inputs["Distance"].default_value = 0.00005
+    B.ng.links.new(B.join([fl.outputs[0], sp.outputs[0]]), mg.inputs["Geometry"])
+    go = B.node("NodeGroupOutput")
+    B.ng.links.new(mg.outputs[0], go.inputs["Geometry"])
+    PARTS["slice"] = mg.outputs[0]
+    return ng
+
+
+def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
+    """Felge: Bett + das Muster (Objekt, per Object Info) auf N Positionen rotiert + Nabe + Schnittkurve + Materialien."""
+    ng = _new_group(name, INPUTS)
     B = Builder(ng)
     I = B.inp
     mm = 0.001
@@ -297,75 +399,41 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix=""):
     R = I("Durchmesser (Zoll)") * (inch / 2.0)
     W = I("Breite J (Zoll)") * inch
     wall, flange, drop = I("Wandstärke (mm)") * mm, I("Flansch (mm)") * mm, I("Tiefbett (mm)") * mm
-    ring = I("Ring (mm)") * mm
     r_face = R - wall + 0.001
-    r_hub = I("Nabenradius (mm)") * mm
-    inset = I("Front-Einzug (mm)") * mm
+    r_face_ref = I("Referenz-Durchmesser (Zoll)") * (inch / 2.0) - I("Referenz-Wandstärke (mm)") * mm + 0.001
     dish = I("Schüsseltiefe (mm)") * mm * I("Konkavität")
-    z_rim = -inset
-    t_spoke, t_hub = I("Dicke Speiche (mm)") * mm, I("Dicke Nabe (mm)") * mm
+    z_rim = -(I("Front-Einzug (mm)") * mm)
     sections = I("Auflösung")
 
     # ---------------- Felgenbett (Profil wie core.barrel_profile)
     outer = [(R + flange, 0.0), (R + flange, -0.006), (R + 0.002, -0.014), (R, -0.020), (R, W * -0.18), (R - drop, W * -0.30),
              (R - drop, W * -0.62), (R, W * -0.74), (R, -W + 0.020), (R + 0.002, -W + 0.014), (R + flange, -W + 0.006), (R + flange, -W)]
-    inner = [(r - wall, z) for r, z in outer]
+    inner = [(rr - wall, z) for rr, z in outer]
     barrel = B.revolve(outer + inner[::-1], True, sections)
 
-    # ---------------- Stern flach aufbauen (Oberseite z = 0); die Schnittkurve hebt/senkt danach alles gemeinsam
-    ring_geo = B.revolve([(r_face - ring, 0.0), (r_face, 0.0), (r_face, -t_spoke), (r_face - ring, -t_spoke)], True, sections)
-    hub_geo = B.revolve([(0.012, 0.0), (r_hub, 0.0), (r_hub, -t_hub), (0.012, -t_hub)], True, sections)
-
-    # Musterspeiche: Gitter (Quads) -> Extrusion nach unten; Breite/Biegung aus Kurven
-    grid = B.node("GeometryNodeMeshGrid")
-    grid.inputs["Size X"].default_value = grid.inputs["Size Y"].default_value = 1.0
-    grid.inputs["Vertices X"].default_value, grid.inputs["Vertices Y"].default_value = 30, 7
-    px, py, _pz = B.sep(B.position())
-    tt = px + 0.5
-    vv = py * 2.0
-    r0, r1 = r_hub * 0.8, r_face - ring * 0.5
-    rr = r0 + (r1 - r0) * tt
-    th = I("Biegung (Grad)") * (math.pi / 180.0) * B.curve(CURVE_SWEEP, tt, [(0.0, 0.0), (1.0, 1.0)], -1.0, 1.0)
-    hw = I("Speichenbreite (mm)") * mm * 0.5 * B.curve(CURVE_WIDTH, tt, [(0.0, 0.85), (0.5, 0.7), (1.0, 1.0)])
-    hw = B.minimum(hw, rr * (0.9 * math.pi) / I("Speichen"))      # nie breiter als der Teilungsabstand (keine Überlappung)
-    cth, sth = B.cos(th), B.sin(th)
-    x_new = rr * cth - vv * hw * sth
-    y_new = rr * sth + vv * hw * cth
-    z_top = I("Wölbung (mm)") * mm * (1.0 - vv * vv) + 0.0002
-    sp = B.node("GeometryNodeSetPosition")
-    B.ng.links.new(grid.outputs["Mesh"], sp.inputs["Geometry"])
-    B.ng.links.new(B.comb(x_new, y_new, z_top), sp.inputs["Position"])
-    ex = B.node("GeometryNodeExtrudeMesh")
-    B.ng.links.new(sp.outputs[0], ex.inputs["Mesh"])
-    ex.inputs["Offset Scale"].default_value = -0.001      # entlang der Normalen (nach unten)
-    ex.inputs["Individual"].default_value = False         # zusammenhängende Extrusion mit Seitenwänden
-    sp2 = B.node("GeometryNodeSetPosition")
-    B.ng.links.new(ex.outputs["Mesh"], sp2.inputs["Geometry"])
-    B.ng.links.new(ex.outputs["Top"], sp2.inputs["Selection"])
-    qx, qy, _qz = B.sep(B.position())
-    q_r = B.sqrt(qx * qx + qy * qy)
-    s_of = B.clamp01((r_face - q_r) / (r_face - r_hub))
-    thick = t_spoke + (t_hub - t_spoke) * s_of
-    B.ng.links.new(B.comb(0.0, 0.0, -(thick - 0.001)), sp2.inputs["Offset"])
-    # Die Region-Extrusion lässt die Oberseite offen: Unterseite umdrehen, Original-Oberseite dazu, Nähte verschweißen
-    fl = B.node("GeometryNodeFlipFaces")
-    B.ng.links.new(sp2.outputs[0], fl.inputs["Mesh"])
-    B.ng.links.new(ex.outputs["Top"], fl.inputs["Selection"])
-    spoke_solid = B.node("GeometryNodeMergeByDistance")
-    spoke_solid.inputs["Distance"].default_value = 0.00005
-    B.ng.links.new(B.join([fl.outputs[0], sp.outputs[0]]), spoke_solid.inputs["Geometry"])
+    # ---------------- Muster (Objekt) skalieren und auf N Positionen rotieren, Nähte verschweißen
+    oi = B.node("GeometryNodeObjectInfo", transform_space="ORIGINAL")
+    if template is not None:
+        oi.inputs["Object"].default_value = template
+    k = r_face / r_face_ref
+    tr = B.node("GeometryNodeTransform")
+    B.ng.links.new(oi.outputs["Geometry"], tr.inputs["Geometry"])
+    B.ng.links.new(B.comb(k, k, 1.0), tr.inputs["Scale"])
     pts = B.node("GeometryNodeMeshCircle")
     pts.inputs["Radius"].default_value = 0.0
     B.ng.links.new(I("Speichen").s, pts.inputs["Vertices"])
     ang = (B.index() * (2.0 * math.pi) / I("Speichen")) + I("Drehung (Grad)") * (math.pi / 180.0)
     iop = B.node("GeometryNodeInstanceOnPoints")
     B.ng.links.new(pts.outputs["Mesh"], iop.inputs["Points"])
-    B.ng.links.new(spoke_solid.outputs[0], iop.inputs["Instance"])
+    B.ng.links.new(tr.outputs[0], iop.inputs["Instance"])
     B.ng.links.new(B.comb(0.0, 0.0, ang), iop.inputs["Rotation"])
     rl = B.node("GeometryNodeRealizeInstances")
     B.ng.links.new(iop.outputs["Instances"], rl.inputs["Geometry"])
+    weld = B.node("GeometryNodeMergeByDistance")
+    weld.inputs["Distance"].default_value = 0.0001
+    B.ng.links.new(rl.outputs[0], weld.inputs["Geometry"])
 
-    # Nabe: Radschrauben ODER Zentralverschluss (auf der flachen Nabenoberseite z = 0)
+    # ---------------- Nabe: Radschrauben ODER Zentralverschluss (auf der flachen Nabenoberseite z = 0)
     bolt = B.node("GeometryNodeMeshCylinder")
     bolt.inputs["Vertices"].default_value = 6
     bolt.inputs["Radius"].default_value = 0.0105
@@ -393,8 +461,8 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix=""):
     B.ng.links.new(bl.outputs[0], sw.inputs["False"])
     B.ng.links.new(nt.outputs[0], sw.inputs["True"])
 
-    # Schnittkurve: ein einziger Float-Curve-Knoten hebt/senkt den ganzen Stern (Nabe, Schrauben, Speichen, Ring)
-    flat = B.join([ring_geo, hub_geo, rl.outputs[0], sw.outputs[0]])
+    # ---------------- Schnittkurve: ein Float-Curve-Knoten hebt/senkt den ganzen Stern (Muster + Schrauben)
+    flat = B.join([weld.outputs[0], sw.outputs[0]])
     zx, zy, _zz = B.sep(B.position())
     depth = B.curve(CURVE_SECTION, B.clamp01(B.sqrt(zx * zx + zy * zy) / r_face), default_section_points(hub_x))
     szp = B.node("GeometryNodeSetPosition")
@@ -402,9 +470,9 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix=""):
     B.ng.links.new(B.comb(0.0, 0.0, z_rim - dish * depth), szp.inputs["Offset"])
     star_geo = szp.outputs[0]
     PARTS.clear()
-    PARTS.update(barrel=barrel, ring=ring_geo, hub=hub_geo, spokes=rl.outputs[0], bolts=sw.outputs[0], star=star_geo, flat=flat)
+    PARTS.update(barrel=barrel, star=star_geo, flat=flat, welded=weld.outputs[0], bolts=sw.outputs[0])
 
-    # ---------------- Zusammenbau, Materialien (Front über Normale), Glätten
+    # ---------------- Materialien (Front über die Normale), Glätten
     mfront, mbody = _materials(mat_suffix)
     body_all = B.join([barrel, star_geo])
     setb = B.node("GeometryNodeSetMaterial")
@@ -450,16 +518,26 @@ def add_finish_modifiers(ob):
 
 
 def make_object(name, collection, group=None, hub_x=0.34):
-    """Mesh-Objekt mit eigenem Node-Baum (eigene Kopie, damit jede Felge ihre eigene Kurve hat)."""
-    ng = group.copy() if group is not None else build_group(name=name, hub_x=hub_x, mat_suffix=" " + name)
-    ng.name = name
+    """
+    Felge mit Muster: legt das Muster-Objekt („<name> Speiche“, sichtbar, im Edit Mode bearbeitbar, mit eigenem Parameter-Baum)
+    und das Felgen-Objekt an; die Felge liest das Muster per Object Info. Gibt (Felge, Muster, Felgen-Modifier) zurück.
+    """
+    t_ng = build_slice_group(name + " Speiche")
+    t_me = bpy.data.meshes.new(name + " Speiche")
+    t_ob = bpy.data.objects.new(name + " Speiche", t_me)
+    collection.objects.link(t_ob)
+    t_md = t_ob.modifiers.new("Musterspeiche", "NODES")
+    t_md.node_group = t_ng
+    ng = build_group(name=name, hub_x=hub_x, mat_suffix=" " + name, template=t_ob)
     me = bpy.data.meshes.new(name)
     ob = bpy.data.objects.new(name, me)
     collection.objects.link(ob)
     md = ob.modifiers.new("Parametrische Felge", "NODES")
     md.node_group = ng
     add_finish_modifiers(ob)
-    return ob, md
+    t_ob.display_type = "WIRE"                 # sichtbar und wählbar, stört aber die Felge nicht
+    t_ob.hide_render = True
+    return ob, t_ob, md
 
 
 def socket_ids(ng):

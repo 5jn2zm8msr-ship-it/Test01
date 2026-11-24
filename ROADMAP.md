@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.30.0)
+## Stand (Version 0.31.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -32,6 +32,12 @@ gleich gut (3, 6, 8, 10 schwach).
   + Slider Konkavität; Parameter-Erkennung aus dem KI-Mesh (Speichenzahl, Breite, Biegung, Nabe); Materialien prozedural inkl. Diamond Cut;
   Collections Felge_01, Felge_02 … (KI-Mesh ausgeblendet + parametrische Felge), Umschalten im Panel; Package nutzt die parametrische Felge.
   Grenzen: nur Einzelspeichen; Scheiben mit Fenstern, Doppel-/Y-/Netzspeichen werden nur grob angenähert (IoU zur KI-Maske 0,4–0,8).
+- 0.31.0: Musterspeiche als „Pizzastück“ (Nabenkeil + Speiche + Ringkeil aus einem Gitter, runde Fenster, Nähte verschweißt: eine durchgehende,
+  geschlossene Fläche, 0 offene Kanten, ~99,9 % Quads); eigenes sichtbares Objekt (Wireframe), Felge liest es per Object Info und skaliert es
+  auf den Durchmesser; „Muster zum Bearbeiten anwenden“ (Edit Mode, wirkt live), „Muster neu erzeugen“; „Als neue Variante speichern“ (Felge_01_v2);
+  die vier Räder teilen dieselbe Node-Group (live gekoppelt, eigene Zoll/Breite je Achse).
+  Cloud-Mesh (cloud.py): Provider-Klassen, Key nur in den Preferences (maskiert), Kostenhinweis, asynchron, Fehlermeldungen, GLB-Import.
+  OFFEN: Tripo-Bild-Upload ist gesperrt (Doku developers.tripo3d.com war nicht erreichbar; Upload/Fehlercodes ungeprüft) – nur TripoProvider._upload ergänzen.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

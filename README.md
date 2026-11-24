@@ -25,6 +25,8 @@ KI-Tiefe: onnxruntime wird je nach Python-Version gewählt (3.13: 1.22; älter: 
 Zu jedem Bild entsteht in der Collection `Felge_01`, `Felge_02` … zusätzlich zum (ausgeblendeten) KI-Mesh eine saubere Quad-Felge (Geometry Nodes).
 Im Panel *Parametrische Felge*: Konkavität-Slider, Kurven-Editor (Tiefe über dem Radius), Speichen/Nabe/Bett, Diamond Cut mit zwei Farben,
 *Aus KI-Mesh neu ableiten*, *Anwenden* (Modifier festschreiben). *Felgen vergleichen* schaltet zwischen den Collections um.
+Die Musterspeiche (Pizzastück) liegt als Objekt in der Collection: *Muster zum Bearbeiten anwenden* → Edit Mode, alle Speichen und alle vier Räder folgen live.
+*Als neue Variante speichern* kopiert alles nach `Felge_01_v2`. Optional: Mesh-Quelle *Cloud-API* (Key nur in den Preferences, kostenpflichtig; Tripo-Upload noch gesperrt).
 
 ## Updates
 Panel **Rim Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.

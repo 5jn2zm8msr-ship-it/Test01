@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "felge3d"
-version = "0.30.0"
+version = "0.31.0"
 name = "Rim Generator"
 tagline = "Rim Generator: Felge aus Foto zu 4 Rädern mit Reifen"
 maintainer = "Felge3D"
