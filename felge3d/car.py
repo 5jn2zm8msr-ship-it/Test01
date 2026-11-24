@@ -84,6 +84,8 @@ def photo_relief_mat(name, img, rough, contrast, bump, bump_dist, disp_scale, di
     m = get_mat(name, (.02, .02, .02), rough, 0.0)
     nt = m.node_tree
     bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bsdf:                                             # Gummi glänzt kaum: sonst spiegelt der Himmel streifend (wirkt beige)
+        _set_input(bsdf, ("Specular IOR Level", "Specular"), 0.08)
     for n in [n for n in nt.nodes if n.type in ('TEX_IMAGE', 'BUMP', 'BRIGHTCONTRAST', 'RGBTOBW', 'DISPLACEMENT')]:
         nt.nodes.remove(n)
     if img is not None and bsdf:
@@ -129,6 +131,13 @@ def photo_relief_mat(name, img, rough, contrast, bump, bump_dist, disp_scale, di
                     m.cycles.displacement_method = 'BOTH'
                 except TypeError:
                     pass
+    return m
+
+
+def _rubber(m):
+    bsdf = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bsdf:
+        _set_input(bsdf, ("Specular IOR Level", "Specular"), 0.08)
     return m
 
 
@@ -217,7 +226,7 @@ def build_materials(c, tire_img=None, tread_img=None, tread_h=None, brake_imgs=N
     cal, cal_img = decal_mat(PREFIX + "Decal Sattel", c.decal_caliper, (.05, .05, .05), .35, 0)
     imgs = {"top": top_img, "bottom": bot_img, "caliper": cal_img}
     mats = [
-        get_mat(PREFIX + "Gummi", (.018, .019, .021), .86),
+        _rubber(get_mat(PREFIX + "Gummi", (.018, .019, .021), .86)),
         get_mat(PREFIX + "Felge (unbenutzt)", (.5, .5, .5), .5, .5),
         get_mat(PREFIX + "Bett (unbenutzt)", (.3, .3, .3), .5, .6),
         get_mat(PREFIX + "Bremsscheibe Stahl", (.30, .31, .32), .28, .9),
