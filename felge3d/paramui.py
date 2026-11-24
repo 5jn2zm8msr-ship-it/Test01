@@ -112,17 +112,19 @@ def hide_ai(col):
 
 
 def apply_detected(rim, det, section_pts=None):
-    """Erkannte Werte (paramdetect.detect) und die Tiefenkurve des KI-Meshes auf Felge und Muster übertragen."""
+    """Erkannte Werte (paramdetect.detect: Speichenzahl, Drehung, Kantenkurven, Nabe) und die Tiefenkurve des KI-Meshes übertragen."""
     if det:
-        for k, v in (("Speichen", det["n"]), ("Drehung (Grad)", det["drehung_deg"]), ("Biegung (Grad)", det["biegung_deg"]),
-                     ("Speichenbreite (mm)", det["breite_mm"]), ("Nabenradius (mm)", min(max(det["hub_r_mm"], 40.0), 130.0))):
+        for k, v in (("Speichen", det["n"]), ("Drehung (Grad)", det["drehung_deg"]),
+                     ("Nabenradius (mm)", min(max(det["hub_r_mm"], 40.0), 130.0))):
             try:
                 rim.set(k, v)
             except (KeyError, TypeError, ValueError):
                 pass
         if rim.tmd is not None:
-            paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_WIDTH).mapping, det["width_pts"])
-            paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_SWEEP).mapping, det["sweep_pts"])
+            paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_EDGE_L).mapping, det["edge_l"])
+            paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_EDGE_R).mapping, det["edge_r"])
+            if det.get("seam"):
+                paramrim.set_curve_points(paramrim.curve_node(rim.tmd, paramrim.CURVE_SEAM).mapping, det["seam"])
     if section_pts and rim.md is not None:
         paramrim.set_curve_points(paramrim.curve_node(rim.md).mapping, section_pts)
     for ob in (rim.ob, rim.tob):
@@ -499,11 +501,11 @@ class FELGE3D_OT_param_reset_curve(Operator):
 # ---------------------------------------------------------------- Panels
 GROUPS = [
     ("Form", ("Durchmesser (Zoll)", "Breite J (Zoll)")),
-    ("Speichen", ("Speichen", "Drehung (Grad)", "Speichenbreite (mm)", "Biegung (Grad)", "Wölbung (mm)", "Dicke Speiche (mm)")),
-    ("Nabe", ("Zentralverschluss", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)", "Ring (mm)")),
+    ("Speichen", ("Speichen", "Drehung (Grad)", "Wölbung (mm)", "Dicke Speiche (mm)")),
+    ("Nabe", ("Zentralverschluss", "Radschrauben", "Lochkreis (mm)", "Nabenradius (mm)", "Dicke Nabe (mm)", "Nabenbund Höhe (mm)", "Nabenbund Radius (mm)")),
     ("Tiefe", ("Konkavität", "Schüsseltiefe (mm)", "Front-Einzug (mm)")),
     ("Felgenbett", ("Flansch (mm)", "Wandstärke (mm)", "Tiefbett (mm)", "Auflösung")),
-    ("Material", ("Diamond Cut",)),
+    ("Material", ("Diamond Cut", "Diamond-Cut Rand (%)")),
 ]
 
 
@@ -636,7 +638,7 @@ class FELGE3D_PT_param_curves(Panel):
         rim = Rim(context.scene.felge3d.collection)
         if rim.tmd is None:
             return
-        for title, node in (("Speichenbreite (Nabe → Rand)", paramrim.CURVE_WIDTH), ("Speichenbiegung (Nabe → Rand)", paramrim.CURVE_SWEEP)):
+        for title, node in (("Linke Speichenkante (Nabe → Rand, Anteil der Keilbreite)", paramrim.CURVE_EDGE_L), ("Rechte Speichenkante", paramrim.CURVE_EDGE_R), ("Nahtverlauf (nicht verändern)", paramrim.CURVE_SEAM)):
             L.label(text=title)
             L.template_curve_mapping(paramrim.curve_node(rim.tmd, node), "mapping", type="NONE")
 

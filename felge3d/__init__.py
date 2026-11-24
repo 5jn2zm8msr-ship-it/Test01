@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 31, 0),
+    "version": (0, 32, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -615,7 +615,8 @@ def build_param_defaults(s, n=None):
     dish = core.dimensions(p)[6]
     d = {"Durchmesser (Zoll)": float(s.diameter), "Breite J (Zoll)": float(s.width), "Schüsseltiefe (mm)": float(dish),
          "Front-Einzug (mm)": float(s.face_inset), "Nabenradius (mm)": float(s.hub_radius), "Dicke Nabe (mm)": float(s.hub_thickness),
-         "Dicke Speiche (mm)": float(s.spoke_thickness), "Ring (mm)": float(p.ring), "Flansch (mm)": float(s.flange),
+         "Dicke Speiche (mm)": float(s.spoke_thickness), "Wölbung (mm)": float(s.relief), "Nabenbund Höhe (mm)": float(s.boss_height),
+         "Nabenbund Radius (mm)": float(s.boss_radius), "Flansch (mm)": float(s.flange),
          "Wandstärke (mm)": float(s.wall), "Tiefbett (mm)": float(s.drop), "hub_x": default_hub_x(s)}
     if n and 3 <= int(n) <= 24:
         d["Speichen"] = int(n)
@@ -760,7 +761,7 @@ def build_wheel(context, s, new_collection=True):
         try:
             det = None
             try:
-                det = paramdetect.detect(res["polar_F"], res["polar_r"], res["r_face"], n_sym=n, ring_m=make_params(s).ring / 1000.0)
+                det = paramdetect.detect(res["polar_F"], res["polar_r"], s.diameter * 0.0127 - s.wall / 1000.0 + 0.001, n_sym=n, ring_m=make_params(s).ring / 1000.0)
             except Exception as e_:  # noqa: BLE001
                 print("Felge3D: Parameter-Erkennung fehlgeschlagen:", e_)
             if det:

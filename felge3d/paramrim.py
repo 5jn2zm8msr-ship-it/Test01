@@ -13,7 +13,8 @@ import math
 import bpy
 
 GROUP_NAME = "Rim Generator | Parametrische Felge"
-CURVE_SECTION, CURVE_WIDTH, CURVE_SWEEP = "Schnitt", "Speichenbreite", "Speichenbiegung"
+CURVE_SECTION, CURVE_EDGE_L, CURVE_EDGE_R, CURVE_SEAM = "Schnitt", "Speichenkante links", "Speichenkante rechts", "Nahtverlauf"
+CURVE_WIDTH = CURVE_EDGE_L          # (Kennung des Muster-Baums)
 
 # (Name, Typ, Standard, min, max, Beschreibung)
 # Musterspeiche („Pizzastück“: Nabenkeil + Speiche + Ringkeil aus einem Gitter), eigene Node-Group am Muster-Objekt
@@ -21,13 +22,13 @@ SLICE_INPUTS = [
     ("Speichen", "INT", 5, 3, 24, "Anzahl der Speichen (Winkel des Pizzastücks = 360°/Speichen)"),
     ("Referenz-Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Größe, für die das Muster gebaut ist (die Felge skaliert es auf ihren Durchmesser)"),
     ("Referenz-Wandstärke (mm)", "FLOAT", 5.0, 2.0, 10.0, ""),
-    ("Nabenradius (mm)", "FLOAT", 85.0, 40.0, 130.0, "Radius der flachen Nabenanlage"),
-    ("Ring (mm)", "FLOAT", 12.0, 4.0, 30.0, "Breite des Außenrings, der Speichen und Bett verbindet"),
-    ("Speichenbreite (mm)", "FLOAT", 62.0, 15.0, 150.0, "Maximale Speichenbreite (Verlauf: Kurve Speichenbreite)"),
-    ("Biegung (Grad)", "FLOAT", 0.0, -90.0, 90.0, "Verdrehung der Speiche zum Rand (Verlauf: Kurve Speichenbiegung)"),
-    ("Wölbung (mm)", "FLOAT", 3.0, 0.0, 15.0, "Speichenrücken (Querschnitt gewölbt)"),
+    ("Nabenradius (mm)", "FLOAT", 85.0, 40.0, 130.0, "Radius der flachen Nabenanlage (Dicke geht hier in die Speichendicke über)"),
+    ("Wölbung (mm)", "FLOAT", 4.0, 0.0, 15.0, "Speichenrücken (Querschnitt gewölbt, wie im KI-Mesh)"),
+    ("Nabenbund Höhe (mm)", "FLOAT", 6.0, 0.0, 40.0, "Erhabener Bund um die Nabe"),
+    ("Nabenbund Radius (mm)", "FLOAT", 75.0, 20.0, 200.0, ""),
     ("Dicke Nabe (mm)", "FLOAT", 24.0, 10.0, 50.0, ""),
     ("Dicke Speiche (mm)", "FLOAT", 14.0, 6.0, 40.0, ""),
+    ("Diamond-Cut Rand (%)", "FLOAT", 18.0, 0.0, 60.0, "Streifen am Speichenrand, der in der Grundfarbe bleibt (Rahmen um die polierte Fläche)"),
 ]
 # Felge: Bett, Instanzierung des Musters, Nabe, Schnittkurve, Materialien
 INPUTS = [
@@ -77,7 +78,7 @@ class Ref:
 _PY = {"ADD": lambda a, b: a + b, "SUBTRACT": lambda a, b: a - b, "MULTIPLY": lambda a, b: a * b,
        "DIVIDE": lambda a, b: a / b if b else 0.0, "MINIMUM": min, "MAXIMUM": max,
        "SINE": lambda a, b: math.sin(a), "COSINE": lambda a, b: math.cos(a), "SQRT": lambda a, b: math.sqrt(max(a, 0.0)),
-       "POWER": lambda a, b: a ** b}
+       "POWER": lambda a, b: a ** b, "ABSOLUTE": lambda a, b: abs(a)}
 
 
 class Builder:
@@ -121,6 +122,8 @@ class Builder:
     def sin(self, a): return self.math("SINE", a)
     def cos(self, a): return self.math("COSINE", a)
     def sqrt(self, a): return self.math("SQRT", a)
+    def absolute(self, a): return self.math("ABSOLUTE", a)
+    def power(self, a, e): return self.math("POWER", a, e)
 
     def curve(self, name, x, pts, ymin=0.0, ymax=1.0):
         """Float Curve mit Standardpunkten pts [(x, y), ...]; x = Ref."""
@@ -303,6 +306,12 @@ def _new_group(name, inputs):
     return ng
 
 
+def default_edges_for(n, hub=0.085, ring=0.012, width=0.062, r_face=0.250):
+    """Standard-Kanten (rho, f) für ein neues Muster."""
+    from . import paramdetect
+    return paramdetect.default_edges(n, r_face, hub, ring, width)
+
+
 def build_slice_group(name):
     """
     Musterspeiche als „Pizzastück“: EIN Gitter (Zeilen = Radius, Spalten = quer) deckt Nabenkeil, Speiche und Ringkeil ab.
@@ -318,33 +327,46 @@ def build_slice_group(name):
     half = math.pi / N
     r_face = I("Referenz-Durchmesser (Zoll)") * (0.0254 / 2.0) - I("Referenz-Wandstärke (mm)") * mm + 0.001
     r_hub = I("Nabenradius (mm)") * mm
-    ring = I("Ring (mm)") * mm
     t_spoke, t_hub = I("Dicke Speiche (mm)") * mm, I("Dicke Nabe (mm)") * mm
-    r_a, L = 0.012, 0.03
+    r_a = 0.012
 
     grid = B.node("GeometryNodeMeshGrid")
     grid.inputs["Size X"].default_value = grid.inputs["Size Y"].default_value = 1.0
-    grid.inputs["Vertices X"].default_value, grid.inputs["Vertices Y"].default_value = 72, 9
+    grid.inputs["Vertices X"].default_value, grid.inputs["Vertices Y"].default_value = 128, 11
     px, py, _pz = B.sep(B.position())
     rho, u = px + 0.5, py * 2.0
     r = r_a + (r_face - r_a) * rho
-    # Zonen: b = 0 in Nabe/Ring (ganzer Keil), b = 1 im Speichenbereich; Fensterenden als Viertelkreis (runde Ecken)
-    x1 = B.clamp01((r - r_hub) / L)
-    s1 = B.sqrt(B.maximum(1.0 - (1.0 - x1) * (1.0 - x1), 0.0))
-    x2 = B.clamp01((r - (r_face - ring - L)) / L)
-    s2 = B.sqrt(B.maximum(1.0 - x2 * x2, 0.0))
-    b = s1 * s2
-    r0, r1 = 0.8 * r_hub, r_face - 0.5 * ring
-    t = B.clamp01((r - r0) / (r1 - r0))
-    hw_ang = B.minimum(I("Speichenbreite (mm)") * mm * 0.5 * B.curve(CURVE_WIDTH, t, [(0.0, 0.85), (0.5, 0.7), (1.0, 1.0)]) / r, 0.92 * half)
-    th = I("Biegung (Grad)") * (math.pi / 180.0) * B.curve(CURVE_SWEEP, t, [(0.0, 0.0), (1.0, 1.0)], -1.0, 1.0)
-    A = half + (hw_ang - half) * b
-    cmax = B.maximum(0.96 * half - A, 0.0)
-    c = B.minimum(B.maximum(b * th, -cmax), cmax)
-    ang = c + u * A
-    z_top = I("Wölbung (mm)") * mm * b * (1.0 - u * u)
+    # Planform: linke/rechte Speichenkante als Anteil der Keilbreite über dem Radius (aus der Maske abgeleitet, Float-Curves);
+    # 0..1 = ganze Breite (Nabe/Ring), dazwischen die Speiche – die Fensterform ergibt sich aus den Kurven
+    d_l, d_r = default_edges_for(5)
+    fL = B.curve(CURVE_EDGE_L, rho, d_l)
+    fR = B.curve(CURVE_EDGE_R, rho, d_r)
+    # Nähte exakt auf ±180°/N einrasten; berührt nur EINE Seite die Naht, wird sie knapp zurückgenommen (sonst bliebe die Naht offen)
+    tL = B.math("LESS_THAN", fL, 0.004)
+    tR = B.math("GREATER_THAN", fR, 0.996)
+    fL = (1.0 - tL) * fL + tL * (1.0 - tR) * 0.008
+    fR = (1.0 - tR) * fR + tR * tL + tR * (1.0 - tL) * 0.992
+    cf = B.curve(CURVE_SEAM, rho, [(0.0, 0.5), (1.0, 0.5)])           # Nahtverlauf (läuft durch die Fenster)
+    ang = (cf - 0.5) * (2.0 * half) + half * (2.0 * fL - 1.0 + (fR - fL) * (u + 1.0))
+    w = fR - fL
+    b = B.clamp01((1.0 - w) * 6.0)                       # 1 = Speichenbereich, 0 = Nabe/Ring
+    ridge = 1.0 - B.power(B.absolute(u), 2.2)            # Rücken wie im KI-Mesh (1 - (1-t)^2.2)
+    bx = B.clamp01((I("Nabenbund Radius (mm)") * mm - r) / 0.015)
+    boss = I("Nabenbund Höhe (mm)") * mm * bx * bx * (3.0 - 2.0 * bx)
+    z_top = I("Wölbung (mm)") * mm * b * ridge + boss
+    flag = (B.math("LESS_THAN", u, -0.999) * B.math("LESS_THAN", fL, 0.001)
+            + B.math("GREATER_THAN", u, 0.999) * B.math("GREATER_THAN", fR, 0.999))       # Punkte auf der Naht
+    st = B.node("GeometryNodeStoreNamedAttribute", data_type="FLOAT", domain="POINT")
+    B.ng.links.new(grid.outputs["Mesh"], st.inputs["Geometry"])
+    st.inputs["Name"].default_value = "naht"
+    B.ng.links.new(flag.s, st.inputs["Value"])
+    zone = b * B.math("LESS_THAN", B.absolute(u), 1.0 - I("Diamond-Cut Rand (%)") * 0.01)      # polierte Speichenfläche (ohne Rahmen)
+    st2 = B.node("GeometryNodeStoreNamedAttribute", data_type="FLOAT", domain="POINT")
+    B.ng.links.new(st.outputs[0], st2.inputs["Geometry"])
+    st2.inputs["Name"].default_value = "zone"
+    B.ng.links.new(zone.s, st2.inputs["Value"])
     sp = B.node("GeometryNodeSetPosition")
-    B.ng.links.new(grid.outputs["Mesh"], sp.inputs["Geometry"])
+    B.ng.links.new(st2.outputs[0], sp.inputs["Geometry"])
     B.ng.links.new(B.comb(r * B.cos(ang), r * B.sin(ang), z_top), sp.inputs["Position"])
     # Solid: Region-Extrusion nach unten, Unterseite umdrehen, Oberseite dazu, Nähte verschweißen
     ex = B.node("GeometryNodeExtrudeMesh")
@@ -358,16 +380,12 @@ def build_slice_group(name):
     s_of = B.clamp01((r_face - B.sqrt(qx * qx + qy * qy)) / (r_face - r_hub))
     thick = t_spoke + (t_hub - t_spoke) * s_of
     B.ng.links.new(B.comb(0.0, 0.0, -(thick - 0.001)), sp2.inputs["Offset"])
-    # Seitenwände auf den Nähten entfallen (dort schließt der Nachbar die Fläche)
-    fx, fy, _fz = B.sep(B.position())
-    at = B.node("ShaderNodeMath", operation="ARCTAN2")
-    B.ng.links.new(fy.s, at.inputs[0])
-    B.ng.links.new(fx.s, at.inputs[1])
-    ab = B.node("ShaderNodeMath", operation="ABSOLUTE")
-    B.ng.links.new(at.outputs[0], ab.inputs[0])
+    # Seitenwände auf den Nähten entfallen (dort schließt der Nachbar die Fläche): Wand, deren Punkte alle auf der Naht liegen
+    na = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
+    na.inputs["Name"].default_value = "naht"
     seam = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
-    B.ng.links.new(ab.outputs[0], seam.inputs[0])
-    B.ng.links.new((half - 0.0004).s, seam.inputs[1])
+    B.ng.links.new(na.outputs["Attribute"], seam.inputs[0])
+    seam.inputs[1].default_value = 0.99
     both = B.node("FunctionNodeBooleanMath", operation="AND")
     B.ng.links.new(ex.outputs["Side"], both.inputs[0])
     B.ng.links.new(seam.outputs[0], both.inputs[1])
@@ -430,7 +448,7 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
     rl = B.node("GeometryNodeRealizeInstances")
     B.ng.links.new(iop.outputs["Instances"], rl.inputs["Geometry"])
     weld = B.node("GeometryNodeMergeByDistance")
-    weld.inputs["Distance"].default_value = 0.0001
+    weld.inputs["Distance"].default_value = 0.0004
     B.ng.links.new(rl.outputs[0], weld.inputs["Geometry"])
 
     # ---------------- Nabe: Radschrauben ODER Zentralverschluss (auf der flachen Nabenoberseite z = 0)
@@ -483,11 +501,11 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
     nz = B.sep(nrm.outputs[0])[2]
     B.ng.links.new(nz.s, cz.inputs[0])
     cz.inputs[1].default_value = 0.3
-    px2, py2, _ = B.sep(B.position())
-    r_p = B.sqrt(px2 * px2 + py2 * py2)
-    cr = B.node("FunctionNodeCompare", data_type="FLOAT", operation="LESS_THAN")
-    B.ng.links.new(r_p.s, cr.inputs[0])
-    B.ng.links.new((r_face - 0.0005).s, cr.inputs[1])
+    zn = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
+    zn.inputs["Name"].default_value = "zone"
+    cr = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    B.ng.links.new(zn.outputs["Attribute"], cr.inputs[0])
+    cr.inputs[1].default_value = 0.6
     both0 = B.node("FunctionNodeBooleanMath", operation="AND")
     B.ng.links.new(cz.outputs[0], both0.inputs[0])
     B.ng.links.new(cr.outputs[0], both0.inputs[1])

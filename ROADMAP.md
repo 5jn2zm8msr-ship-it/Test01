@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.31.0)
+## Stand (Version 0.32.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -38,6 +38,11 @@ gleich gut (3, 6, 8, 10 schwach).
   die vier Räder teilen dieselbe Node-Group (live gekoppelt, eigene Zoll/Breite je Achse).
   Cloud-Mesh (cloud.py): Provider-Klassen, Key nur in den Preferences (maskiert), Kostenhinweis, asynchron, Fehlermeldungen, GLB-Import.
   OFFEN: Tripo-Bild-Upload ist gesperrt (Doku developers.tripo3d.com war nicht erreichbar; Upload/Fehlercodes ungeprüft) – nur TripoProvider._upload ergänzen.
+- 0.32.0 (mehr Details): Speichenform direkt aus der Maske – linke/rechte Speichenkante und Nahtverlauf als Float-Curves über dem Radius
+  (statt Breite/Biegung); die Naht läuft durch die Fenster-Mitte (auch bei gebogenen Speichen); Fensterformen, Nabe und Ring aus dem Foto.
+  IoU zur KI-Maske 0,56–0,85 (vorher 0,42–0,78). Zusätzlich: Speichenrücken wie im KI-Mesh (1-|u|^2,2), Nabenbund, feineres Gitter (128×11),
+  zweifarbige Speichen (polierte Fläche + Rahmen in Grundfarbe, Regler „Diamond-Cut Rand“). Restfehler: vereinzelt kleine offene Nahtkanten
+  (0–10 je Felge, bei Netzfelgen mit 20 Speichen bis 160), Doppel-/Y-Speichen werden als eine Hüllspeiche erfasst.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).
