@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 28, 2),
+    "version": (0, 29, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -153,9 +153,12 @@ class Felge3DSettings(PropertyGroup):
                                 description="Schmale Speichen werden über ihre ganze Breite gewölbt, breite Flächen höchstens über diese Breite")
     edge_round: FloatProperty(name="Kantenverrundung (mm)", default=2.5, min=0, max=8, update=_update_rebuild,
                               description="Verrundet alle Fensterkanten (fängt Glanzlichter wie echtes Material)")
-    boss_height: FloatProperty(name="Nabenbund Höhe (mm)", default=6.0, min=0, max=60,
+    boss_height: FloatProperty(name="Versatz Mitte: Nabenbund (mm)", default=6.0, min=0, max=60,
                                update=_update_rebuild,
-                               description="Erhabener Bund um den Zentralverschluss / die Nabe (0 = aus)")
+                               description="Erhabener Bund um den Zentralverschluss / die Nabe, als Versatz auf der Schnittkurve (0 = aus)")
+    ring_step: FloatProperty(name="Versatz Außenring (mm)", default=0.0, min=-30, max=30,
+                             update=_update_rebuild,
+                             description="Stufe am Außenring gegenüber der Schnittkurve (+ = nach vorn, - = nach hinten). Die Kurve bleibt die Leitlinie")
     boss_radius: FloatProperty(name="Nabenbund Radius (mm)", default=75.0, min=20, max=200,
                                update=_update_rebuild)
     bore: FloatProperty(name="Mittelbohrung (mm)", default=0.0, min=0, max=200, update=_update_rebuild,
@@ -338,20 +341,36 @@ def analysis_for(s):
 PROFILE_TREE = "Rim Generator | Schnittkurve"
 
 
-def _set_default_profile(m, hub_x=0.37, q=2.0):
-    """Standard-Schnittkurve: Nabe flach, dann sanft zum Rand ansteigend (entspricht der bisherigen Schüsselform)."""
+def default_hub_x(s=None):
+    """Ende der flachen Nabenanlage (Anteil von r_face) für die Standardkurve dieser Felge."""
+    p = core.Params()
+    if s is not None:
+        for k in ("diameter", "wall", "flange", "hub_radius"):
+            setattr(p, k, getattr(s, k))
+    return float(core.hub_ratio(p))
+
+
+def _set_default_profile(m, hub_x=None, q=2.0):
+    """
+    Standard-Schnittkurve, mathematisch exakt (core.default_depth): Nabe flach, dann 1 - u^q zum Rand.
+    Sechs Punkte auf der exakten Funktion; der mittlere Punkt (u = 0,5) ist der „Schwerpunkt“-Handle.
+    """
+    if hub_x is None:
+        hub_x = default_hub_x(None)
     m.use_clip = True
     m.clip_min_x, m.clip_max_x, m.clip_min_y, m.clip_max_y = 0.0, 1.0, 0.0, 1.0
     cur = m.curves[0]
     while len(cur.points) > 2:
         cur.points.remove(cur.points[-1])
-    cur.points[0].location = (0.0, 1.0)
-    cur.points[1].location = (1.0, 0.0)
-    for x in (hub_x, 0.55, 0.75, 0.9):
-        u = (x - hub_x) / (1.0 - hub_x)
-        cur.points.new(x, 1.0 - u ** q)
+    xs = [0.0, hub_x] + [hub_x + u * (1.0 - hub_x) for u in (0.25, 0.5, 0.75)] + [1.0]
+    ys = [float(v) for v in core.default_depth(xs, hub_x, q)]
+    cur.points[0].location = (xs[0], ys[0])
+    cur.points[1].location = (xs[-1], ys[-1])
+    for x, y in zip(xs[1:-1], ys[1:-1]):
+        cur.points.new(x, y)
     for pt in cur.points:
         pt.handle_type = "AUTO"
+        pt.select = False
     m.update()
 
 
@@ -372,7 +391,7 @@ def profile_samples(n=65):
     m = profile_node().mapping
     m.update()
     cur = m.curves[0]
-    return np.clip(np.array([m.evaluate(cur, i / (n - 1.0)) for i in range(n)], np.float32), 0.0, 1.15)
+    return np.clip(np.array([m.evaluate(cur, i / (n - 1.0)) for i in range(n)], np.float32), 0.0, 1.0)
 
 
 def make_params(s):
@@ -382,7 +401,7 @@ def make_params(s):
     except Exception:  # noqa: BLE001 – Kurve nicht verfügbar: Standardform
         p.profile = None
     for k in ("diameter", "width", "use_et", "et", "face_inset", "dish", "dish_power",
-              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "min_hole", "bore", "ai_strength", "ai_depth", "relief_fade", "tone_step", "edge_round", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
+              "spoke_thickness", "hub_thickness", "hub_radius", "relief", "relief_width", "boss_height", "boss_radius", "ring_step", "min_hole", "bore", "ai_strength", "ai_depth", "relief_fade", "tone_step", "edge_round", "min_thick", "flange", "wall", "drop", "res_radial", "res_angular", "sections"):
         setattr(p, k, getattr(s, k))
     return p
 
@@ -739,6 +758,10 @@ class FELGE3D_OT_import_image(Operator, ImportHelper):
             return {"CANCELLED"}
         s.image = img
         s.mask_image = None
+        try:                                    # neue Felge = neue, mathematisch exakte Standardkurve
+            _set_default_profile(profile_node().mapping, default_hub_x(s))
+        except Exception:  # noqa: BLE001
+            pass
         if s.auto_detect:
             bpy.ops.felge3d.detect()
         try:
@@ -758,7 +781,7 @@ class FELGE3D_OT_reset_defaults(Operator):
     def execute(self, context):
         s = context.scene.felge3d
         for k in ("width", "et", "use_et", "dish", "ai_depth", "tone_step", "spoke_thickness", "hub_thickness",
-                  "relief", "edge_round", "boss_height", "boss_radius", "dish_power", "face_inset"):
+                  "relief", "edge_round", "boss_height", "boss_radius", "ring_step", "dish_power", "face_inset"):
             s.property_unset(k)
         if s.image and s.collection:
             bpy.ops.felge3d.rebuild()
@@ -1042,8 +1065,8 @@ class FELGE3D_PT_section(Panel):
     def draw(self, context):
         s = context.scene.felge3d
         L = self.layout
-        L.label(text="X: Radius (links Mitte → rechts Rand)")
-        L.label(text="Y: Tiefe (oben = tief in der Mitte, unten = Rand)")
+        L.label(text="X: Radius (links Mitte → rechts Rand), Y: Tiefe (oben = Nabenanlage)")
+        L.label(text="Mittlerer Punkt = Schwerpunkt; Knick: Punkt anklicken → Knick")
         try:
             L.template_curve_mapping(profile_node(), "mapping", type="NONE")
         except Exception as e:  # noqa: BLE001
@@ -1139,6 +1162,7 @@ class FELGE3D_PT_look(Panel):
         c.prop(s, "edge_round")
         c.prop(s, "boss_height")
         c.prop(s, "boss_radius")
+        c.prop(s, "ring_step")
         L.operator("felge3d.reset_defaults", icon="LOOP_BACK")
 
 
@@ -1524,7 +1548,7 @@ class FELGE3D_OT_reset_profile(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        _set_default_profile(profile_node().mapping)
+        _set_default_profile(profile_node().mapping, default_hub_x(context.scene.felge3d))
         return {"FINISHED"}
 
 

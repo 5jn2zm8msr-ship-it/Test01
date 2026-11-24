@@ -1204,6 +1204,7 @@ class Params:
     wall = 5.0            # mm
     drop = 22.0           # mm
     ring = 12.0           # mm, Außenring des Sterns
+    ring_step = 0.0       # mm, Versatz des Außenrings gegen die Schnittkurve (+ = nach vorn)
     res_radial = 240
     res_angular = 1080
     sections = 128
@@ -1233,6 +1234,23 @@ def shape_analysis(p):
         warn = "sehr tiefe Schüssel - ET/Breite prüfen"
     return dict(verdict=verdict, dish_mm=dish, hub_back_mm=behind, warn=warn,
                 text="%s - Nabenanlage %.0f mm hinter dem Horn, Schüssel %+.0f mm" % (verdict, behind, dish))
+
+
+def hub_ratio(p):
+    """x_hub = Nabenradius / Radius der Sternfläche: bis hierhin ist die Schnittkurve flach (Nabenanlage)."""
+    R = p.diameter * INCH / 2.0
+    r_face = R - p.wall / 1000.0 + 0.002
+    return min(p.hub_radius / 1000.0, r_face * 0.8) / r_face
+
+
+def default_depth(x, x_hub, q=2.0):
+    """
+    Mathematisch exakte Standard-Schnittkurve (Tiefenanteil 1 = volle Schüssel an der Nabe, 0 = Rand):
+    flach bis x_hub, dann 1 - u^q mit u = (x - x_hub)/(1 - x_hub); an der Nabe waagerecht, am Rand tangential
+    auslaufend. Entspricht genau der geschlossenen Schüsselform ohne Kurve.
+    """
+    u = np.clip((np.asarray(x, np.float64) - x_hub) / max(1.0 - x_hub, 1e-6), 0.0, 1.0)
+    return 1.0 - u ** q
 
 
 def dimensions(p):
@@ -1320,6 +1338,10 @@ def build(mask, cx, cy, rx, ry, p, symmetry_n=1, depth=None, hub_n=None, gray=No
         if p.boss_height > 0:
             u = np.clip((p.boss_radius - r_mm) / max(p.boss_slope, 0.1), 0.0, 1.0)
             off += p.boss_height / 1000.0 * u * u * (3 - 2 * u)       # weicher Bund
+        if p.ring_step != 0.0:                                          # Außenring als Versatz zur Kurve
+            zone = max(2.0 * p.ring, 20.0) / 1000.0
+            u = np.clip((np.hypot(xy[:, 0], xy[:, 1]) - (r_face - zone)) / zone, 0.0, 1.0)
+            off += p.ring_step / 1000.0 * u * u * (3 - 2 * u)
         if fillet is not None:
             b = p.edge_round / 1000.0
             d = np.clip(fillet(xy) / 1000.0, 0.0, b)

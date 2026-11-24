@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.28.1)
+## Stand (Version 0.29.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -20,6 +20,9 @@ gleich gut (3, 6, 8, 10 schwach).
   (Quelle umschalten: Foto | 3D-Datei im Hauptpanel)
 
 - 0.28.1: Schnittkurve mit Buttons + Punkt / − Punkt / Weich / Knick; Blender 5.3 getestet, ONNX-Auswahl für Python 3.13
+- 0.29.0: Schnittkurve = Leitlinie: mathematisch exakte Standardkurve (flach bis Nabenradius, dann 1 - u^2; 6 Punkte, mittlerer = Schwerpunkt),
+  bei jedem neuen Foto neu gesetzt; Versatz Mitte (Nabenbund) und neu Versatz Außenring liegen als Offsets auf der Kurve.
+  FBX/Collection-Felgen werden unverändert übernommen (nur gleichmäßig skaliert und in den Reifen gesetzt, per Test belegt).
 
 ## Nächste Schritte
 0. Bremse: Schlitze der Scheibe sind nur Bump aus dem Foto (keine echte Geometrie); Scheibe nutzt die linke Fotohälfte
