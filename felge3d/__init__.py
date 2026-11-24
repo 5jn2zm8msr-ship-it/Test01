@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 28, 0),
+    "version": (0, 28, 1),
     "blender": (3, 6, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1048,6 +1048,19 @@ class FELGE3D_PT_section(Panel):
             L.template_curve_mapping(profile_node(), "mapping", type="NONE")
         except Exception as e:  # noqa: BLE001
             L.label(text="Kurve nicht verfügbar: %s" % e, icon="ERROR")
+        try:
+            n_pts = len(profile_node().mapping.curves[0].points)
+        except Exception:  # noqa: BLE001
+            n_pts = 0
+        row = L.row(align=True)
+        row.operator("felge3d.curve_add", icon="ADD")
+        row.operator("felge3d.curve_remove", icon="REMOVE")
+        row.label(text="%d Punkte" % n_pts)
+        row = L.row(align=True)
+        op = row.operator("felge3d.curve_handle", text="Weich", icon="SMOOTHCURVE")
+        op.kind = "AUTO"
+        op = row.operator("felge3d.curve_handle", text="Knick", icon="SHARPCURVE")
+        op.kind = "VECTOR"
         a = analysis_for(s)
         L.label(text="Tiefe in der Mitte: %.0f mm (%s)" % (abs(a["dish_mm"]), a["verdict"].capitalize()))
         col = L.column(align=True)
@@ -1515,6 +1528,86 @@ class FELGE3D_OT_reset_profile(Operator):
         return {"FINISHED"}
 
 
+def _profile_curve():
+    m = profile_node().mapping
+    return m, m.curves[0]
+
+
+class FELGE3D_OT_curve_add(Operator):
+    """Zusätzlichen Punkt (Handle) in die Schnittkurve setzen: in der größten Lücke, auf der aktuellen Kurve"""
+    bl_idname = "felge3d.curve_add"
+    bl_label = "+ Punkt"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        m, cur = _profile_curve()
+        xs = sorted(p.location[0] for p in cur.points)
+        if len(cur.points) >= 16:
+            self.report({"WARNING"}, "Maximal 16 Punkte.")
+            return {"CANCELLED"}
+        gap = max(range(len(xs) - 1), key=lambda i: xs[i + 1] - xs[i])
+        x = 0.5 * (xs[gap] + xs[gap + 1])
+        y = float(m.evaluate(cur, x))
+        for pt in cur.points:
+            pt.select = False
+        new = cur.points.new(x, y)
+        new.handle_type = "AUTO"
+        new.select = True
+        m.update()
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_curve_remove(Operator):
+    """Ausgewählten Punkt der Schnittkurve entfernen (ohne Auswahl: der innere Punkt mit dem kleinsten Einfluss)"""
+    bl_idname = "felge3d.curve_remove"
+    bl_label = "− Punkt"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        m, cur = _profile_curve()
+        if len(cur.points) <= 2:
+            self.report({"WARNING"}, "Mindestens 2 Punkte (Anfang und Ende).")
+            return {"CANCELLED"}
+        pts = sorted(cur.points, key=lambda p: p.location[0])
+        inner = pts[1:-1]
+        sel = [p for p in inner if p.select]
+        if sel:
+            target = sel[0]
+        elif inner:
+            # den Punkt wählen, dessen Entfernen die Kurve am wenigsten ändert (Abstand zur Linie der Nachbarn)
+            def dev(i):
+                a, b, c = pts[i - 1].location, pts[i].location, pts[i + 1].location
+                t = (b[0] - a[0]) / max(1e-9, c[0] - a[0])
+                return abs(b[1] - (a[1] + t * (c[1] - a[1])))
+            target = pts[min(range(1, len(pts) - 1), key=dev)]
+        else:
+            self.report({"WARNING"}, "Nur noch Anfang und Ende.")
+            return {"CANCELLED"}
+        cur.points.remove(target)
+        m.update()
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_curve_handle(Operator):
+    """Ausgewählte Punkte: weicher Verlauf (Auto) oder scharfer Knick (Vektor)"""
+    bl_idname = "felge3d.curve_handle"
+    bl_label = "Handle-Typ"
+    bl_options = {"REGISTER", "UNDO"}
+    kind: EnumProperty(items=[("AUTO", "Weich", ""), ("VECTOR", "Knick", "")], default="AUTO")
+
+    def execute(self, context):
+        m, cur = _profile_curve()
+        n = 0
+        for pt in cur.points:
+            if pt.select:
+                pt.handle_type = self.kind
+                n += 1
+        if not n:
+            self.report({"INFO"}, "Erst einen Punkt in der Kurve anklicken.")
+        m.update()
+        return {"FINISHED"}
+
+
 class FELGE3D_OT_import_fbx(Operator, ImportHelper):
     """3D-Felge (FBX, OBJ oder glTF) laden: Achse, Vorderseite und Größe werden automatisch erkannt"""
     bl_idname = "felge3d.import_fbx"
@@ -1698,6 +1791,9 @@ classes = (
     FELGE3D_OT_import_fbx,
     FELGE3D_OT_refresh_profile,
     FELGE3D_OT_reset_profile,
+    FELGE3D_OT_curve_add,
+    FELGE3D_OT_curve_remove,
+    FELGE3D_OT_curve_handle,
     FELGE3D_OT_car_reset,
     FELGE3D_OT_check_update,
     FELGE3D_OT_install_ai,

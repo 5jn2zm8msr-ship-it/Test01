@@ -18,11 +18,19 @@ import sys
 import numpy as np
 
 # (Version, erzwungene pip-Plattform oder None) – in dieser Reihenfolge versuchen
-ORT_CANDIDATES = [
+# Blender 3.6/4.x (Python 3.10/3.11): 1.19.2 ist die letzte Version mit Intel-Mac-Rädern; universal2 zuerst.
+# Blender 5.x (Python 3.13): 1.19.x hat kein cp313-Rad -> neuere Versionen (Windows, Apple Silicon, Linux).
+ORT_CANDIDATES_OLD = [
     ("1.19.2", "macosx_11_0_universal2"),
     ("1.19.2", None),
     ("1.16.3", None),
 ]
+ORT_CANDIDATES_NEW = [
+    ("1.22.1", None),
+    ("1.21.1", None),
+    ("1.20.1", None),
+]
+ORT_CANDIDATES = ORT_CANDIDATES_NEW if sys.version_info >= (3, 13) else ORT_CANDIDATES_OLD
 MIN_VERSION_FOR = {"HIGH": (1, 18), "FAST": (1, 12)}
 MODELS = {
     "HIGH": ("https://huggingface.co/Jens-Duttke/Depth-Anything-3-MONO-ONNX/resolve/main/"
