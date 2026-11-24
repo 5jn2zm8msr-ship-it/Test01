@@ -18,7 +18,7 @@ Aus einem Felgenfoto (Frontansicht) werden in Sekunden **vier Räder mit Reifen*
 3. Bremse: echtes 3D (belüftete Scheibe, Sattel mit Brücke/Belägen/Schrauben), Foto als Textur; Regler **Sattelposition** (0° oben, 90° hinten, Standard 45°)
 
 ## Kompatibilität
-Getestet (headless): Blender 4.5 LTS und **5.3** (Python 3.13); Ziel: Blender 3.6 (Intel-Mac) bis 5.x, macOS, Windows, Linux.
+Getestet (headless): Blender 4.5 LTS und **5.3** (Python 3.13); Ziel: ein ZIP für Blender 3.5 (Intel-Mac) bis 5.x (3.x bisher nicht getestet, kein bpy 3.x verfügbar), macOS, Windows, Linux.
 KI-Tiefe: onnxruntime wird je nach Python-Version gewählt (3.13: 1.22; älter: 1.19.2 universal2).
 
 ## Updates
