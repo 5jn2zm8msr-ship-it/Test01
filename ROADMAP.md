@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.40.0)
+## Stand (Version 0.41.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -102,6 +102,13 @@ gleich gut (3, 6, 8, 10 schwach).
   Außenring (Felgenhorn) wird bei hellem Ring im Foto automatisch poliert und im Abgleich-Bild bis 1,05 × R_out hellblau markiert (Porsche: Rand am Reifen, Volvo: Außenring).
   Stand: Porsche 94 %, Volvo 89 % ⚠, 911 Turbo 80 % ⚠. Offen: Außenring ist nur als Material auf dem Horn (5 mm breit), im Foto ist er ~11 mm breit; Streifen nahe der Volvo-Nabe;
   offene Kanten am Fensterende (Porsche 20, Volvo 60).
+
+- 0.41.0: **Diamond-Cut-Zuordnung je Fläche, gemessen.** (1) Klassifikation je Käfigfläche statt je Pixel: Foto-Punkte im ~1-mm-Raster in jeder Fläche, Mehrheit je Sektor.
+  (2) Symmetrie-Abstimmung: blank nur, wenn in >= N-1 Sektoren blank (Rückfall auf Mehrheit, wenn die strenge Regel fast nichts übrig lässt, z. B. 10 Speichen mit einseitigem Licht);
+  je Sektor Registrierung (Drehung ±1,6°, Radius ±1,5 %). (3) Teller-Regel: blank = Teller-Ebene (Ecken blanker Flächen liegen auf dem Teller, schwarze darunter); optionale Tiefenkarten-Regel
+  (`sector.USE_DEPTH_RULE`, Standard aus: ohne Gewinn gemessen). Materialgrenzen = Crease nur auf Kanten zwischen blanker und schwarzer Fläche. Konfidenz je Fläche (`dc_conf`), Info zeigt „Zuordnung sicher x %“.
+  **Messung** `tests/diamond_cut/` (Volvo, Ground Truth = Entwurf aus Samen): Flächengenauigkeit 99,1 % (Ziel 98 %), IoU 91 %, Pixelgenauigkeit 97,6 % (vorher: 97,1 % / 85,3 % / 95,8 %).
+  Offen: 4 (Merkmale/Klassifikator) und 5 (Kalibrierung per Klick, Korrekturmodus); Ground Truth nur für den Volvo; IoU begrenzt durch ±1-2 px Kantenunschärfe und die grobe Käfigkontur.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

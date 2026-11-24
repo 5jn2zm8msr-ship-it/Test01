@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 40, 0),
+    "version": (0, 41, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -743,7 +743,7 @@ def build_wheel_edit(context, s, new_collection=True):
     N = nph["N"]
     theta_s = sector.choose_seam(F, radii, N, r_face)
     r_ref_face = s.diameter * 0.0127 - s.wall / 1000.0 + 0.001
-    cage = sector.build_cage(F, radii, dict(gray=gray, cx=cx, cy=cy, rx=rx, ry=ry, R_out=R_out), N, theta_s, r_ref_face,
+    cage = sector.build_cage(F, radii, dict(gray=gray, cx=cx, cy=cy, rx=rx, ry=ry, R_out=R_out, depth=(depth_pre if depth_pre is not None else None)), N, theta_s, r_ref_face,
                              relief_mm=s.relief, relief_width_mm=s.relief_width, boss_mm=s.boss_height, boss_r_mm=s.boss_radius,
                              spoke_t_mm=s.spoke_thickness, hub_t_mm=s.hub_thickness, hub_r_mm=s.hub_radius,
                              diamond_thr=s.diamond_threshold / 100.0)
@@ -762,10 +762,10 @@ def build_wheel_edit(context, s, new_collection=True):
         root.rotation_euler = (math.pi / 2, 0, 0)
         root["felge3d_role"] = "root"
         col.objects.link(root)
-    iou = cage.get("zone_iou")
+    cs_ = cage.get("conf_share")
     abgleich = ""
-    if iou is not None:                                              # Blau muss das Weiß im Foto 1:1 abbilden
-        abgleich = " · Abgleich Blau/Foto %.0f %%%s" % (100 * iou, "" if iou >= 0.90 else " ⚠ weicht ab")
+    if cs_ is not None:                                              # Zuordnung blank/schwarz je Fläche: wie viel ist sicher (Konfidenz >= 0,6)?
+        abgleich = " · Zuordnung sicher %.0f %%%s" % (100 * cs_, "" if cs_ >= 0.85 else " ⚠ unsichere Flächen prüfen")
     det = dict(n=N, drehung_deg=cage["drehung_deg"], hub_r_mm=s.hub_radius,
                info="%d Speichen · Drehlage %.0f° · Käfig %d Punkte/Sektor (Subdivision) · poliert %.0f %%%s%s" % (
                    N, cage["drehung_deg"], len(cage["r"]), 100 * cage["polished"],

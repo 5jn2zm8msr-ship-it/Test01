@@ -831,7 +831,7 @@ def _blur_cyc(A, passes=2):
     return np.concatenate([c, c[:, :1]], axis=1)
 
 
-def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045, thr=0.0):
+def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045, thr=0.0, open_m=0.0035):
     """
     Polierte Fläche (Blau) = einfaches Graustufen-Mapping: jeder Punkt des Fotos, dessen Helligkeit (relativ zur Felge: 0 = dunkelste, 1 = hellste Stelle) >= thr ist, ist hell/poliert.
     Über die N Speichen wird das 70. Perzentil genommen (Licht und Spiegelungen sind je Speiche verschieden), leicht entrauscht.
@@ -847,7 +847,7 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
         th = theta_s + (Fg + k) * pitch
         vals[k] = core.bilinear(gray, photo["cx"] + R / photo["R_out"] * photo["rx"] * np.sin(th),
                                 photo["cy"] + R / photo["R_out"] * photo["ry"] * np.cos(th))
-    br = np.percentile(vals, 70, axis=0)
+    br = np.percentile(vals, 70, axis=0)                               # nur für Schwelle/Kennwerte (Licht ist je Speiche verschieden); die Entscheidung fällt per Abstimmung
     mat = (Fv >= 0.5)
     solid = mat & (R > r_hub_solid + 0.008)
     if solid.sum() < 100:
@@ -858,13 +858,19 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     nrm = np.clip((br - lo) / (hi - lo), 0.0, 1.0)                     # Graustufen relativ zur Felge: 0 % = dunkelste, 100 % = hellste Stelle
     if thr <= 0:                                                       # 0 = automatisch: Schwelle zwischen den zwei Helligkeitsgruppen (Otsu)
         thr = 0.7 * float(_otsu(nrm[solid])[0])                      # bewusst großzügig: alles, was nicht schwarz ist, ist Diamond Cut (Schwarz/Weiß-Bild)
-    cls = _blur_cyc((nrm >= thr).astype(np.float32), 2) >= 0.5         # Entrauschen (einzelne Glanzpunkte im Schwarz)
+    votes = sum((np.clip((vals[k] - lo) / (hi - lo), 0.0, 1.0) >= thr).astype(np.int32) for k in range(N))
+    for need in ((max(N - 1, 1), max((N + 1) // 2, 1)) if N > 2 else (N,)):   # blank nur, wenn in >= N-1 Sektoren blank (Reflexionen sind nicht symmetrisch);
+        cls = _blur_cyc((votes >= need).astype(np.float32), 2) >= 0.5          # Rückfall auf die Mehrheit, wenn die strenge Regel (fast) nichts übrig lässt
+        ero = _erode_material(cls.astype(np.float32), r_fine, pitch, open_m)   # Öffnen: Glanzkanten dünner als 2 x open_m sind keine Fläche
+        cls = (1.0 - _erode_material(1.0 - ero, r_fine, pitch, open_m)) >= 0.5
+        if float(np.mean(cls[solid])) >= 0.10:
+            break
     share = float(np.mean(cls[solid]))
     b_raw = float(np.mean(br[solid & cls])) if (solid & cls).any() else 0.0
     d_raw = float(np.mean(br[solid & ~cls])) if (solid & ~cls).any() else 0.0
     if b_raw < 0.5 or b_raw - d_raw < 0.25:                            # die „helle“ Fläche ist nur ein Glanzlicht (satinschwarz), kein Metall
         return None, dict(bimodal=False, bright=float(np.mean(br[solid])), share=share)
-    if share < 0.03 or share > 0.92:                                   # nichts oder fast alles hell: keine Zweifarbigkeit
+    if share < 0.10 or share > 0.92:                                   # nichts oder fast alles hell: keine Zweifarbigkeit
         return None, dict(bimodal=False, bright=float(np.mean(br[solid])), share=share)
     B = _blur_cyc(cls.astype(np.float32), 2)                          # ruhige Kontur
     E = _blur_cyc(_erode_material(mat, r_fine, pitch, border_m), 1)
@@ -877,7 +883,11 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     ring = core.bilinear(gray, photo["cx"] + RG / photo["R_out"] * photo["rx"] * np.sin(TG),
                          photo["cy"] + RG / photo["R_out"] * photo["ry"] * np.cos(TG))
     ring_b = float(np.max(np.median(ring, axis=1)))
-    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=bool((ring_b - lo) / (hi - lo) >= thr), share=share, thr=thr, gray_thr=float(lo + thr * (hi - lo)),
+    bgr = np.linspace(1.10, 1.18, 3) * photo["R_out"]                          # Hintergrund knapp außerhalb: ist der „Ring“ so hell wie er, ist er Hintergrund
+    BG, TB = np.meshgrid(bgr, ang, indexing="ij")
+    bg_b = float(np.median(core.bilinear(gray, photo["cx"] + BG / photo["R_out"] * photo["rx"] * np.sin(TB),
+                                         photo["cy"] + BG / photo["R_out"] * photo["ry"] * np.cos(TB))))
+    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=bool((ring_b - lo) / (hi - lo) >= thr and ring_b - bg_b >= 0.12), bg=bg_b, share=share, thr=thr, lo=lo, hi=hi, need=need, gray_thr=float(lo + thr * (hi - lo)),
                                       raw=(cls & mat & (R > r_hub_solid + 0.008)))
 
 
@@ -966,8 +976,9 @@ def overlay_array(rgb, cage, cx, cy, rx, ry, R_out, gray=None):
         ring = (rad > cage["r_cage_out"] + 0.002) & (rad < R_out * 1.05) & (np.asarray(gray) >= cage["gray_thr"])
         ov[ring] = 0.5 * ov[ring] + 0.5 * np.array([120.0, 190.0, 255.0])
     for k in range(N):
-        th = ts + (f + k) * pitch
-        X, Y = cx + r / R_out * rx * np.sin(th), cy + r / R_out * ry * np.cos(th)
+        th = ts + (f + k) * pitch + (cage.get("copy_dtheta") or [0.0] * N)[k]
+        rk = r * (1.0 + (cage.get("copy_eps") or [0.0] * N)[k])
+        X, Y = cx + rk / R_out * rx * np.sin(th), cy + rk / R_out * ry * np.cos(th)
         for fc, d in zip(faces, dia):
             if not d:
                 continue
@@ -999,6 +1010,121 @@ def overlay_array(rgb, cage, cx, cy, rx, ry, R_out, gray=None):
             ys = np.clip((Y[a] + (Y[b] - Y[a]) * t).astype(int), 0, H - 1)
             ov[ys, xs] = col
     return ov
+
+
+_BARY = {}
+USE_DEPTH_RULE = False       # Teller-Regel über die KI-Tiefenkarte (nur wirksam, wenn die Tiefenkarte vorliegt)
+
+
+def _bary_points(n):
+    """Schwerpunkte der n*n Teildreiecke eines Dreiecks (Baryzentrisch u, v)."""
+    v = _BARY.get(n)
+    if v is None:
+        pts = []
+        for i in range(n):
+            for j in range(n - i):
+                pts.append(((i + 1 / 3) / n, (j + 1 / 3) / n))
+                if j < n - i - 1:
+                    pts.append(((i + 2 / 3) / n, (j + 2 / 3) / n))
+        v = np.array(pts)
+        _BARY[n] = v
+    return v
+
+
+def classify_faces(r, f, faces, photo, N, theta_s, pitch, lo, hi, thr, depth=None, need=None):
+    """
+    Klassifikation je Käfigfläche statt je Pixel: Foto-Punkte (~1 mm Raster) in jeder Fläche, in jedem der N Sektoren; je Sektor
+    Mehrheitsentscheid (>= 50 % hell), Fläche = blank nur, wenn in >= N-1 Sektoren blank (nicht symmetrische Reflexionen fallen heraus).
+    Physikalische Regel: mit Tiefenkarte werden Flächen, die deutlich tiefer als die blanken Flächen liegen, nie blank.
+    Rückgabe dict(label (0/1), conf (0..1), votes, deep (bool je Fläche, wegen Tiefe entfernt)).
+    """
+    from . import core
+    nf = len(faces)
+    x, y = r * np.cos(f * pitch), r * np.sin(f * pitch)
+    P_r, P_f, own = [], [], []
+    for i, fc in enumerate(faces):
+        for q in range(1, len(fc) - 1):
+            a, b, c = fc[0], fc[q], fc[q + 1]
+            area = 0.5 * abs((x[b] - x[a]) * (y[c] - y[a]) - (x[c] - x[a]) * (y[b] - y[a]))
+            n = int(min(max(math.ceil(math.sqrt(area * 1e6) / 1.0), 1), 14))
+            uv = _bary_points(n)
+            w0 = 1.0 - uv[:, 0] - uv[:, 1]
+            P_r.append(w0 * r[a] + uv[:, 0] * r[b] + uv[:, 1] * r[c])
+            P_f.append(w0 * f[a] + uv[:, 0] * f[b] + uv[:, 1] * f[c])
+            own.append(np.full(len(uv), i, np.int32))
+    P_r, P_f, own = np.concatenate(P_r), np.concatenate(P_f), np.concatenate(own)
+    cnt = np.maximum(np.bincount(own, minlength=nf).astype(np.float64), 1.0)
+    gray = np.asarray(photo["gray"], np.float64)
+    dep = np.asarray(depth, np.float64) if depth is not None else None
+
+    def sample(k, dth, eps=0.0):
+        th = theta_s + (P_f + k) * pitch + dth
+        rr_ = P_r * (1.0 + eps)
+        px = photo["cx"] + rr_ / photo["R_out"] * photo["rx"] * np.sin(th)
+        py = photo["cy"] + rr_ / photo["R_out"] * photo["ry"] * np.cos(th)
+        g = core.bilinear(gray, px, py)
+        return np.clip((g - lo) / (hi - lo), 0.0, 1.0), px, py
+
+    def fractions(dth, eps):
+        fr = np.zeros((N, nf))
+        for k in range(N):
+            nn, _, _ = sample(k, dth[k], eps[k])
+            fr[k] = np.bincount(own, weights=(nn >= thr).astype(np.float64), minlength=nf) / cnt
+        return fr
+    dtheta, eps_k = np.zeros(N), np.zeros(N)
+    frac = fractions(dtheta, eps_k)
+    if N > 1:                                                           # Registrierung je Sektor: Foto ist nie perfekt N-fach symmetrisch
+        cand = np.radians(np.arange(-1.6, 1.61, 0.1))
+        cand_e = np.arange(-0.015, 0.0151, 0.0025)
+        for _ in range(2):
+            lab_ = ((frac >= 0.5).sum(axis=0) >= (max(N - 1, 1) if need is None else need))
+            wb = lab_[own]
+            if wb.all() or (~wb).all():
+                break
+            for k in range(N):
+                for _pass in range(2):                                  # Drehung und Radius abwechselnd (Koordinatenabstieg)
+                    best, bd = -9.0, dtheta[k]
+                    for dth in cand:
+                        nn, _, _ = sample(k, dth, eps_k[k])
+                        sc = float(np.mean(nn[wb]) - np.mean(nn[~wb]))
+                        if sc > best + 1e-9:
+                            best, bd = sc, dth
+                    dtheta[k] = bd
+                    best, be = -9.0, eps_k[k]
+                    for e in cand_e:
+                        nn, _, _ = sample(k, dtheta[k], e)
+                        sc = float(np.mean(nn[wb]) - np.mean(nn[~wb]))
+                        if sc > best + 1e-9:
+                            best, be = sc, e
+                    eps_k[k] = be
+            frac = fractions(dtheta, eps_k)
+    dsum = np.zeros(nf)
+    if dep is not None:
+        for k in range(N):
+            _, px, py = sample(k, dtheta[k], eps_k[k])
+            dsum += np.bincount(own, weights=core.bilinear(dep, px, py), minlength=nf) / cnt
+    votes = (frac >= 0.5).sum(axis=0)
+    need = max(N - 1, 1) if need is None else need
+    label = (votes >= need)
+    agree = np.maximum(votes, N - votes) / float(N)
+    conf = np.mean(np.abs(2 * frac - 1.0), axis=0) * agree
+    deep = np.zeros(nf, bool)
+    if depth is not None and USE_DEPTH_RULE and label.sum() >= 5:       # Teller-Regel: blank nur auf der obersten Ebene
+        dface = dsum / N
+        ref = dface[label]
+        top = float(np.median(ref))
+        mad = float(np.median(np.abs(ref - top)))
+        tol = max(4.0 * mad, 0.02)
+        deep = label & (dface < top - tol)
+        label = label & ~deep
+    return dict(label=label.astype(np.int8), conf=conf, votes=votes.astype(np.int32), deep=deep, dtheta=dtheta, eps=eps_k)
+
+
+def _conf_share(r, f, faces, conf, pitch, lim=0.6):
+    """Flächenanteil der Käfigflächen mit sicherer Zuordnung (Konfidenz >= lim)."""
+    x, y = r * np.cos(f * pitch), r * np.sin(f * pitch)
+    area = np.array([0.5 * abs(np.sum(x[fc] * np.roll(y[fc], -1) - np.roll(x[fc], -1) * y[fc])) for fc in faces])
+    return float(np.sum(area[np.asarray(conf) >= lim]) / max(np.sum(area), 1e-12))
 
 
 def zone_iou(r, f, faces, diamond, r_fine, raw):
@@ -1276,6 +1402,13 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
         r, f, faces, m["diamond"], m["zvert"], m["chords"] = _collapse_short(r, f, faces, m["diamond"], m["zvert"], m["chords"], pitch)
         if Zv is None:
             break
+        fc_res = classify_faces(r, f, faces, photo, N, theta_s, pitch, zinfo["lo"], zinfo["hi"], zinfo["thr"], photo.get("depth"), zinfo.get("need"))
+        m["diamond"] = fc_res["label"]
+        zv_ = np.zeros(len(r), bool)                                     # Teller-Punkte: Ecken blanker Flächen
+        for fc_, d_ in zip(faces, fc_res["label"]):
+            if d_:
+                zv_[fc_] = True
+        m["zvert"] = zv_
         z_iou = zone_iou(r, f, faces, m["diamond"], r_fine, zinfo["raw"])
         if z_iou >= zone_target:
             break
@@ -1324,6 +1457,6 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=np.zeros(n), diamond=diamond if Zv is not None else
                 (np.ones(len(faces), np.int8) if bright_all else np.zeros(len(faces), np.int8)), chords=chords,
                 N=int(N), pitch=pitch, theta_s=theta_s, crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi),
-                sym=sym, horn_polished=bool(zinfo.get("horn", False)), gray_thr=float(zinfo.get("gray_thr", 0.0)), r_cage_out=float(r_out), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
+                sym=sym, horn_polished=bool(zinfo.get("horn", False)), gray_thr=float(zinfo.get("gray_thr", 0.0)), r_cage_out=float(r_out), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, conf_share=(_conf_share(r, f, faces, fc_res["conf"], pitch) if Zv is not None else None), face_conf=(fc_res["conf"] if Zv is not None else None), face_votes=(fc_res["votes"] if Zv is not None else None), n_deep=(int(fc_res["deep"].sum()) if Zv is not None else 0), copy_dtheta=([float(v) for v in fc_res["dtheta"]] if Zv is not None else None), copy_eps=([float(v) for v in fc_res["eps"]] if Zv is not None else None), polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
                 area_err=err, cells=(Rc, Cc), zvert=zvert.astype(np.int8), teller_h=teller_h,
                 has_zone=bool(Zv is not None and zvert.sum() > 10))

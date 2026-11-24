@@ -827,12 +827,21 @@ def template_mesh_from_cage(name, td):
             out.append([b_, a_, a_ + n, b_ + n])
             crease[key] = ct
             crease[(key[0] + n, key[1] + n)] = 1.0
-    for key in chords:                                   # Grenze der Diamond-Cut-Fläche: scharfe Kante
-        crease[key] = 1.0
+    face_of = {}                                         # Materialgrenzen ausschließlich aus Geometriekanten: Kante zwischen blanker und schwarzer Fläche = Crease
+    for i, fc in enumerate(fl):
+        for k in range(len(fc)):
+            a_, b_ = fc[k], fc[(k + 1) % len(fc)]
+            face_of.setdefault((a_, b_) if a_ < b_ else (b_, a_), []).append(i)
+    for key, fs in face_of.items():
+        if len(fs) == 2 and (diamond[fs[0]] > 0.5) != (diamond[fs[1]] > 0.5):
+            crease[key] = 1.0
     n_walls = len(out) - 2 * n_top
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(float(c) for c in v) for v in verts], [], out)
     me.update()
+    conf = np.asarray(td.get("face_conf") if td.get("face_conf") is not None else np.ones(len(faces)), np.float64)
+    ca2 = me.attributes.new("dc_conf", "FLOAT", "FACE")           # Konfidenz der Zuordnung je Fläche (niedrig = unsicher)
+    ca2.data.foreach_set("value", [float(v) for v in conf] + [1.0] * (n_top + n_walls))
     da = me.attributes.new("diamond", "FLOAT", "FACE")
     da.data.foreach_set("value", [float(v) for v in diamond] + [0.0] * (n_top + n_walls))
     ca = me.attributes.new("crease_edge", "FLOAT", "EDGE")
