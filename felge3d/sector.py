@@ -777,6 +777,9 @@ def fill_reflections(F, radii, photo, r_face, max_rel_area=0.35, weak_min=0.25, 
     gr[1:-1] = (G[2:] - G[:-2]) / (2 * dr)
     grad = np.hypot(gt, gr)
     near = np.max(np.stack([np.roll(np.roll(grad, a, 0), b, 1) for a in (-2, -1, 0, 1, 2) for b in (-2, -1, 0, 1, 2)]), 0)
+    # Durchsicht-Helligkeit: so sehen die großen Fenster aus (Hintergrund hinter der Felge; nicht der Reifen außen)
+    big_means = [float(np.mean(G[tuple(c.T)])) for k_, c in enumerate(comps) if area[k_] >= 0.5 * big and len(c) >= 20]
+    bg_b = float(np.median(big_means)) if big_means else 0.5
     out = F.copy()
     filled = 0
     for k, c in enumerate(comps):
@@ -788,6 +791,11 @@ def fill_reflections(F, radii, photo, r_face, max_rel_area=0.35, weak_min=0.25, 
         if bd.sum() < 10:
             continue
         weak = float(np.mean(near[bd] < 30.0))
+        mean_g = float(np.mean(G[M]))
+        if abs(mean_g - bg_b) >= 0.25 and mean_g >= 0.45 and area[k] <= max_rel_area * big and radii[c[:, 0]].max() <= 0.13:   # Nabenbereich ist massiv        # hell wie Metall, aber nicht wie der Hintergrund: poliertes Material, kein Fenster
+            out[M] = 1.0
+            filled += 1
+            continue
         ring = np.zeros(F.shape, bool)
         for a in (-2, -1, 0, 1, 2):
             for b in (-2, -1, 0, 1, 2):
@@ -831,7 +839,7 @@ def _blur_cyc(A, passes=2):
     return np.concatenate([c, c[:, :1]], axis=1)
 
 
-def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045, thr=0.0, open_m=0.0035):
+def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.012, thr=0.0, open_m=0.0035):
     """
     Polierte Fläche (Blau) = einfaches Graustufen-Mapping: jeder Punkt des Fotos, dessen Helligkeit (relativ zur Felge: 0 = dunkelste, 1 = hellste Stelle) >= thr ist, ist hell/poliert.
     Über die N Speichen wird das 70. Perzentil genommen (Licht und Spiegelungen sind je Speiche verschieden), leicht entrauscht.
@@ -859,7 +867,7 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     if thr <= 0:                                                       # 0 = automatisch: Schwelle zwischen den zwei Helligkeitsgruppen (Otsu)
         thr = 0.7 * float(_otsu(nrm[solid])[0])                      # bewusst großzügig: alles, was nicht schwarz ist, ist Diamond Cut (Schwarz/Weiß-Bild)
     votes = sum((np.clip((vals[k] - lo) / (hi - lo), 0.0, 1.0) >= thr).astype(np.int32) for k in range(N))
-    for need in ((max(N - 1, 1), max((N + 1) // 2, 1)) if N > 2 else (N,)):   # blank nur, wenn in >= N-1 Sektoren blank (Reflexionen sind nicht symmetrisch);
+    for need in ((max(N - 1, 1), max((N + 1) // 2, 1)) if N > 2 else (N,))[(1 if STRICT_VOTE is False else 0):]:   # blank nur, wenn in >= N-1 Sektoren blank (Reflexionen sind nicht symmetrisch);
         cls = _blur_cyc((votes >= need).astype(np.float32), 2) >= 0.5          # Rückfall auf die Mehrheit, wenn die strenge Regel (fast) nichts übrig lässt
         ero = _erode_material(cls.astype(np.float32), r_fine, pitch, open_m)   # Öffnen: Glanzkanten dünner als 2 x open_m sind keine Fläche
         cls = (1.0 - _erode_material(1.0 - ero, r_fine, pitch, open_m)) >= 0.5
@@ -973,7 +981,7 @@ def overlay_array(rgb, cage, cx, cy, rx, ry, R_out, gray=None):
     if gray is not None and cage.get("horn_polished"):                      # Felgenhorn (Ring außerhalb des Käfigs) als poliert gewertet: hellblau
         yy, xx = np.mgrid[0:H, 0:W]
         rad = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) * R_out
-        ring = (rad > cage["r_cage_out"] + 0.002) & (rad < R_out * 1.05) & (np.asarray(gray) >= cage["gray_thr"])
+        ring = (rad > cage["r_cage_out"] + 0.002) & (rad < R_out * 1.02) & (np.asarray(gray) >= cage["gray_thr"])
         ov[ring] = 0.5 * ov[ring] + 0.5 * np.array([120.0, 190.0, 255.0])
     for k in range(N):
         th = ts + (f + k) * pitch + (cage.get("copy_dtheta") or [0.0] * N)[k]
@@ -1013,6 +1021,7 @@ def overlay_array(rgb, cage, cx, cy, rx, ry, R_out, gray=None):
 
 
 _BARY = {}
+STRICT_VOTE = True           # True: blank nur bei >= N-1 Sektoren; False: einfache Mehrheit
 USE_DEPTH_RULE = False       # Teller-Regel über die KI-Tiefenkarte (nur wirksam, wenn die Tiefenkarte vorliegt)
 
 
@@ -1325,7 +1334,7 @@ CAGE_EXT = 0.013          # Käfig reicht über den Innenrand des Felgenbetts hi
 
 def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_width_mm=40.0, boss_mm=6.0, boss_r_mm=75.0,
                spoke_t_mm=14.0, hub_t_mm=24.0, hub_r_mm=85.0, r_a=0.012, r_hub_solid=0.045, crease_top=1.0,
-               border_mm=6.0, max_area_err=0.05, zone_target=0.93, diamond_thr=0.0):
+               border_mm=6.0, max_area_err=0.05, zone_target=0.93, diamond_thr=0.0, hub_fine=True):
     """
     Bearbeitbarer Käfig des Pizzastücks für Subdivision Surface (ohne KI-Mesh): grobes Netz entlang der Silhouette (Fenster, Löcher),
     Rücken/Bund aus dem Randabstand, Dicke aus Nabe/Speiche. Die Diamond-Cut-Fläche (Zweifarbigkeit aus dem Foto) ist eine eigene
@@ -1367,6 +1376,8 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
         for r0, r1 in spans:
             for lo_, hi_ in ((r0 - 0.008, r0 + 0.040), (r1 - 0.040, r1 + 0.010)):
                 rr_ += list(np.arange(max(lo_, r_a), min(hi_, r_out), 0.0055))
+        if hub_fine:                                                     # Nabenbereich feiner (Nabenfläche mit Radschrauben, Kappenring)
+            rr_ += list(np.arange(r_a, 0.105, 0.006))
         rr_ = sorted(set(round(v, 5) for v in rr_ + [r_out]))
         out_ = [rr_[0]]
         for v in rr_[1:]:

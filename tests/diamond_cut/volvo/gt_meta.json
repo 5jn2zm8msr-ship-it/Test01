@@ -6,8 +6,8 @@
  "rx": 291.0062828063965,
  "ry": 291.0062828063965,
  "N": 5,
- "threshold": 0.48827382918447254,
- "white_mean": 0.8095769834518433,
- "black_mean": 0.16697067491710185,
+ "threshold": 0.42572970263039067,
+ "white_mean": 0.6605074693759282,
+ "black_mean": 0.1909519358848532,
  "hinweis": "Entwurf aus Samen, bitte pr\u00fcfen"
 }

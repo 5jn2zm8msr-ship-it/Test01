@@ -852,7 +852,7 @@ def template_mesh_from_cage(name, td):
     ca.data.foreach_set("value", vals)
     zv = np.asarray(td.get("zvert", np.zeros(n)), np.float64)
     r_ref = float(td.get("r_ref_face", 0.25))
-    ramp = np.clip((r - 0.080) / 0.025, 0.0, 1.0)                # Nabe bleibt unberührt, Übergang zum Teller weich
+    ramp = np.clip((r - 0.022) / 0.020, 0.0, 1.0)                # auch die Nabenfläche liegt auf dem Teller (Kappe/Zentralverschluss sitzt in der Mitte)
     zone_ok = bool(td.get("has_zone", False))
     it = me.attributes.new("is_top", "FLOAT", "POINT")                  # ohne polierte Zone: ganze Front liegt auf dem Teller
     it.data.foreach_set("value", [float(v) if zone_ok else 1.0 for v in zv] * 2)

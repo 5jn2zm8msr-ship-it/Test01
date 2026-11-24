@@ -88,7 +88,7 @@ def evaluate(case):
     fid, lab = raster(cage, cx, cy, rx, ry, R_out, H, W)
     yy, xx = np.mgrid[0:H, 0:W]
     rr = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) * R_out
-    region = (fid >= 0) & (rr > case.get("r_min", 0.055)) & (rr < case.get("r_max", 0.262))      # nur Käfigflächen im Speichenbereich
+    region = (fid >= 0) & (rr > case.get("r_min", 0.045)) & (rr < case.get("r_max", 0.264))          # Käfigflächen: Nabe und Speichen
     pred = np.zeros((H, W), bool)
     pred[fid >= 0] = lab[fid[fid >= 0]]
     if os.environ.get("DC_DEBUG"):                          # Fehlerbild: rot = zu viel blank, blau = fehlt, Region abgedunkelt
@@ -107,6 +107,15 @@ def evaluate(case):
         im.filepath_raw = os.path.join(HERE, "fehler_%s.png" % case["name"])
         im.file_format = "PNG"
         im.save()
+    # Außenring (Felgenhorn): liegt außerhalb des Käfigs; blank, wenn „Horn poliert“ gesetzt ist und das Foto dort hell ist
+    ring_zone = (rr > cage.get("r_cage_out", 0.264) + 0.002) & (rr < 1.06 * R_out)
+    horn = bool(cage.get("horn_polished", False))
+    ring_pred = ring_zone & horn & (rr >= R_out - _wl - 0.002) & (rr <= R_out + 0.001)                 # Horn-Lippe im Modell (Stirnfläche, Breite = Wandstärke)
+    rtp, rfp, rfn = int(np.sum(ring_pred & gt & ring_zone)), int(np.sum(ring_pred & ~gt)), int(np.sum(~ring_pred & gt & ring_zone))
+    ring_iou = rtp / max(rtp + rfp + rfn, 1)
+    if os.environ.get("DC_DEBUG"):
+        gr = rr[gt & ring_zone]
+        print("DEBUG Ring: GT-Pixel %d (r %.4f–%.4f, Median %.4f) | Modell-Horn-Pixel %d (r %.4f–%.4f) | Treffer %d | R_out %.4f r_cage_out %.4f" % (len(gr), gr.min() if len(gr) else 0, gr.max() if len(gr) else 0, np.median(gr) if len(gr) else 0, int(ring_pred.sum()), R_out - _wl - 0.002, R_out + 0.001, rtp, R_out, cage.get('r_cage_out', 0)))
     P, G = pred[region], gt[region]
     tp, fp, fn = int(np.sum(P & G)), int(np.sum(P & ~G)), int(np.sum(~P & G))
     pix_acc = float(np.mean(P == G))
@@ -121,7 +130,7 @@ def evaluate(case):
     face_acc_area = float(np.sum(cnt[present][face_correct]) / np.sum(cnt[present]))           # flächengewichtet (Pixel)
     face_acc_n = float(np.mean(face_correct))
     return dict(name=case["name"], N=int(cage["N"]), faces=int(len(cage["faces"])), pix_acc=pix_acc, iou=iou, face_acc_area=face_acc_area,
-                face_acc_n=face_acc_n, n_deep=n_deep, conf_min=float(np.min(cage["face_conf"])) if cage.get("face_conf") else None, precision=tp / max(tp + fp, 1), recall=tp / max(tp + fn, 1), pixels=int(region.sum()))
+                face_acc_n=face_acc_n, ring_iou=ring_iou, ring_pixels=int(np.sum(gt & ring_zone)), n_deep=n_deep, conf_min=float(np.min(cage["face_conf"])) if cage.get("face_conf") else None, precision=tp / max(tp + fp, 1), recall=tp / max(tp + fn, 1), pixels=int(region.sum()))
 
 
 def main():
@@ -132,13 +141,13 @@ def main():
         from felge3d import sector
         sector.USE_DEPTH_RULE = False
     rows = [evaluate(c) for c in cases if not sel or c["name"] in sel]
-    hdr = "| Bild | Sektoren | Flächen/Sektor | Flächengenauigkeit (Fläche) | Flächengenauigkeit (Anzahl) | Pixelgenauigkeit | IoU blank | Präzision | Recall | durch Tiefe entfernt | Ziel Flächengenauigkeit ≥ 98 % |\n|---|---|---|---|---|---|---|---|---|---|---|"
+    hdr = "| Bild | Sektoren | Flächen/Sektor | Flächengenauigkeit (Fläche) | Flächengenauigkeit (Anzahl) | Pixelgenauigkeit | IoU blank | Präzision | Recall | Ring-IoU (Felgenhorn) | durch Tiefe entfernt | Ziel Flächengenauigkeit ≥ 98 % |\n|---|---|---|---|---|---|---|---|---|---|---|---|"
     lines = [hdr]
     for r in rows:
         ok = "✓" if r["face_acc_area"] >= 0.98 else "✗"
-        lines.append("| %s | %d | %d | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %d | %s |" % (
+        lines.append("| %s | %d | %d | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %d | %s |" % (
             r["name"], r["N"], r["faces"], 100 * r["face_acc_area"], 100 * r["face_acc_n"], 100 * r["pix_acc"], 100 * r["iou"],
-            100 * r["precision"], 100 * r["recall"], r["n_deep"], ok))
+            100 * r["precision"], 100 * r["recall"], 100 * r["ring_iou"], r["n_deep"], ok))
     out = "\n".join(lines)
     print(out)
     with open(os.path.join(HERE, "ergebnis.md"), "w", encoding="utf-8") as fh:

@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.41.0)
+## Stand (Version 0.42.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -109,6 +109,11 @@ gleich gut (3, 6, 8, 10 schwach).
   (`sector.USE_DEPTH_RULE`, Standard aus: ohne Gewinn gemessen). Materialgrenzen = Crease nur auf Kanten zwischen blanker und schwarzer Fläche. Konfidenz je Fläche (`dc_conf`), Info zeigt „Zuordnung sicher x %“.
   **Messung** `tests/diamond_cut/` (Volvo, Ground Truth = Entwurf aus Samen): Flächengenauigkeit 99,1 % (Ziel 98 %), IoU 91 %, Pixelgenauigkeit 97,6 % (vorher: 97,1 % / 85,3 % / 95,8 %).
   Offen: 4 (Merkmale/Klassifikator) und 5 (Kalibrierung per Klick, Korrekturmodus); Ground Truth nur für den Volvo; IoU begrenzt durch ±1-2 px Kantenunschärfe und die grobe Käfigkontur.
+
+- 0.42.0: **Nabenfläche und Außenring zählen mit.** Zone/Klassifikation ab 20 mm Radius (Nabenfläche zwischen den Radschrauben liegt auf dem Teller), feinere Zeilen im Nabenbereich,
+  helle Löcher im Nabenbereich, die nicht wie die großen Fenster aussehen (poliertes Metall statt Durchsicht), werden Material. Messung: Ground Truth enthält jetzt Nabe + Außenring,
+  Kappe (r < 45 mm) ausgenommen, Ring-IoU als eigene Spalte. Volvo: Flächengenauigkeit 98,0 %, IoU 87,6 %, Ring-IoU 80 %. Neuer Schalter `sector.STRICT_VOTE` (Standard an).
+  Neue Felge (Audi, gebürstetes Silber, 5 Speichen): Zuordnung sicher 72 % ⚠ – helle Flächen in einzelnen Sektoren dunkler (Riefen/Spiegelung), 4 (Merkmale/Klassifikator) und 5 (Kalibrierung) offen.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

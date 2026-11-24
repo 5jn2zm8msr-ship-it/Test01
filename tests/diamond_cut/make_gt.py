@@ -22,8 +22,10 @@ import eval_diamond_cut as ev      # noqa: E402
 
 CASES = {
     "volvo": dict(photo="volvo/photo.jpg", N=5, mirror=True,
-                  white=[(517, 250), (510, 300), (506, 325), (480, 370), (494, 354)],
-                  black=[(512, 366), (545, 330), (470, 300), (540, 250), (560, 380)]),
+                  white=[(517, 250), (510, 300), (506, 325), (480, 370), (494, 354),
+                         (450, 418), (405, 425), (482, 435), (430, 478), (467, 480), (453, 386),      # Nabenfläche zwischen den Radschrauben
+                         (450, 164)],                                                                  # polierter Außenring (Felgenhorn)
+                  black=[(512, 366), (545, 330), (470, 300), (540, 250), (560, 380), (415, 412)]),
 }
 
 
@@ -60,7 +62,7 @@ def main(name):
     gb = blur(g)
     yy, xx = np.mgrid[0:H, 0:W]
     rr = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cyd) / ry) ** 2) * 0.271
-    cand = (gb >= thr) & (rr > 0.055) & (rr < 0.262)
+    cand = (gb >= thr) & (rr > 0.045) & (rr < 0.287)             # Speichen, Nabenfläche und Außenring (bis 1,06 x Felgenradius); r < 45 mm ist die Kappe (Modell: Zylinder)
     lab = -np.ones((H, W), np.int32)
     comps = []
     for y in range(H):
@@ -83,6 +85,10 @@ def main(name):
         if len(comps[ci]) >= 60:
             for a, b in comps[ci]:
                 gt[a, b] = True
+    ringpx = gt & (rr > 0.264)                              # Außenring: physisch überall poliert (Lippe), auch wo er im Foto dunkel spiegelt -> voller Kreisring
+    if ringpx.sum() > 500:
+        lo_r, hi_r = np.percentile(rr[ringpx], [3, 97])
+        gt |= (rr >= lo_r) & (rr <= hi_r)
     im = bpy.data.images.new("gt", W, H, alpha=False)
     rgba = np.ones((H, W, 4), np.float32)
     rgba[..., :3] = gt[::-1, :, None]                         # bpy: unten = Zeile 0
@@ -93,7 +99,7 @@ def main(name):
     im.save()
     json.dump(dict(width=W, height=H, cx=cx, cy=cy, rx=rx, ry=ry, N=N, threshold=thr, white_mean=float(wv.mean()), black_mean=float(bv.mean()),
                    hinweis="Entwurf aus Samen, bitte prüfen"), open(os.path.join(ev.HERE, name, "gt_meta.json"), "w"), indent=1)
-    print("GT geschrieben:", out, "blank-Anteil im Ring %.1f %%" % (100 * gt[(rr > 0.055) & (rr < 0.262)].mean()))
+    print("GT geschrieben:", out, "blank-Anteil im Ring %.1f %%" % (100 * gt[(rr > 0.045) & (rr < 0.287)].mean()))
 
 
 if __name__ == "__main__":
