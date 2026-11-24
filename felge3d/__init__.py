@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 38, 0),
+    "version": (0, 39, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -737,7 +737,7 @@ def build_wheel_edit(context, s, new_collection=True):
         s["threshold"] = thr
     p = make_params(s)
     R, W, flange, wall, R_out, r_face, dish = core.dimensions(p)
-    F, radii = sector.polar_field(mask, cx, cy, rx, ry, R_out, r_face)
+    F, radii = sector.polar_field(mask, cx, cy, rx, ry, R_out, r_face + sector.CAGE_EXT)
     F, n_refl = sector.fill_reflections(F, radii, dict(gray=gray, cx=cx, cy=cy, rx=rx, ry=ry, R_out=R_out), r_face)
     nph = sector.detect_n_phase(F, n_hint=n_hint)
     N = nph["N"]
@@ -775,7 +775,7 @@ def build_wheel_edit(context, s, new_collection=True):
         rgb_ = np.asarray(_rgb_cache[next(iter(_rgb_cache))], np.float32)
         if rgb_.max() <= 1.5:
             rgb_ = rgb_ * 255.0
-        ov_ = sector.overlay_array(rgb_[..., :3], cage, cx, cy, rx, ry, R_out)
+        ov_ = sector.overlay_array(rgb_[..., :3], cage, cx, cy, rx, ry, R_out, gray)
         hh, ww = ov_.shape[:2]
         nm_ = "%s Abgleich" % col.name
         im_ = bpy.data.images.get(nm_)

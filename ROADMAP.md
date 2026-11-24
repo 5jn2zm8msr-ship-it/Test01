@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.38.0)
+## Stand (Version 0.39.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -92,6 +92,11 @@ gleich gut (3, 6, 8, 10 schwach).
   das Foto mit blauem Bereich (Bild „Schwellwert-Vorschau“), *Neu bauen* dauert ~4 s. Ohne Metallfläche (nur Glanzlichter auf Satinschwarz, Audi) kein Diamond Cut.
   Hysterese/Gerade-Anpassung entfernt. Feste 20 % absolut/relativ waren bei mattem Schwarz (Porsche) zu niedrig (viele Sprenkel, 300 offene Kanten), daher Auto als Standard.
   Stand (Auto): Porsche 98 %, Volvo 91 %, 911 Turbo 83 % ⚠. Offen: Volvo 80 offene Kanten, Streifen nahe der Nabe.
+
+- 0.39.0: **Speichenspitzen bis zum Horn.** Der Käfig endete am Innenrand des Felgenbetts (251 mm), im Foto läuft die polierte Speichenfläche aber bis ~265 mm
+  (gemessen: Helligkeit 0,78 bis 263 mm, dunkler Spalt bei 267 mm, heller Ring bei 272-282 mm). Käfig und Polarfeld reichen jetzt 13 mm weiter nach außen
+  (`sector.CAGE_EXT`); Abgleich Porsche 97 %. Das Abgleich-Bild markiert den hellen Außenring (Felgenhorn) hellblau, wenn „Horn poliert“ gesetzt wurde.
+  Offen: Porsche 20 und Volvo 60 offene Kanten am Fensterende; gefundener Felgenkreis (R_out) liegt ~4 % innerhalb des hellen Außenrings im Foto.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

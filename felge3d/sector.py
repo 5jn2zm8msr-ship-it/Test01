@@ -877,7 +877,7 @@ def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045
     ring = core.bilinear(gray, photo["cx"] + RG / photo["R_out"] * photo["rx"] * np.sin(TG),
                          photo["cy"] + RG / photo["R_out"] * photo["ry"] * np.cos(TG))
     ring_b = float(np.max(np.median(ring, axis=1)))
-    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=bool((ring_b - lo) / (hi - lo) >= thr), share=share, thr=thr,
+    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw, ring=ring_b, horn=bool((ring_b - lo) / (hi - lo) >= thr), share=share, thr=thr, gray_thr=float(lo + thr * (hi - lo)),
                                       raw=(cls & mat & (R > r_hub_solid + 0.008)))
 
 
@@ -945,7 +945,7 @@ def _zone_band(Zf, at_, bt_, ea, eb, r_fine, pitch, raw, min_border):
     return out, dict(iou=iou, r0=float(rr[i0]), r1=float(rr[i1]), d=min_border)
 
 
-def overlay_array(rgb, cage, cx, cy, rx, ry, R_out):
+def overlay_array(rgb, cage, cx, cy, rx, ry, R_out, gray=None):
     """Foto mit Käfig-Abgleich: Blau = Diamond-Cut-Flächen, Cyan = Grenze poliert/schwarz (Crease), Orange = Außenkontur, für alle N Speichen."""
     H, W = rgb.shape[:2]
     ov = np.asarray(rgb, np.float32).copy()
@@ -960,6 +960,11 @@ def overlay_array(rgb, cage, cx, cy, rx, ry, R_out):
             e = tuple(sorted((fc[q], fc[(q + 1) % len(fc)])))
             cnt[e] = cnt.get(e, 0) + 1
     blue = np.array([40.0, 110.0, 255.0])
+    if gray is not None and cage.get("horn_polished"):                      # Felgenhorn (Ring außerhalb des Käfigs) als poliert gewertet: hellblau
+        yy, xx = np.mgrid[0:H, 0:W]
+        rad = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2) * R_out
+        ring = (rad > cage["r_cage_out"] + 0.002) & (rad < R_out * 1.05) & (np.asarray(gray) >= cage["gray_thr"])
+        ov[ring] = 0.5 * ov[ring] + 0.5 * np.array([120.0, 190.0, 255.0])
     for k in range(N):
         th = ts + (f + k) * pitch
         X, Y = cx + r / R_out * rx * np.sin(th), cy + r / R_out * ry * np.cos(th)
@@ -1023,7 +1028,7 @@ def zone_iou(r, f, faces, diamond, r_fine, raw):
     return float(np.sum(M & ref)) / max(float(np.sum(M | ref)), 1.0)
 
 
-def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0045, r_min=0.075, micro=0.0009):
+def _collapse_short(r, f, faces, diamond, zvert, chords, pitch, tol=0.0052, r_min=0.075, micro=0.0009):
     """Kurze Kanten am Rand (Zacken, Doppellinien) zusammenziehen; Naht und Zonenpunkte bleiben, Nabe bleibt unberührt."""
     n = len(r)
     seam = (f < 1e-9) | (f > 1 - 1e-9)
@@ -1189,6 +1194,9 @@ def _band_zone(Zs, ea, eb, passes=24):
     return out
 
 
+CAGE_EXT = 0.013          # Käfig reicht über den Innenrand des Felgenbetts hinaus (Speichenspitzen bis zum Horn, wie im Foto)
+
+
 def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_width_mm=40.0, boss_mm=6.0, boss_r_mm=75.0,
                spoke_t_mm=14.0, hub_t_mm=24.0, hub_r_mm=85.0, r_a=0.012, r_hub_solid=0.045, crease_top=1.0,
                border_mm=6.0, max_area_err=0.05, zone_target=0.93, diamond_thr=0.0):
@@ -1199,7 +1207,8 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     """
     from . import core
     pitch = 2 * math.pi / N
-    r_fine = r_a + (r_ref_face - r_a) * np.linspace(0.0, 1.0, 161)
+    r_out = r_ref_face + CAGE_EXT                                           # äußerer Käfigrand
+    r_fine = r_a + (r_out - r_a) * np.linspace(0.0, 1.0, 161)
     Fv, sym = sector_field(F, radii, N, theta_s, r_fine, 145)
     Fv[r_fine < r_hub_solid, :] = 1.0
     fine_area = float(np.sum((Fv[:-1, :-1] >= 0.5) * r_fine[:-1, None] * (r_fine[1] - r_fine[0]) * (pitch / 144.0)))
@@ -1228,28 +1237,28 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
             i += 1
 
     def row_radii(Rc):
-        rr_ = list(np.linspace(r_a, r_ref_face, Rc))
+        rr_ = list(np.linspace(r_a, r_out, Rc))
         for r0, r1 in spans:
             for lo_, hi_ in ((r0 - 0.008, r0 + 0.040), (r1 - 0.040, r1 + 0.010)):
-                rr_ += list(np.arange(max(lo_, r_a), min(hi_, r_ref_face), 0.0055))
-        rr_ = sorted(set(round(v, 5) for v in rr_ + [r_ref_face]))
+                rr_ += list(np.arange(max(lo_, r_a), min(hi_, r_out), 0.0055))
+        rr_ = sorted(set(round(v, 5) for v in rr_ + [r_out]))
         out_ = [rr_[0]]
         for v in rr_[1:]:
             if v - out_[-1] > 0.0028:
                 out_.append(v)
-        out_[-1] = r_ref_face
+        out_[-1] = r_out
         return np.array(out_)
     best = None
     for Rc, Cc in ((14, 9), (18, 11), (24, 14), (32, 18), (48, 26), (64, 34), (84, 44)):
         rows = row_radii(Rc)
-        m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_ref_face, pitch=pitch, rows=rows)
+        m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_out, pitch=pitch, rows=rows)
         err = abs(_poly_area(m["r"], true_f(m["r"], m["f"]), m["faces"], pitch) - fine_area) / max(fine_area, 1e-9)
         best = (Rc, Cc, err)
         if err < max_area_err:
             break
     Rc, Cc, err = best
     spoke_w = float(np.median((eb - ea)[r_fine > 0.09]))
-    cell = 0.5 * (r_ref_face + r_a) * pitch * max(spoke_w, 0.2) / (Cc - 1)        # Zellbreite quer zur Speiche (m)
+    cell = 0.5 * (r_out + r_a) * pitch * max(spoke_w, 0.2) / (Cc - 1)        # Zellbreite quer zur Speiche (m)
     margin = max(border_mm / 1000.0, 1.2 * cell)                         # Zone liegt in vollen Zellen (Rahmen um die polierte Fläche)
     Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, 0.0, thr=diamond_thr)       # Blau = helle Fläche im Foto (1:1, keine Erosion)
     if _DEBUG_BAND and Zv is not None:
@@ -1260,7 +1269,7 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     ladder = [(R_, C_) for R_, C_ in ((14, 9), (18, 11), (24, 14), (32, 18), (48, 26)) if C_ >= Cc]
     z_iou = None
     for Rc, Cc in ladder:                                                # feiner werden, bis Blau das Weiß im Foto abdeckt (schmale Streifen)
-        m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_ref_face, Zv=Zv, pitch=pitch, rows=row_radii(Rc))
+        m = cage_mesh(Fs, r_fine, Rc, Cc, r_a, r_out, Zv=Zv, pitch=pitch, rows=row_radii(Rc))
         r, faces = m["r"], m["faces"]
         f = true_f(r, m["f"])
         f[np.abs(f) < 1e-9] = 0.0
@@ -1315,6 +1324,6 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=np.zeros(n), diamond=diamond if Zv is not None else
                 (np.ones(len(faces), np.int8) if bright_all else np.zeros(len(faces), np.int8)), chords=chords,
                 N=int(N), pitch=pitch, theta_s=theta_s, crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi),
-                sym=sym, horn_polished=bool(zinfo.get("horn", False)), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
+                sym=sym, horn_polished=bool(zinfo.get("horn", False)), gray_thr=float(zinfo.get("gray_thr", 0.0)), r_cage_out=float(r_out), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
                 area_err=err, cells=(Rc, Cc), zvert=zvert.astype(np.int8), teller_h=teller_h,
                 has_zone=bool(Zv is not None and zvert.sum() > 10))
