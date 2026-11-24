@@ -29,6 +29,7 @@ Creases mit Shift+E setzen; Regler *Unterteilung* und *Kantenschärfe* im Panel.
 ## Parametrische Felge (nur Blender 5.3)
 Zu jedem Bild entsteht in der Collection `Felge_01`, `Felge_02` … zusätzlich zum (ausgeblendeten) KI-Mesh eine saubere Quad-Felge (Geometry Nodes).
 Im Panel *Parametrische Felge*: Konkavität-Slider, Kurven-Editor (Tiefe über dem Radius), Speichen/Nabe/Bett, Diamond Cut mit zwei Farben,
+Diamond Cut = **Teller**: Bezier-Kurve „Teller-Kurve“ (3 Punkte, Maßstab 1:1, *Teller-Kurve bearbeiten*); die polierte Fläche liegt exakt auf der Drehfläche, schwarze Flächen „Rücksprung“ mm dahinter, Crease-Kante dazwischen,
 *Aus KI-Mesh neu ableiten*, *Anwenden* (Modifier festschreiben). *Felgen vergleichen* schaltet zwischen den Collections um.
 Die Musterspeiche (Pizzastück) liegt als Objekt in der Collection: *Muster zum Bearbeiten anwenden* → Edit Mode, alle Speichen und alle vier Räder folgen live.
 *Als neue Variante speichern* kopiert alles nach `Felge_01_v2`. Optional: Mesh-Quelle *Cloud-API* (Key nur in den Preferences, kostenpflichtig; Tripo-Upload noch gesperrt).

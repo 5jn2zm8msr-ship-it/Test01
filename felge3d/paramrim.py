@@ -14,6 +14,7 @@ import bpy
 
 GROUP_NAME = "Rim Generator | Parametrische Felge"
 CURVE_SECTION, CURVE_EDGE_L, CURVE_EDGE_R, CURVE_SEAM = "Schnitt", "Speichenkante links", "Speichenkante rechts", "Nahtverlauf"
+TELLER_ROLE, TELLER_NODE, TELLER_SAMPLES = "teller_curve", "Teller-Kurve", 96
 CURVE_WIDTH = CURVE_EDGE_L          # (Kennung des Muster-Baums)
 
 # (Name, Typ, Standard, min, max, Beschreibung)
@@ -47,6 +48,9 @@ INPUTS = [
     ("Tiefbett (mm)", "FLOAT", 22.0, 8.0, 40.0, ""),
     ("Auflösung", "INT", 96, 24, 256, "Segmente um die Achse (Bett)"),
     ("Diamond Cut", "BOOL", True, 0, 1, "Speichen-Frontflächen als eigenes Material (glanzgedreht); aus = alles in der Grundfarbe"),
+    ("Rücksprung (mm)", "FLOAT", 2.0, 0.0, 10.0, "Schwarze Flächen liegen so weit hinter dem Teller (Diamond Cut) – der Fräser erreicht sie nicht"),
+    ("Horn poliert", "BOOL", False, 0, 1, "Felgenhorn (Drehprofil, liegt schon auf dem Teller) ebenfalls als Diamond-Cut-Material"),
+    ("Teller anzeigen", "BOOL", False, 0, 1, "Zeigt die Tellerfläche (Hilfsfläche, 0,5 mm über dem Diamond Cut)"),
     ("Unterteilung", "INT", 2, 0, 4, "Subdivision Surface: Stufe (0 = grober Käfig)"),
     ("Kantenschärfe", "FLOAT", 1.0, 0.0, 1.0, "Multiplikator auf die Creases (Kanten des Musters); 0 = alles weich"),
     ("Referenz-Durchmesser (Zoll)", "FLOAT", 20.0, 12.0, 26.0, "Größe des Musters (nicht ändern)"),
@@ -409,7 +413,7 @@ def build_slice_group(name):
     return ng
 
 
-def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
+def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None, teller=None):
     """Felge: Bett + das Muster (Objekt, per Object Info) auf N Positionen rotiert + Nabe + Schnittkurve + Materialien."""
     ng = _new_group(name, INPUTS)
     B = Builder(ng)
@@ -495,13 +499,84 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
     szp = B.node("GeometryNodeSetPosition")
     B.ng.links.new(flat, szp.inputs["Geometry"])
     B.ng.links.new(B.comb(0.0, 0.0, z_rim - dish * depth), szp.inputs["Offset"])
-    star_geo = szp.outputs[0]
+    # ---------------- Teller: Drehfläche z = f(r) (Schnittkurve + Tellerkontur). Die Draufsicht bleibt exakt (nur z ändert sich):
+    # is_top-Punkte (Diamond Cut) liegen genau auf dem Teller, übrige Frontpunkte um „Rücksprung“ dahinter. Gewicht „front“ = Oberseite.
+    # Teller = Bezier-Kurve (Objekt „Teller-Kurve“, 3 Punkte, echte Maße im Felgen-Koordinatensystem): Kurve -> 96 Punkte (r, z) ->
+    # z(r) per Nachbarsuche in r mit linearer Interpolation.
+    ti = B.node("GeometryNodeObjectInfo", transform_space="ORIGINAL")
+    ti.name = ti.label = TELLER_NODE
+    if teller is not None:
+        ti.inputs["Object"].default_value = teller
+    cpt = B.node("GeometryNodeCurveToPoints", mode="COUNT")
+    B.ng.links.new(ti.outputs["Geometry"], cpt.inputs["Curve"])
+    cpt.inputs["Count"].default_value = TELLER_SAMPLES
+    _cx, _cy, cz = B.sep(B.position())
+    stz = B.node("GeometryNodeStoreNamedAttribute", data_type="FLOAT", domain="POINT")
+    stz.inputs["Name"].default_value = "tz"
+    B.ng.links.new(cpt.outputs["Points"], stz.inputs["Geometry"])
+    B.ng.links.new(cz.s, stz.inputs["Value"])
+    cx_, _cy2, _cz2 = B.sep(B.position())
+    flat_p = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(stz.outputs["Geometry"], flat_p.inputs["Geometry"])
+    B.ng.links.new(B.comb(cx_, 0.0, 0.0), flat_p.inputs["Position"])
+    rr = B.sqrt(zx * zx + zy * zy)
+    sn = B.node("GeometryNodeSampleNearest", domain="POINT")
+    B.ng.links.new(flat_p.outputs[0], sn.inputs["Geometry"])
+    B.ng.links.new(B.comb(rr, 0.0, 0.0), sn.inputs["Sample Position"])
+    i0 = Ref(B, sn.outputs["Index"])
+
+    def sample(value, index):
+        n = B.node("GeometryNodeSampleIndex", data_type="FLOAT", domain="POINT")
+        B.ng.links.new(flat_p.outputs[0], n.inputs["Geometry"])
+        vin = [x for x in n.inputs if x.name == "Value" and x.enabled][0]
+        B.ng.links.new(value.s, vin)
+        B.ng.links.new(index.s, n.inputs["Index"])
+        return Ref(B, [x for x in n.outputs if x.name == "Value" and x.enabled][0])
+
+    px_attr = B.sep(B.position())[0]
+    tz_attr = Ref(B, B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT").outputs["Attribute"])
+    tz_attr.s.node.inputs["Name"].default_value = "tz"
+    xi = sample(px_attr, i0)
+    zi = sample(tz_attr, i0)
+    j0 = B.minimum(B.maximum(i0 + B.math("SIGN", rr - xi), 0.0), float(TELLER_SAMPLES - 1))
+    xj = sample(px_attr, j0)
+    zj = sample(tz_attr, j0)
+    tz = zi + (zj - zi) * B.clamp01((rr - xi) / (xj - xi))
+    fa = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
+    fa.inputs["Name"].default_value = "front"
+    ia = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
+    ia.inputs["Name"].default_value = "is_top"
+    wgt = Ref(B, fa.outputs["Attribute"]) * I("Diamond Cut")
+    target = tz - (1.0 - Ref(B, ia.outputs["Attribute"])) * (I("Rücksprung (mm)") * mm)
+    _px, _py, pz = B.sep(B.position())
+    tp = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(szp.outputs[0], tp.inputs["Geometry"])
+    B.ng.links.new(B.comb(0.0, 0.0, wgt * (target - pz)), tp.inputs["Offset"])
+    star_geo = tp.outputs[0]
+    # Hilfsfläche (Anzeige): Gitter, z aus demselben Teller-Feld, außerhalb von r_face gelöscht
+    gr = B.node("GeometryNodeMeshGrid")
+    B.ng.links.new((r_face * 2.0).s, gr.inputs["Size X"])
+    B.ng.links.new((r_face * 2.0).s, gr.inputs["Size Y"])
+    gr.inputs["Vertices X"].default_value = 96
+    gr.inputs["Vertices Y"].default_value = 96
+    qp = B.node("GeometryNodeSetPosition")
+    B.ng.links.new(gr.outputs["Mesh"], qp.inputs["Geometry"])
+    B.ng.links.new(B.comb(0.0, 0.0, tz + 0.0005), qp.inputs["Offset"])
+    qd = B.node("GeometryNodeDeleteGeometry", domain="POINT")
+    B.ng.links.new(qp.outputs[0], qd.inputs["Geometry"])
+    outside = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    B.ng.links.new(B.sqrt(zx * zx + zy * zy).s, outside.inputs[0])
+    B.ng.links.new(r_face.s, outside.inputs[1])
+    B.ng.links.new(outside.outputs[0], qd.inputs["Selection"])
+    qsw = B.node("GeometryNodeSwitch", input_type="GEOMETRY")
+    B.ng.links.new(I("Teller anzeigen").s, qsw.inputs["Switch"])
+    B.ng.links.new(qd.outputs[0], qsw.inputs["True"])
     PARTS.clear()
     PARTS.update(barrel=barrel, star=star_geo, flat=flat, welded=weld.outputs[0], subd=sd.outputs[0], bolts=sw.outputs[0])
 
     # ---------------- Materialien (Front über die Normale), Glätten
     mfront, mbody = _materials(mat_suffix)
-    body_all = B.join([barrel, star_geo])
+    body_all = B.join([barrel, star_geo, qsw.outputs[0]])
     setb = B.node("GeometryNodeSetMaterial")
     B.ng.links.new(body_all, setb.inputs["Geometry"])
     setb.inputs["Material"].default_value = mbody
@@ -512,18 +587,42 @@ def build_group(name=GROUP_NAME, hub_x=0.34, mat_suffix="", template=None):
     cz.inputs[1].default_value = 0.3
     zn = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
     zn.inputs["Name"].default_value = "zone"
-    cr = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
-    B.ng.links.new(zn.outputs["Attribute"], cr.inputs[0])
-    cr.inputs[1].default_value = 0.6
+    cr0 = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    B.ng.links.new(zn.outputs["Attribute"], cr0.inputs[0])
+    cr0.inputs[1].default_value = 0.6
+    dn = B.node("GeometryNodeInputNamedAttribute", data_type="FLOAT")
+    dn.inputs["Name"].default_value = "diamond"
+    cd = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    B.ng.links.new(dn.outputs["Attribute"], cd.inputs[0])
+    cd.inputs[1].default_value = 0.5
+    cr = B.node("FunctionNodeBooleanMath", operation="OR")
+    B.ng.links.new(cr0.outputs[0], cr.inputs[0])
+    B.ng.links.new(cd.outputs[0], cr.inputs[1])
     both0 = B.node("FunctionNodeBooleanMath", operation="AND")
     B.ng.links.new(cz.outputs[0], both0.inputs[0])
     B.ng.links.new(cr.outputs[0], both0.inputs[1])
     both = B.node("FunctionNodeBooleanMath", operation="AND")
     B.ng.links.new(both0.outputs[0], both.inputs[0])
     B.ng.links.new(I("Diamond Cut").s, both.inputs[1])
+    hx, hy, _hz = B.sep(B.position())
+    hr = B.node("FunctionNodeCompare", data_type="FLOAT", operation="GREATER_THAN")
+    B.ng.links.new(B.sqrt(hx * hx + hy * hy).s, hr.inputs[0])
+    B.ng.links.new((r_face + 0.004).s, hr.inputs[1])
+    horn0 = B.node("FunctionNodeBooleanMath", operation="AND")
+    B.ng.links.new(cz.outputs[0], horn0.inputs[0])
+    B.ng.links.new(hr.outputs[0], horn0.inputs[1])
+    horn1 = B.node("FunctionNodeBooleanMath", operation="AND")
+    B.ng.links.new(horn0.outputs[0], horn1.inputs[0])
+    B.ng.links.new(I("Horn poliert").s, horn1.inputs[1])
+    horn2 = B.node("FunctionNodeBooleanMath", operation="AND")
+    B.ng.links.new(horn1.outputs[0], horn2.inputs[0])
+    B.ng.links.new(I("Diamond Cut").s, horn2.inputs[1])
+    anyf = B.node("FunctionNodeBooleanMath", operation="OR")
+    B.ng.links.new(both.outputs[0], anyf.inputs[0])
+    B.ng.links.new(horn2.outputs[0], anyf.inputs[1])
     setf = B.node("GeometryNodeSetMaterial")
     B.ng.links.new(setb.outputs[0], setf.inputs["Geometry"])
-    B.ng.links.new(both.outputs[0], setf.inputs["Selection"])
+    B.ng.links.new(anyf.outputs[0], setf.inputs["Selection"])
     setf.inputs["Material"].default_value = mfront
     sm = B.node("GeometryNodeSetShadeSmooth")
     B.ng.links.new(setf.outputs[0], sm.inputs["Mesh"])
@@ -666,6 +765,8 @@ def template_mesh_from_cage(name, td):
     zone = np.asarray(td["zone"], np.float64)
     seam = np.asarray(td["seam"], bool)
     faces = [list(map(int, fc)) for fc in td["faces"]]
+    diamond = np.asarray(td.get("diamond", np.zeros(len(faces))), np.float64)
+    chords = {(min(a_, b_), max(a_, b_)) for a_, b_ in td.get("chords", [])}
     pitch = float(td["pitch"])
     n = len(r)
     phi = 0.5 * pitch - f * pitch
@@ -677,6 +778,7 @@ def template_mesh_from_cage(name, td):
         area2 = float(np.sum(px * np.roll(py, -1) - np.roll(px, -1) * py))
         fl.append(fc if area2 > 0 else fc[::-1])
     out = list(fl) + [[v + n for v in fc[::-1]] for fc in fl]
+    n_top = len(fl)
     cnt = {}
     for fc in fl:
         for k in range(len(fc)):
@@ -696,20 +798,68 @@ def template_mesh_from_cage(name, td):
             out.append([b_, a_, a_ + n, b_ + n])
             crease[key] = ct
             crease[(key[0] + n, key[1] + n)] = 1.0
+    for key in chords:                                   # Grenze der Diamond-Cut-Fläche: scharfe Kante
+        crease[key] = 1.0
+    n_walls = len(out) - 2 * n_top
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(float(c) for c in v) for v in verts], [], out)
     me.update()
+    da = me.attributes.new("diamond", "FLOAT", "FACE")
+    da.data.foreach_set("value", [float(v) for v in diamond] + [0.0] * (n_top + n_walls))
     ca = me.attributes.new("crease_edge", "FLOAT", "EDGE")
     vals = [0.0] * len(me.edges)
     for i, e in enumerate(me.edges):
         v0, v1 = e.vertices
         vals[i] = crease.get((v0, v1) if v0 < v1 else (v1, v0), 0.0)
     ca.data.foreach_set("value", vals)
+    zv = np.asarray(td.get("zvert", np.zeros(n)), np.float64)
+    r_ref = float(td.get("r_ref_face", 0.25))
+    ramp = np.clip((r - 0.080) / 0.025, 0.0, 1.0)                # Nabe bleibt unberührt, Übergang zum Teller weich
+    has = 1.0 if td.get("has_zone", False) else 0.0
+    it = me.attributes.new("is_top", "FLOAT", "POINT")
+    it.data.foreach_set("value", [float(v) for v in zv] * 2)
+    fr = me.attributes.new("front", "FLOAT", "POINT")
+    fr.data.foreach_set("value", [float(v) * has for v in ramp] + [0.0] * n)
     za = me.attributes.new("zone", "FLOAT", "POINT")
     za.data.foreach_set("value", [float(v) for v in zone] * 2)
     for p in me.polygons:
         p.use_smooth = True
     return me
+
+
+def set_teller_points(ob, pts, slope=0.0):
+    """Teller-Kurve (3 Bezier-Punkte) setzen: pts = [(r, z)] in Metern (Felgen-Koordinaten), slope = dz/dr am mittleren Punkt."""
+    bp = ob.data.splines[0].bezier_points
+    (r0, z0), (r1, z1), (r2, z2) = pts
+    bp[0].handle_left_type = bp[0].handle_right_type = "FREE"
+    bp[2].handle_left_type = bp[2].handle_right_type = "FREE"
+    bp[1].handle_left_type = bp[1].handle_right_type = "ALIGNED"
+    bp[0].co, bp[1].co, bp[2].co = (r0, 0.0, z0), (r1, 0.0, z1), (r2, 0.0, z2)
+    dl, dr = (r1 - r0) / 3.0, (r2 - r1) / 3.0
+    bp[0].handle_left = (r0 - dl, 0.0, z0)
+    bp[0].handle_right = (r0 + dl, 0.0, z0 + (z1 - z0) / 3.0)
+    bp[1].handle_left = (r1 - dl, 0.0, z1 - slope * dl)
+    bp[1].handle_right = (r1 + dr, 0.0, z1 + slope * dr)
+    bp[2].handle_left = (r2 - dr, 0.0, z2 - (z2 - z1) / 3.0)
+    bp[2].handle_right = (r2 + dr, 0.0, z2)
+    for i in (0, 2):                                   # Endpunkte: Handles folgen beim Ziehen automatisch
+        bp[i].handle_left_type = bp[i].handle_right_type = "VECTOR"
+    ob.data.update_tag()
+
+
+def make_teller_curve(name, collection):
+    cu = bpy.data.curves.new(name, "CURVE")
+    cu.dimensions = "3D"
+    cu.resolution_u = 24
+    cu.splines.new("BEZIER").bezier_points.add(2)
+    ob = bpy.data.objects.new(name, cu)
+    collection.objects.link(ob)
+    ob["felge3d_role"] = TELLER_ROLE
+    ob.show_in_front = True
+    ob.hide_render = True
+    ob.color = (1.0, 0.55, 0.1, 1.0)
+    set_teller_points(ob, [(0.0, 0.0), (0.12, 0.0), (0.25, 0.0)])
+    return ob
 
 
 def make_object(name, collection, group=None, hub_x=0.34, tdata=None):
@@ -731,7 +881,8 @@ def make_object(name, collection, group=None, hub_x=0.34, tdata=None):
         collection.objects.link(t_ob)
         t_md = t_ob.modifiers.new("Musterspeiche", "NODES")
         t_md.node_group = t_ng
-    ng = build_group(name=name, hub_x=hub_x, mat_suffix=" " + name, template=t_ob)
+    c_ob = make_teller_curve(name + " Teller-Kurve", collection)
+    ng = build_group(name=name, hub_x=hub_x, mat_suffix=" " + name, template=t_ob, teller=c_ob)
     me = bpy.data.meshes.new(name)
     ob = bpy.data.objects.new(name, me)
     collection.objects.link(ob)

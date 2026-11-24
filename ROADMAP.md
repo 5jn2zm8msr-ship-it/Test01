@@ -1,6 +1,6 @@
 # Rim Generator – Stand & nächste Schritte
 
-## Stand (Version 0.33.0)
+## Stand (Version 0.34.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
 lokale KI-Tiefe, Selbstprüfung der Speichen, Erkennung per Fusion (Helligkeit + Hintergrund + KI-Tiefe).
 
@@ -51,6 +51,18 @@ gleich gut (3, 6, 8, 10 schwach).
   Nabe/Speiche, Zweifarbigkeit (weich) aus der Helligkeit des Fotos (zweifarbig nur bei hellem, deutlich abgesetztem Bereich).
   Geprüft an Porsche/Audi/Volvo: 0 offene Kanten, 4-7 s. Offen: Zweifarbigkeit bei Volvo fleckig, dünne Speichen brauchen mehr
   Käfigpunkte (Auflösung steigt automatisch), Felgenhorn-Farbe separat fehlt, Netzfelgen (BBS) ungeprüft.
+
+- 0.34.0: **Diamond Cut über einen „Teller“ (Drehfläche) statt Abdrehen/Clamp.** Die polierte Fläche (Foto-Helligkeit, Median über alle N
+  Sektoren, nur bei klarer Zweifarbigkeit) ist eine eigene Fläche des Käfigs, begrenzt von einer Crease-Kantenschleife (Crease 1,0;
+  Attribute `diamond` (Fläche), `is_top`, `front` (Punkte)). Der Teller ist eine **Bezier-Kurve als Objekt „Teller-Kurve“** (genau 3 Punkte:
+  Mitte, Ende, ein mittlerer Punkt mit 2 Handles = Bombierung), liegt im Koordinatensystem der Felge und damit im Viewport im Maßstab 1:1
+  (Breite zu Höhe wie die Felge). Die Kurve wird zu 96 Punkten abgetastet, z(r) linear interpoliert: is_top-Punkte liegen exakt darauf
+  (Abweichung 0,02 mm Porsche, 0,3 mm Volvo), übrige Frontpunkte „Rücksprung (mm)“ dahinter; die Draufsicht bleibt exakt (nur z ändert
+  sich). Panel: *Teller-Kurve bearbeiten* (Edit Mode), Zurücksetzen, Rücksprung, Diamond Cut an/aus, Horn poliert (nur Material, das
+  Horn ist schon ein Drehprofil), Teller anzeigen. Abweichung von der Vorgabe: kein Raycast, sondern z = f(r) (gleiche Draufsicht, keine
+  Trefferausfälle). Offen/ungeprüft: Live-Update beim Ziehen im Edit Mode (nur per Skript getestet), Kurve skaliert nicht mit, wenn
+  der Durchmesser später geändert wird (Zurücksetzen nötig), Speichendicke ändert sich mit dem Teller (Rückseite bleibt),
+  Übergang schwarz → Teller ist eine Fase von einer Käfigzelle Breite. Außerdem behoben: *Muster neu erzeugen* schlug beim Käfig-Muster fehl.
 
 ## Nächste Schritte
 0. Nicht belegt: Blender 3.x und echtes Windows (kein bpy 3.x / kein Windows hier); echte Kunden-FBX; AVIF-Fotos werden nicht gelesen (als JPG/PNG speichern).

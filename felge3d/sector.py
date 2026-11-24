@@ -514,46 +514,53 @@ def _fine_sampler(Fv, r_rows):
     return at
 
 
-def cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_face, iso=0.5):
+def cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_face, iso=0.5, Zv=None, pitch=None, min_area_mm2=25.0):
     """
     Grobes Marching-Squares-Netz (Käfig) auf dem Sektor: Ecken-Zustände aus dem feinen Feld, Randpunkte per Bisektion exakt auf die
-    feine Kontur gesetzt (keine Treppenstufen). Gibt (r, f, faces, seam, flags) zurück; faces = Polygone (meist Quads).
+    feine Kontur gesetzt (keine Treppenstufen). Optional Zv (feines Zonenfeld, z. B. polierte Fläche): volle Zellen werden entlang
+    der Zonenkontur geteilt, die Teilungskanten (Chords) liegen exakt auf der Kontur und bekommen später einen Crease.
+    Gibt dict(r, f, faces, seam, diamond, zvert, chords) zurück (diamond: 1 = Fläche in der Zone).
     """
     at = _fine_sampler(Fv, r_fine)
+    atz = _fine_sampler(Zv, r_fine) if Zv is not None else None
     rc = np.linspace(r_a, r_face, Rc)
     fc = np.linspace(0.0, 1.0, Cc)
     R, Fg = np.meshgrid(rc, fc, indexing="ij")
     val = at(R, Fg)
     inside = val >= iso
-    pts = {}                                             # Randpunkte: (i, j, kind) -> Index
+    zval = atz(R, Fg) if atz is not None else np.zeros_like(val)
+    zin = (zval >= 0.5) & inside
+    pts = {}
     rr, ff = list(R.reshape(-1)), list(Fg.reshape(-1))
     n_corner = Rc * Cc
+
+    def bisect(sampler, a, b, va, thr=iso):
+        lo, hi = 0.0, 1.0
+        for _ in range(12):
+            mid = 0.5 * (lo + hi)
+            vm = float(sampler(a[0] + mid * (b[0] - a[0]), a[1] + mid * (b[1] - a[1])))
+            if (vm >= thr) == (va >= thr):
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi)
 
     def edge_pt(i, j, kind):
         key = (i, j, kind)
         v = pts.get(key)
         if v is not None:
             return v
-        if kind == 0:                                    # radiale Kante (i,j)-(i+1,j)
-            a, b = (rc[i], fc[j]), (rc[i + 1], fc[j])
-        else:                                            # Winkelkante (i,j)-(i,j+1)
-            a, b = (rc[i], fc[j]), (rc[i], fc[j + 1])
-        va, vb = float(val[i, j]), float(val[i + 1, j] if kind == 0 else val[i, j + 1])
-        lo, hi = 0.0, 1.0
-        for _ in range(12):
-            mid = 0.5 * (lo + hi)
-            rm, fm = a[0] + mid * (b[0] - a[0]), a[1] + mid * (b[1] - a[1])
-            vm = float(at(rm, fm))
-            if (vm >= iso) == (va >= iso):
-                lo = mid
-            else:
-                hi = mid
-        t = 0.5 * (lo + hi)
+        a = (rc[i], fc[j])
+        b = (rc[i + 1], fc[j]) if kind == 0 else (rc[i], fc[j + 1])
+        va = float(val[i, j])
+        t = bisect(at, a, b, va)
         rr.append(a[0] + t * (b[0] - a[0]))
         ff.append(a[1] + t * (b[1] - a[1]))
         pts[key] = n_corner + len(pts)
         return pts[key]
-    faces = []
+
+    # ---- Phase 1: Silhouette
+    faces, tags = [], []
     for i in range(Rc - 1):
         for j in range(Cc - 1):
             ins = [inside[i, j], inside[i, j + 1], inside[i + 1, j + 1], inside[i + 1, j]]
@@ -562,6 +569,7 @@ def cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_face, iso=0.5):
                 continue
             if c == 4:
                 faces.append([i * Cc + j, i * Cc + j + 1, (i + 1) * Cc + j + 1, (i + 1) * Cc + j])
+                tags.append((i, j))
                 continue
             cs = [(i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j)]
             es = [(i, j, 1), (i, j + 1, 0), (i + 1, j, 1), (i, j, 0)]
@@ -574,16 +582,98 @@ def cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_face, iso=0.5):
                     poly.append(edge_pt(*es[k]))
             if len(poly) >= 3:
                 faces.append(poly)
+                tags.append(None)
+    # kleine Inseln (Rauschen) entfernen; Nahtinseln bleiben
+    if pitch is not None:
+        r_all, f_all = np.array(rr), np.array(ff)
+        x, y = r_all * np.cos(f_all * pitch), r_all * np.sin(f_all * pitch)
+        seam_all = (f_all < 1e-9) | (f_all > 1 - 1e-9)
+        comp = _components(faces, len(r_all))
+        area, touch = {}, {}
+        for fc_, c_ in zip(faces, comp):
+            px, py = x[fc_], y[fc_]
+            area[c_] = area.get(c_, 0.0) + 0.5 * abs(np.sum(px * np.roll(py, -1) - np.roll(px, -1) * py))
+            touch[c_] = touch.get(c_, False) or bool(seam_all[fc_].any())
+        keep = [k for k, c_ in enumerate(comp) if area[c_] * 1e6 >= min_area_mm2 or touch[c_]]
+        faces = [faces[k] for k in keep]
+        tags = [tags[k] for k in keep]
+    # ---- Phase 2: Zone (polierte Fläche) in den vollen Zellen teilen
+    diamond = []
+    zvert = {}
+    chords = []
+    zpts = {}
+
+    def zedge_pt(i, j, kind):
+        key = (i, j, kind)
+        v = zpts.get(key)
+        if v is not None:
+            return v
+        a = (rc[i], fc[j])
+        b = (rc[i + 1], fc[j]) if kind == 0 else (rc[i], fc[j + 1])
+        t = bisect(atz, a, b, float(zval[i, j]), 0.5)
+        rr.append(a[0] + t * (b[0] - a[0]))
+        ff.append(a[1] + t * (b[1] - a[1]))
+        idx = len(rr) - 1
+        zpts[key] = idx
+        zvert[idx] = True
+        return idx
+    out_faces = []
+    for fc_, tag in zip(faces, tags):
+        if atz is None or tag is None:
+            out_faces.append(fc_)
+            diamond.append(0)
+            continue
+        i, j = tag
+        st = [zin[i, j], zin[i, j + 1], zin[i + 1, j + 1], zin[i + 1, j]]
+        for k, (ci, cj) in enumerate(((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))):
+            if st[k]:
+                zvert[ci * Cc + cj] = True
+        c = sum(st)
+        if c == 0:
+            out_faces.append(fc_)
+            diamond.append(0)
+        elif c == 4:
+            out_faces.append(fc_)
+            diamond.append(1)
+        else:
+            cs = [(i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j)]
+            es = [(i, j, 1), (i, j + 1, 0), (i + 1, j, 1), (i, j, 0)]
+            items = []
+            ncross = 0
+            for k in range(4):
+                k2 = (k + 1) % 4
+                items.append(("v", cs[k][0] * Cc + cs[k][1], st[k]))
+                if st[k] != st[k2]:
+                    items.append(("c", zedge_pt(*es[k]), None))
+                    ncross += 1
+            if ncross != 2:                                     # Sattel: nicht teilen (selten), Mehrheit entscheidet
+                out_faces.append(fc_)
+                diamond.append(1 if c >= 3 else 0)
+                continue
+            inp = [it[1] for it in items if it[0] == "c" or it[2]]
+            outp = [it[1] for it in items if it[0] == "c" or not it[2]]
+            cr = [it[1] for it in items if it[0] == "c"]
+            out_faces.append(inp)
+            diamond.append(1)
+            out_faces.append(outp)
+            diamond.append(0)
+            chords.append((cr[0], cr[1]))
+    faces = out_faces
     r_all, f_all = np.array(rr), np.array(ff)
     used = np.zeros(len(r_all), bool)
-    for f in faces:
-        used[f] = True
+    for fc_ in faces:
+        used[fc_] = True
     remap = -np.ones(len(r_all), np.int64)
     remap[used] = np.arange(used.sum())
-    faces = [remap[f].tolist() for f in faces]
+    faces = [remap[fc_].tolist() for fc_ in faces]
     r, f = r_all[used], f_all[used]
+    zv = np.zeros(len(r_all), bool)
+    for k in zvert:
+        zv[k] = True
+    zv = zv[used]
+    chords = [(int(remap[a_]), int(remap[b_])) for a_, b_ in chords if remap[a_] >= 0 and remap[b_] >= 0]
     seam = (f < 1e-9) | (f > 1 - 1e-9)
-    return r, f, faces, seam
+    return dict(r=r, f=f, faces=faces, seam=seam, diamond=np.array(diamond, np.int8), zvert=zv, chords=chords)
 
 
 def _poly_area(r, f, faces, pitch):
@@ -624,12 +714,79 @@ def _boundary_distance(r, f, faces, seam, pitch):
     return d
 
 
-def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_width_mm=40.0, boss_mm=6.0, boss_r_mm=75.0,
-               spoke_t_mm=14.0, hub_t_mm=24.0, hub_r_mm=85.0, r_a=0.012, r_hub_solid=0.045, crease_top=0.7):
+def _erode_material(M, r_fine, pitch, margin_m):
+    """Material-Maske (rows x cols, Spalten = Sektorwinkel mit doppelter Naht) um margin_m schrumpfen (Bogenlänge/Radius getrennt)."""
+    n_r, C = M.shape
+    cyc = M[:, :-1].astype(np.int32)
+    Cc = cyc.shape[1]
+    out = np.zeros_like(cyc)
+    for i in range(n_r):
+        a = max(r_fine[i] * pitch / Cc, 1e-6)
+        k = int(min(math.ceil(margin_m / a), Cc // 2 - 1))
+        ext = np.concatenate([cyc[i, -k:], cyc[i], cyc[i, :k]]) if k > 0 else cyc[i]
+        out[i] = (np.convolve(ext, np.ones(2 * k + 1, np.int32), mode="valid") == 2 * k + 1).astype(np.int32)
+    kr = int(math.ceil(margin_m / max(r_fine[1] - r_fine[0], 1e-6)))
+    pad = np.pad(out, ((kr, kr), (0, 0)), mode="edge")
+    cs = np.cumsum(np.pad(pad, ((1, 0), (0, 0))), axis=0)
+    win = cs[2 * kr + 1:] - cs[:-(2 * kr + 1)]
+    out = (win == 2 * kr + 1).astype(np.float32)
+    return np.concatenate([out, out[:, :1]], axis=1)
+
+
+def _blur_cyc(A, passes=2):
+    c = A[:, :-1].astype(np.float32)
+    for _ in range(passes):
+        c = 0.25 * np.roll(c, 1, axis=1) + 0.5 * c + 0.25 * np.roll(c, -1, axis=1)
+        up = np.concatenate([c[:1], c[:-1]], axis=0)
+        dn = np.concatenate([c[1:], c[-1:]], axis=0)
+        c = 0.25 * up + 0.5 * c + 0.25 * dn
+    return np.concatenate([c, c[:, :1]], axis=1)
+
+
+def zone_field(Fv, r_fine, photo, N, theta_s, pitch, border_m, r_hub_solid=0.045):
     """
-    Bearbeitbarer Käfig des Pizzastücks für Subdivision Surface (ohne KI-Mesh): grobes Netz entlang der Silhouette (Fenster,
-    Löcher), Rücken/Bund aus dem Abstand zum Rand, Dicke aus Nabe/Speiche, Zweifarbigkeit (weich) aus dem Foto.
-    Auflösung steigt automatisch, bis die Käfigfläche die feine Silhouette auf 3 % trifft (dünne Speichen).
+    Feines Zonenfeld (polierte Diamond-Cut-Fläche) auf dem Sektorgitter: helle Bereiche des Fotos (Median über alle N Sektoren,
+    nur bei klarer Zweifarbigkeit), ruhig geglättet und um den Rahmen border_m vom Rand zurückgenommen. Rückgabe (Zv, info);
+    Zv = None, wenn die Felge nicht zweifarbig ist.
+    """
+    from . import core
+    n_r, C = Fv.shape
+    frac = np.linspace(0.0, 1.0, C)
+    R, Fg = np.meshgrid(r_fine, frac, indexing="ij")
+    gray = np.asarray(photo["gray"], np.float64)
+    vals = np.zeros((N,) + R.shape)
+    for k in range(N):
+        th = theta_s + (Fg + k) * pitch
+        vals[k] = core.bilinear(gray, photo["cx"] + R / photo["R_out"] * photo["rx"] * np.sin(th),
+                                photo["cy"] + R / photo["R_out"] * photo["ry"] * np.cos(th))
+    br = np.median(vals, axis=0)
+    mat = (Fv >= 0.5)
+    solid = mat & (R > r_hub_solid + 0.02)
+    if solid.sum() < 100:
+        return None, dict(bimodal=False, bright=0.0)
+    lo, hi = np.percentile(br[solid], 5), np.percentile(br[solid], 95)
+    nrm = np.clip((br - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+    thr, var = _otsu(nrm[solid])
+    cls = nrm > thr
+    b_raw = float(np.mean(br[solid & cls])) if (solid & cls).any() else 0.0
+    d_raw = float(np.mean(br[solid & ~cls])) if (solid & ~cls).any() else 0.0
+    bimodal = bool(var > 0.03 and b_raw >= 0.5 and b_raw - d_raw >= 0.22)
+    if not bimodal:
+        return None, dict(bimodal=False, bright=float(np.mean(br[solid])))
+    B = _blur_cyc((nrm > thr).astype(np.float32), 3)                     # ruhige Kontur
+    E = _blur_cyc(_erode_material(mat, r_fine, pitch, border_m), 1)       # Rahmen: Abstand zur Silhouette
+    Z = np.minimum(B, E)
+    Z[R < r_hub_solid + 0.02] = 0.0
+    return Z.astype(np.float32), dict(bimodal=True, bright=b_raw, dark=d_raw)
+
+
+def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_width_mm=40.0, boss_mm=6.0, boss_r_mm=75.0,
+               spoke_t_mm=14.0, hub_t_mm=24.0, hub_r_mm=85.0, r_a=0.012, r_hub_solid=0.045, crease_top=0.7,
+               border_mm=6.0):
+    """
+    Bearbeitbarer Käfig des Pizzastücks für Subdivision Surface (ohne KI-Mesh): grobes Netz entlang der Silhouette (Fenster, Löcher),
+    Rücken/Bund aus dem Randabstand, Dicke aus Nabe/Speiche. Die Diamond-Cut-Fläche (Zweifarbigkeit aus dem Foto) ist eine eigene
+    Fläche des Käfigs: eine Kantenschleife (Crease 1) grenzt sie ab, ihre Punkte werden per Geometry Nodes auf den Teller (Drehfläche z = f(r)) gelegt – so kann der Fräser bei drehender Felge gleichmäßig abtragen.
     """
     from . import core
     pitch = 2 * math.pi / N
@@ -639,13 +796,18 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     fine_area = float(np.sum((Fv[:-1, :-1] >= 0.5) * r_fine[:-1, None] * (r_fine[1] - r_fine[0]) * (pitch / 144.0)))
     best = None
     for Rc, Cc in ((36, 20), (48, 26), (64, 34), (84, 44), (110, 58)):
-        r, f, faces, seam = cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_ref_face)
-        r, f, faces, seam = drop_small(r, f, faces, seam, pitch)
-        err = abs(_poly_area(r, f, faces, pitch) - fine_area) / max(fine_area, 1e-9)
-        best = (r, f, faces, seam, err, Rc, Cc)
+        m = cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_ref_face, pitch=pitch)
+        err = abs(_poly_area(m["r"], m["f"], m["faces"], pitch) - fine_area) / max(fine_area, 1e-9)
+        best = (Rc, Cc, err)
         if err < 0.03:
             break
-    r, f, faces, seam, err, Rc, Cc = best
+    Rc, Cc, err = best
+    cell = max((r_ref_face - r_a) / (Rc - 1), 0.5 * (r_ref_face + r_a) * pitch / (Cc - 1))      # größte Zellkante (m)
+    margin = max(border_mm / 1000.0, 1.7 * cell)                          # Zone liegt immer ganz in vollen Zellen
+    Zv, zinfo = zone_field(Fv, r_fine, photo, N, theta_s, pitch, margin)
+    m = cage_mesh(Fv, r_fine, Rc, Cc, r_a, r_ref_face, Zv=Zv, pitch=pitch)
+    r, f, faces, seam = m["r"], m["f"], m["faces"], m["seam"]
+    diamond, zvert, chords = m["diamond"], m["zvert"], m["chords"]
     n = len(r)
     # --- Höhen: Rücken (Abstand zum Rand), Nabenbund, Dicke
     d = _boundary_distance(r, f, faces, seam, pitch)
@@ -654,13 +816,25 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
         for a in fc:
             nb[a].update(fc)
     dmed = d.copy()
-    for _ in range(6):                                   # lokale halbe Breite ~ größter Randabstand in der Nähe
+    for _ in range(6):
         dmed = np.array([max(dmed[a], max(dmed[b] for b in nb[a])) for a in range(n)])
     dmax = np.minimum(np.maximum(dmed, 1e-4), relief_width_mm / 1000.0)
     t = np.clip(d / dmax, 0.0, 1.0)
     top = relief_mm / 1000.0 * (1.0 - (1.0 - t) ** 2.2)
     u = np.clip((boss_r_mm / 1000.0 - r) / 0.015, 0.0, 1.0)
     top = top + boss_mm / 1000.0 * u * u * (3 - 2 * u)
+    # Diamond-Cut-Fläche: die Höhe kommt später aus dem Teller (Drehfläche, Geometry Nodes); hier nur die Standard-Tellerkontur
+    teller_h = [(0.0, 0.0), (1.0, 0.0)]
+    if Zv is not None and zvert.sum() > 10:
+        u = r / r_ref_face
+        edges_u = np.linspace(0.3, 1.0, 8)
+        pts = []
+        for a_, b_ in zip(edges_u[:-1], edges_u[1:]):
+            sel = zvert & (u >= a_) & (u < b_)
+            if sel.sum() >= 3:
+                pts.append((float(0.5 * (a_ + b_)), float(np.median(top[sel]))))
+        if len(pts) >= 2:
+            teller_h = [(0.0, pts[0][1])] + pts + [(1.0, pts[-1][1])]
     s_of = np.clip((r_ref_face - r) / (r_ref_face - hub_r_mm / 1000.0), 0.0, 1.0)
     thick = (spoke_t_mm + (hub_t_mm - spoke_t_mm) * s_of) / 1000.0
     for arr in (top, thick):                              # Nahtpaare gleich (Verschweißen)
@@ -670,31 +844,12 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
             g = idx[key == kv]
             if len(g) > 1:
                 arr[g] = arr[g].mean()
-    # --- Zweifarbigkeit (weich) aus dem Foto, Median über alle N Sektoren
-    theta = theta_s + f * pitch
-    vals = np.zeros((N, n))
-    gray = np.asarray(photo["gray"], np.float64)
-    for k in range(N):
-        tt = theta + k * pitch
-        vals[k] = core.bilinear(gray, photo["cx"] + r / photo["R_out"] * photo["rx"] * np.sin(tt),
-                                photo["cy"] + r / photo["R_out"] * photo["ry"] * np.cos(tt))
-    br = np.median(vals, axis=0)
-    solid = r > r_hub_solid + 0.02
-    lo, hi = (np.percentile(br[solid], 5), np.percentile(br[solid], 95)) if solid.sum() > 30 else (0.0, 1.0)
-    nrm = np.clip((br - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-    thr, var = _otsu(nrm[solid]) if solid.sum() > 30 else (0.5, 0.0)
-    cls = nrm > thr
-    bright_raw = float(np.mean(br[solid & cls])) if (solid & cls).any() else 0.0
-    dark_raw = float(np.mean(br[solid & ~cls])) if (solid & ~cls).any() else 0.0
-    bimodal = bool(var > 0.03 and bright_raw >= 0.5 and bright_raw - dark_raw >= 0.22)
-    if bimodal:
-        zone = np.clip((nrm - thr) * 4.0 + 0.5, 0.0, 1.0)
-        zone = core.smooth_on_mesh(zone, faces, n, 4)
-    else:
-        zone = np.full(n, 1.0 if (solid.any() and float(np.mean(br[solid])) > 0.55) else 0.0)
-    zone[r < r_hub_solid + 0.02] = 0.0
     half = 0.5 * pitch
     phi0 = math.pi / 2 - (theta_s + half)
-    return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=zone, N=int(N), pitch=pitch, theta_s=theta_s,
-                crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi), sym=sym,
-                bimodal=bimodal, polished=float(np.mean(zone[solid] > 0.5)) if solid.any() else 0.0, area_err=err, cells=(Rc, Cc))
+    bright_all = (not zinfo["bimodal"]) and zinfo.get("bright", 0.0) > 0.55
+    return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=np.zeros(n), diamond=diamond if Zv is not None else
+                (np.ones(len(faces), np.int8) if bright_all else np.zeros(len(faces), np.int8)), chords=chords,
+                N=int(N), pitch=pitch, theta_s=theta_s, crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi),
+                sym=sym, bimodal=bool(zinfo["bimodal"]), polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
+                area_err=err, cells=(Rc, Cc), zvert=zvert.astype(np.int8), teller_h=teller_h,
+                has_zone=bool(Zv is not None and zvert.sum() > 10))

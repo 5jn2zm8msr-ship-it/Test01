@@ -9,7 +9,7 @@ from . import paramrim
 
 PARAM_OK = bpy.app.version >= (5, 3, 0)
 ROLE_PARAM, ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED = "param", "template", "template_baked"
-KEEP_ROLES = (ROLE_PARAM, "param_applied", ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED)
+KEEP_ROLES = (ROLE_PARAM, "param_applied", ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED, paramrim.TELLER_ROLE)
 AI_ROLES = ("star", "barrel", "body")
 MOD_RIM, MOD_TEMPLATE = "Parametrische Felge", "Musterspeiche"
 
@@ -45,6 +45,12 @@ def template_object_of(col):
     return _object_with_role(col, (ROLE_TEMPLATE, ROLE_TEMPLATE_BAKED))
 
 
+def teller_object_of(col):
+    if col is None or col.name not in bpy.data.collections:
+        return None
+    return next((ob for ob in col.objects if ob.get("felge3d_role") == paramrim.TELLER_ROLE and ob.type == "CURVE"), None)
+
+
 def _nodes_modifier(ob, with_node):
     if ob is None:
         return None
@@ -68,6 +74,7 @@ class Rim:
         self.tob = template_object_of(col)
         self.md = param_modifier(self.ob)
         self.tmd = template_modifier(self.tob)
+        self.cob = teller_object_of(col)
 
     @property
     def ok(self):
@@ -98,6 +105,28 @@ class Rim:
         md = self._target(name)
         if md is not None:
             paramrim.set_param(md, name, value)
+
+
+def reset_teller(rim):
+    """Teller-Kurve auf den Ausgangsverlauf zurücksetzen: Schnittkurve (Schüssel) + Höhe der polierten Fläche aus dem Foto, 3 Punkte."""
+    import numpy as np
+    if rim.cob is None or rim.md is None:
+        return
+    td = json.loads(rim.tob.get("felge3d_tdata", "{}")) if rim.tob is not None else {}
+    hh = np.asarray(td.get("teller_h") or [(0.0, 0.0), (1.0, 0.0)], np.float64)
+    g = lambda n: float(paramrim.get_param(rim.md, n))  # noqa: E731
+    r_face = g("Durchmesser (Zoll)") * 0.0127 - g("Wandstärke (mm)") * 0.001 + 0.001
+    z_rim, dish = -g("Front-Einzug (mm)") * 0.001, g("Schüsseltiefe (mm)") * 0.001 * g("Konkavität")
+    mp = paramrim.curve_node(rim.md).mapping
+    cm = mp.curves[0]
+
+    def z(u):
+        return z_rim - dish * mp.evaluate(cm, min(max(u, 0.0), 1.0)) + float(np.interp(u, hh[:, 0], hh[:, 1]))
+
+    um, d = 0.62, 0.03
+    slope = (z(um + d) - z(um - d)) / (2 * d * r_face)
+    paramrim.set_teller_points(rim.cob, [(0.0, z(0.0)), (um * r_face, z(um)), (r_face, z(1.0))], slope)
+    rim.ob.update_tag()
 
 
 def hide_ai(col):
@@ -146,6 +175,9 @@ def ensure_param(context, s, col, root, defaults, detected=None, section_pts=Non
         if root is not None:
             ob.parent = root
             tob.parent = root
+            c0 = teller_object_of(col)
+            if c0 is not None:
+                c0.parent = root
         rim = Rim(col)
         for k, v in d.items():
             try:
@@ -160,6 +192,7 @@ def ensure_param(context, s, col, root, defaults, detected=None, section_pts=Non
         if tdata is None or "crease_top" not in tdata:      # alte Gitter-Muster sind schwer: ohne Unterteilung
             paramrim.set_param(rim.md, "Unterteilung", 0)
         apply_detected(rim, detected, section_pts)
+        reset_teller(rim)
     hide_ai(col)
     return ob
 
@@ -283,6 +316,7 @@ def make_variant(context, s):
         cp.parent = mapping.get(ob.parent, ob.parent)
         cp.matrix_parent_inverse = ob.matrix_parent_inverse.copy()
     rim_ob, tmpl_ob = mapping.get(param_object_of(src)), mapping.get(template_object_of(src))
+    tel_ob = mapping.get(teller_object_of(src))
     # Node-Groups und Materialien eigenständig kopieren, Muster-Verweis auf die Kopie umlenken
     tag = " " + new.name
     mats = {}
@@ -295,8 +329,10 @@ def make_variant(context, s):
                 ng.name = md.node_group.name + tag
                 md.node_group = ng
                 for n in ng.nodes:
-                    if n.bl_idname == "GeometryNodeObjectInfo" and tmpl_ob is not None:
-                        n.inputs["Object"].default_value = tmpl_ob
+                    if n.bl_idname == "GeometryNodeObjectInfo":
+                        tgt = tel_ob if n.name == paramrim.TELLER_NODE else tmpl_ob
+                        if tgt is not None:
+                            n.inputs["Object"].default_value = tgt
                     if n.bl_idname == "GeometryNodeSetMaterial":
                         m0 = n.inputs["Material"].default_value
                         if m0 is not None:
@@ -427,7 +463,9 @@ class FELGE3D_OT_template_regen(Operator):
             import numpy as np
             td = {k: (np.asarray(v) if isinstance(v, list) and k != "faces" else v) for k, v in json.loads(raw).items()}
             old = rim.tob.data
-            rim.tob.data = paramrim.template_mesh_from_data(rim.tob.name, td)
+            build = (paramrim.template_mesh_from_cage if "crease_top" in td else paramrim.template_mesh_from_sector if "faces" in td
+                     else paramrim.template_mesh_from_data)
+            rim.tob.data = build(rim.tob.name, td)
             if old.users == 0:
                 bpy.data.meshes.remove(old)
             rim.tob.update_tag()
@@ -514,6 +552,42 @@ class FELGE3D_OT_param_reset_curve(Operator):
         return {"FINISHED"}
 
 
+class FELGE3D_OT_teller_edit(Operator):
+    bl_idname = "felge3d.teller_edit"
+    bl_label = "Teller-Kurve bearbeiten"
+    bl_description = "Wählt die Teller-Kurve (3 Bezier-Punkte, echte Maße) und öffnet den Edit Mode; der Teller folgt live"
+
+    def execute(self, context):
+        s, rim = _current(context)
+        if rim.cob is None:
+            self.report({"WARNING"}, "Keine Teller-Kurve in dieser Felge.")
+            return {"CANCELLED"}
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for o in context.view_layer.objects:
+            o.select_set(False)
+        rim.cob.hide_set(False)
+        rim.cob.select_set(True)
+        context.view_layer.objects.active = rim.cob
+        bpy.ops.object.mode_set(mode="EDIT")
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_teller_reset(Operator):
+    bl_idname = "felge3d.teller_reset"
+    bl_label = "Teller zurücksetzen"
+    bl_description = "Teller-Kurve auf den Ausgangsverlauf (aus Foto und Schnittkurve) zurücksetzen"
+
+    def execute(self, context):
+        s, rim = _current(context)
+        if rim.cob is None:
+            return {"CANCELLED"}
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        reset_teller(rim)
+        return {"FINISHED"}
+
+
 # ---------------------------------------------------------------- Panels
 GROUPS = [
     ("Form", ("Durchmesser (Zoll)", "Breite J (Zoll)")),
@@ -523,6 +597,7 @@ GROUPS = [
     ("Felgenbett", ("Flansch (mm)", "Wandstärke (mm)", "Tiefbett (mm)", "Auflösung")),
     ("Unterteilung", ("Unterteilung", "Kantenschärfe")),
     ("Material", ("Diamond Cut", "Diamond-Cut Rand (%)")),
+    ("Teller (Diamond Cut)", ("Rücksprung (mm)", "Horn poliert", "Teller anzeigen")),
 ]
 
 
@@ -585,6 +660,9 @@ class FELGE3D_PT_param(Panel):
         row = L.row(align=True)
         row.operator("felge3d.param_reset_curve", icon="LOOP_BACK")
         row.operator("felge3d.param_refresh", icon="FILE_REFRESH")
+        row = L.row(align=True)
+        row.operator("felge3d.teller_edit", icon="CURVE_BEZCURVE")
+        row.operator("felge3d.teller_reset", icon="LOOP_BACK", text="")
         for title, names in GROUPS:
             box = L.box()
             box.label(text=title)
@@ -694,5 +772,5 @@ class FELGE3D_OT_rim_show(Operator):
 
 
 classes = (FELGE3D_OT_param_build, FELGE3D_OT_param_refresh, FELGE3D_OT_param_apply, FELGE3D_OT_template_bake,
-           FELGE3D_OT_template_regen, FELGE3D_OT_param_variant, FELGE3D_OT_param_redetect, FELGE3D_OT_param_reset_curve,
+           FELGE3D_OT_template_regen, FELGE3D_OT_param_variant, FELGE3D_OT_param_redetect, FELGE3D_OT_param_reset_curve, FELGE3D_OT_teller_edit, FELGE3D_OT_teller_reset,
            FELGE3D_OT_rim_show, FELGE3D_PT_param, FELGE3D_PT_param_template, FELGE3D_PT_param_curves, FELGE3D_PT_rims)
