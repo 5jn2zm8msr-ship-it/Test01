@@ -1040,14 +1040,8 @@ def _bary_points(n):
     return v
 
 
-def classify_faces(r, f, faces, photo, N, theta_s, pitch, lo, hi, thr, depth=None, need=None):
-    """
-    Klassifikation je Käfigfläche statt je Pixel: Foto-Punkte (~1 mm Raster) in jeder Fläche, in jedem der N Sektoren; je Sektor
-    Mehrheitsentscheid (>= 50 % hell), Fläche = blank nur, wenn in >= N-1 Sektoren blank (nicht symmetrische Reflexionen fallen heraus).
-    Physikalische Regel: mit Tiefenkarte werden Flächen, die deutlich tiefer als die blanken Flächen liegen, nie blank.
-    Rückgabe dict(label (0/1), conf (0..1), votes, deep (bool je Fläche, wegen Tiefe entfernt)).
-    """
-    from . import core
+def face_samples(r, f, faces, pitch):
+    """Probenpunkte (~1 mm Raster) in jeder Fläche: (r, f, Flächen-Index, Anzahl je Fläche)."""
     nf = len(faces)
     x, y = r * np.cos(f * pitch), r * np.sin(f * pitch)
     P_r, P_f, own = [], [], []
@@ -1062,7 +1056,19 @@ def classify_faces(r, f, faces, photo, N, theta_s, pitch, lo, hi, thr, depth=Non
             P_f.append(w0 * f[a] + uv[:, 0] * f[b] + uv[:, 1] * f[c])
             own.append(np.full(len(uv), i, np.int32))
     P_r, P_f, own = np.concatenate(P_r), np.concatenate(P_f), np.concatenate(own)
-    cnt = np.maximum(np.bincount(own, minlength=nf).astype(np.float64), 1.0)
+    return P_r, P_f, own, np.maximum(np.bincount(own, minlength=nf).astype(np.float64), 1.0)
+
+
+def classify_faces(r, f, faces, photo, N, theta_s, pitch, lo, hi, thr, depth=None, need=None):
+    """
+    Klassifikation je Käfigfläche statt je Pixel: Foto-Punkte (~1 mm Raster) in jeder Fläche, in jedem der N Sektoren; je Sektor
+    Mehrheitsentscheid (>= 50 % hell), Fläche = blank nur, wenn in >= N-1 Sektoren blank (nicht symmetrische Reflexionen fallen heraus).
+    Physikalische Regel: mit Tiefenkarte werden Flächen, die deutlich tiefer als die blanken Flächen liegen, nie blank.
+    Rückgabe dict(label (0/1), conf (0..1), votes, deep (bool je Fläche, wegen Tiefe entfernt)).
+    """
+    from . import core
+    nf = len(faces)
+    P_r, P_f, own, cnt = face_samples(r, f, faces, pitch)
     gray = np.asarray(photo["gray"], np.float64)
     dep = np.asarray(depth, np.float64) if depth is not None else None
 
