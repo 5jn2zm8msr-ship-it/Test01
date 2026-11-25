@@ -53,7 +53,8 @@ def raster(cage, cx, cy, rx, ry, R_out, H, W):
     for k in range(N):
         th = ts + (f + k) * pitch + (cage.get("copy_dtheta") or [0.0] * N)[k]
         rk = r * (1.0 + (cage.get("copy_eps") or [0.0] * N)[k])
-        X, Y = cx + rk / R_out * rx * np.sin(th), cy + rk / R_out * ry * np.cos(th)
+        sh_ = (cage.get("copy_shift") or [[0.0, 0.0]] * N)[k]
+        X, Y = cx + sh_[0] + rk / R_out * rx * np.sin(th), cy + sh_[1] + rk / R_out * ry * np.cos(th)
         for i, fc in enumerate(faces):
             for q in range(1, len(fc) - 1):
                 a, b, c = fc[0], fc[q], fc[q + 1]

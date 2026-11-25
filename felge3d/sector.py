@@ -986,7 +986,8 @@ def overlay_array(rgb, cage, cx, cy, rx, ry, R_out, gray=None):
     for k in range(N):
         th = ts + (f + k) * pitch + (cage.get("copy_dtheta") or [0.0] * N)[k]
         rk = r * (1.0 + (cage.get("copy_eps") or [0.0] * N)[k])
-        X, Y = cx + rk / R_out * rx * np.sin(th), cy + rk / R_out * ry * np.cos(th)
+        sh_ = (cage.get("copy_shift") or [[0.0, 0.0]] * N)[k]
+        X, Y = cx + sh_[0] + rk / R_out * rx * np.sin(th), cy + sh_[1] + rk / R_out * ry * np.cos(th)
         for fc, d in zip(faces, dia):
             if not d:
                 continue
@@ -1072,51 +1073,62 @@ def classify_faces(r, f, faces, photo, N, theta_s, pitch, lo, hi, thr, depth=Non
     gray = np.asarray(photo["gray"], np.float64)
     dep = np.asarray(depth, np.float64) if depth is not None else None
 
-    def sample(k, dth, eps=0.0):
+    def sample(k, dth, eps=0.0, dx=0.0, dy=0.0):
         th = theta_s + (P_f + k) * pitch + dth
         rr_ = P_r * (1.0 + eps)
-        px = photo["cx"] + rr_ / photo["R_out"] * photo["rx"] * np.sin(th)
-        py = photo["cy"] + rr_ / photo["R_out"] * photo["ry"] * np.cos(th)
+        px = photo["cx"] + dx + rr_ / photo["R_out"] * photo["rx"] * np.sin(th)
+        py = photo["cy"] + dy + rr_ / photo["R_out"] * photo["ry"] * np.cos(th)
         g = core.bilinear(gray, px, py)
         return np.clip((g - lo) / (hi - lo), 0.0, 1.0), px, py
 
     def fractions(dth, eps):
         fr = np.zeros((N, nf))
         for k in range(N):
-            nn, _, _ = sample(k, dth[k], eps[k])
+            nn, _, _ = sample(k, dth[k], eps[k], shift[k, 0], shift[k, 1])
             fr[k] = np.bincount(own, weights=(nn >= thr).astype(np.float64), minlength=nf) / cnt
         return fr
-    dtheta, eps_k = np.zeros(N), np.zeros(N)
+    dtheta, eps_k, shift = np.zeros(N), np.zeros(N), np.zeros((N, 2))
     frac = fractions(dtheta, eps_k)
     if N > 1:                                                           # Registrierung je Sektor: Foto ist nie perfekt N-fach symmetrisch
         cand = np.radians(np.arange(-1.6, 1.61, 0.1))
         cand_e = np.arange(-0.015, 0.0151, 0.0025)
+        cand_s = np.arange(-3.0, 3.01, 0.5)                              # Verschiebung in Arbeits-Pixeln
         for _ in range(2):
             lab_ = ((frac >= 0.5).sum(axis=0) >= (max(N - 1, 1) if need is None else need))
             wb = lab_[own]
             if wb.all() or (~wb).all():
                 break
             for k in range(N):
-                for _pass in range(2):                                  # Drehung und Radius abwechselnd (Koordinatenabstieg)
+                for _pass in range(2):                                  # Drehung, Radius und Verschiebung abwechselnd (Koordinatenabstieg)
                     best, bd = -9.0, dtheta[k]
                     for dth in cand:
-                        nn, _, _ = sample(k, dth, eps_k[k])
+                        nn, _, _ = sample(k, dth, eps_k[k], shift[k, 0], shift[k, 1])
                         sc = float(np.mean(nn[wb]) - np.mean(nn[~wb]))
                         if sc > best + 1e-9:
                             best, bd = sc, dth
                     dtheta[k] = bd
                     best, be = -9.0, eps_k[k]
                     for e in cand_e:
-                        nn, _, _ = sample(k, dtheta[k], e)
+                        nn, _, _ = sample(k, dtheta[k], e, shift[k, 0], shift[k, 1])
                         sc = float(np.mean(nn[wb]) - np.mean(nn[~wb]))
                         if sc > best + 1e-9:
                             best, be = sc, e
                     eps_k[k] = be
+                    for ax in (0, 1):
+                        best, bs = -9.0, shift[k, ax]
+                        for sh in cand_s:
+                            tmp = shift[k].copy()
+                            tmp[ax] = sh
+                            nn, _, _ = sample(k, dtheta[k], eps_k[k], tmp[0], tmp[1])
+                            sc = float(np.mean(nn[wb]) - np.mean(nn[~wb]))
+                            if sc > best + 1e-9:
+                                best, bs = sc, sh
+                        shift[k, ax] = bs
             frac = fractions(dtheta, eps_k)
     dsum = np.zeros(nf)
     if dep is not None:
         for k in range(N):
-            _, px, py = sample(k, dtheta[k], eps_k[k])
+            _, px, py = sample(k, dtheta[k], eps_k[k], shift[k, 0], shift[k, 1])
             dsum += np.bincount(own, weights=core.bilinear(dep, px, py), minlength=nf) / cnt
     votes = (frac >= 0.5).sum(axis=0)
     need = max(N - 1, 1) if need is None else need
@@ -1132,7 +1144,7 @@ def classify_faces(r, f, faces, photo, N, theta_s, pitch, lo, hi, thr, depth=Non
         tol = max(4.0 * mad, 0.02)
         deep = label & (dface < top - tol)
         label = label & ~deep
-    return dict(label=label.astype(np.int8), conf=conf, votes=votes.astype(np.int32), deep=deep, dtheta=dtheta, eps=eps_k)
+    return dict(label=label.astype(np.int8), conf=conf, votes=votes.astype(np.int32), deep=deep, dtheta=dtheta, eps=eps_k, shift=shift)
 
 
 def _conf_share(r, f, faces, conf, pitch, lim=0.6):
@@ -1474,6 +1486,6 @@ def build_cage(F, radii, photo, N, theta_s, r_ref_face, relief_mm=4.0, relief_wi
     return dict(r=r, f=f, faces=faces, seam=seam, top=top, bot=-thick, zone=np.zeros(n), diamond=diamond if Zv is not None else
                 (np.ones(len(faces), np.int8) if bright_all else np.zeros(len(faces), np.int8)), chords=chords,
                 N=int(N), pitch=pitch, theta_s=theta_s, crease_top=crease_top, drehung_deg=math.degrees((phi0 + math.pi) % (2 * math.pi) - math.pi),
-                sym=sym, horn_polished=bool(zinfo.get("horn", False)), gray_thr=float(zinfo.get("gray_thr", 0.0)), r_cage_out=float(r_out), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, conf_share=(_conf_share(r, f, faces, fc_res["conf"], pitch) if Zv is not None else None), face_conf=(fc_res["conf"] if Zv is not None else None), face_votes=(fc_res["votes"] if Zv is not None else None), n_deep=(int(fc_res["deep"].sum()) if Zv is not None else 0), copy_dtheta=([float(v) for v in fc_res["dtheta"]] if Zv is not None else None), copy_eps=([float(v) for v in fc_res["eps"]] if Zv is not None else None), polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
+                sym=sym, horn_polished=bool(zinfo.get("horn", False)), gray_thr=float(zinfo.get("gray_thr", 0.0)), r_cage_out=float(r_out), bimodal=bool(zinfo["bimodal"]), zone_iou=float(z_iou) if z_iou is not None else None, conf_share=(_conf_share(r, f, faces, fc_res["conf"], pitch) if Zv is not None else None), face_conf=(fc_res["conf"] if Zv is not None else None), face_votes=(fc_res["votes"] if Zv is not None else None), n_deep=(int(fc_res["deep"].sum()) if Zv is not None else 0), copy_dtheta=([float(v) for v in fc_res["dtheta"]] if Zv is not None else None), copy_eps=([float(v) for v in fc_res["eps"]] if Zv is not None else None), copy_shift=([[float(a), float(b)] for a, b in fc_res["shift"]] if Zv is not None else None), polished=float(np.mean(diamond)) if Zv is not None else float(bright_all),
                 area_err=err, cells=(Rc, Cc), zvert=zvert.astype(np.int8), teller_h=teller_h,
                 has_zone=bool(Zv is not None and zvert.sum() > 10))
