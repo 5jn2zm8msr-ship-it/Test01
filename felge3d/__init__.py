@@ -9,7 +9,7 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 42, 0),
+    "version": (0, 43, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -76,7 +76,17 @@ class Felge3DSettings(PropertyGroup):
     mesh_source: EnumProperty(name="Mesh-Quelle", default="LOCAL", items=[
         ("LOCAL", "Lokal (Standard)", "Foto -> KI-Mesh auf diesem Rechner, kostenlos"),
         ("CLOUD", "Cloud-API", "Mesh bei einem Anbieter erzeugen lassen (kostenpflichtig, Key in den Preferences)")])
-    cloud_provider: EnumProperty(name="Anbieter", default="TRIPO", items=[("TRIPO", "Tripo", "Tripo API")])
+    cloud_provider: EnumProperty(name="Anbieter", default="TRIPO", items=[
+        ("TRIPO", "Tripo", "Tripo API"), ("MESHY", "Meshy", "Meshy API (Image to 3D, nur Mesh ohne Textur)")])
+    meshy_multi: BoolProperty(name="Zweite Ansicht (Multi-Image)", default=False,
+                              description="Meshy Multi-Image to 3D: das Hauptbild ist die Vorderansicht, dazu eine Schrägansicht für bessere Tiefe")
+    meshy_image2: PointerProperty(name="Schrägansicht", type=bpy.types.Image)
+    meshy_remesh: BoolProperty(name="Remesh (sauberere Topologie)", default=False,
+                               description="Danach /v1/remesh: sauberere Quad-Topologie als Referenz (+5 Credits)")
+    meshy_polycount: IntProperty(name="Ziel-Polygone", default=30000, min=100, max=300000)
+    cmp_local: BoolProperty(name="Lokal", default=True)
+    cmp_tripo: BoolProperty(name="Tripo", default=False, description="Tripo-Upload ist noch gesperrt (Doku nicht geprüft)")
+    cmp_meshy: BoolProperty(name="Meshy", default=True)
     cloud_confirm: BoolProperty(name="Ich weiß: kostenpflichtig", default=False,
                                 description="Bestätigung, dass diese Generierung Credits beim Anbieter verbraucht")
     use_param: BoolProperty(name="Parametrische Felge erzeugen (Blender 5.3)", default=True,
@@ -1145,6 +1155,11 @@ class Felge3DPreferences(AddonPreferences):
     tripo_key: StringProperty(name="Tripo API-Key", default="", subtype="PASSWORD",
                               description="Nur hier speichern (nie im Code, in der .blend oder im Repo). Wird von Tripo bei jeder Generierung belastet")
 
+    meshy_key: StringProperty(name="Meshy API-Key", default="", subtype="PASSWORD",
+                              description="Nur hier speichern (nie im Code, in der .blend oder im Repo). Beginnt mit msy_. Wird von Meshy bei jeder Generierung belastet")
+    meshy_model: StringProperty(name="Meshy-Modell (ai_model)", default="latest",
+                                description="„latest“ = aktuelles Modell laut Meshy. Bei einer Fehlermeldung wegen abgeschalteten Modells hier ein anderes eintragen (docs.meshy.ai/api/models)")
+
     def draw(self, context):
         L = self.layout
         L.prop(self, "repo")
@@ -1153,6 +1168,8 @@ class Felge3DPreferences(AddonPreferences):
         box = L.box()
         box.label(text="Cloud-Mesh (optional, kostenpflichtig)", icon="WORLD")
         box.prop(self, "tripo_key")
+        box.prop(self, "meshy_key")
+        box.prop(self, "meshy_model")
         box.label(text="Der Key bleibt in den Blender-Preferences dieses Rechners.")
         draw_update_box(L)
 
@@ -1772,11 +1789,35 @@ def build_car(context, s, c):
 _CLOUD = {"job": None}
 
 
-def cloud_key():
+def cloud_key(provider=None):
+    """Key des Anbieters aus den Preferences (nur dort gespeichert)."""
     try:
-        return bpy.context.preferences.addons[__package__].preferences.tripo_key.strip()
+        prefs = bpy.context.preferences.addons[__package__].preferences
     except (KeyError, AttributeError):
         return ""
+    prov = provider or bpy.context.scene.felge3d.cloud_provider
+    return (prefs.meshy_key if prov == "MESHY" else prefs.tripo_key).strip()
+
+
+def make_provider(s, name=None):
+    """Provider-Objekt mit den Einstellungen aus Preferences/Szene (Key bleibt im Objekt, nie in Texten oder Logs)."""
+    name = name or s.cloud_provider
+    opts = {}
+    if name == "MESHY":
+        try:
+            opts["ai_model"] = bpy.context.preferences.addons[__package__].preferences.meshy_model.strip() or "latest"
+        except (KeyError, AttributeError):
+            opts["ai_model"] = "latest"
+        opts["remesh"] = bool(s.meshy_remesh)
+        opts["polycount"] = s.meshy_polycount
+        if s.meshy_multi and s.meshy_image2 and s.meshy_image2.filepath:
+            opts["extra_images"] = [bpy.path.abspath(s.meshy_image2.filepath)]
+    return cloud.PROVIDERS[name](cloud_key(name), opts)
+
+
+def cost_text(provider):
+    c = provider.estimate_credits()
+    return ("ca. %d Credits pro Aufruf" % c) if c is not None else "Kosten: laut Preisliste des Anbieters (Modell unbekannt)"
 
 
 class FELGE3D_OT_cloud_generate(Operator):
@@ -1793,6 +1834,9 @@ class FELGE3D_OT_cloud_generate(Operator):
         if not cloud_key():
             self.report({"ERROR"}, "Kein API-Key: in den Add-on-Preferences eintragen.")
             return {"CANCELLED"}
+        if s.cloud_provider == "MESHY" and s.meshy_multi and not (s.meshy_image2 and s.meshy_image2.filepath):
+            self.report({"ERROR"}, "Multi-Image: bitte die Schrägansicht laden.")
+            return {"CANCELLED"}
         if _CLOUD["job"] is not None and not _CLOUD["job"].done:
             self.report({"WARNING"}, "Es läuft bereits eine Cloud-Generierung.")
             return {"CANCELLED"}
@@ -1805,6 +1849,7 @@ class FELGE3D_OT_cloud_generate(Operator):
         L = self.layout
         L.label(text="Achtung: kostenpflichtig", icon="ERROR")
         L.label(text=prov.cost_note)
+        L.label(text="Geschätzt: " + cost_text(make_provider(s)))
         L.label(text="Das Bild wird an den Anbieter gesendet.")
         L.prop(s, "cloud_confirm")
 
@@ -1817,7 +1862,7 @@ class FELGE3D_OT_cloud_generate(Operator):
         if not os.path.isfile(path):
             self.report({"ERROR"}, "Das Bild muss als Datei vorliegen (nicht nur im Speicher).")
             return {"CANCELLED"}
-        provider = cloud.PROVIDERS[s.cloud_provider](cloud_key())
+        provider = make_provider(s)
         job = cloud.Job(provider, path, ai.data_dir())
         _CLOUD["job"] = job
         job.start()
@@ -1844,6 +1889,8 @@ class FELGE3D_OT_cloud_generate(Operator):
             self.report({"ERROR"}, job.error)
             return {"CANCELLED"}
         s["cloud_status"] = "Fertig – Mesh wird übernommen"
+        if job.warning:
+            self.report({"WARNING"}, job.warning)
         try:
             bpy.ops.felge3d.import_fbx(filepath=job.result)        # glTF/GLB -> normale 3D-Datei-Pipeline
         except Exception as e:  # noqa: BLE001
@@ -1854,6 +1901,157 @@ class FELGE3D_OT_cloud_generate(Operator):
     def cancel(self, context):
         if _CLOUD["job"]:
             _CLOUD["job"].cancel.set()
+
+
+class FELGE3D_OT_cloud_balance(Operator):
+    """Guthaben beim gewählten Anbieter abfragen (kostenlos; Meshy: GET /v1/balance)"""
+    bl_idname = "felge3d.cloud_balance"
+    bl_label = "Guthaben abfragen"
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        if not cloud_key():
+            self.report({"ERROR"}, "Kein API-Key: in den Add-on-Preferences eintragen.")
+            return {"CANCELLED"}
+        try:
+            b = make_provider(s).balance()
+        except cloud.CloudError as e:
+            s["cloud_balance"] = "Fehler: %s" % e
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        s["cloud_balance"] = "Guthaben: %s Credits" % b if b is not None else "Guthaben: von diesem Anbieter nicht abfragbar"
+        return {"FINISHED"}
+
+
+def _import_glb_collection(context, path, name, x_offset):
+    """GLB in eine eigene Collection laden (Objekte um x_offset Meter verschoben) – ohne die Quell-Collection der Pipeline zu ersetzen."""
+    new, meshes = fbx.import_file(path)
+    col = bpy.data.collections.new(name)
+    context.scene.collection.children.link(col)
+    for o in new:
+        for oc in list(o.users_collection):
+            oc.objects.unlink(o)
+        col.objects.link(o)
+        if o.parent is None:
+            o.location.x += x_offset
+    col["felge3d_ki_mesh"] = True
+    return col
+
+
+class FELGE3D_OT_cloud_compare(Operator):
+    """Dasselbe Foto lokal / mit Tripo / mit Meshy erzeugen; Ergebnisse in getrennten Collections nebeneinander (Cloud-Teile kostenpflichtig)"""
+    bl_idname = "felge3d.cloud_compare"
+    bl_label = "Vergleich erzeugen"
+    bl_options = {"REGISTER", "UNDO"}
+    _timer = None
+    SPACING = 1.2
+
+    def invoke(self, context, event):
+        s = context.scene.felge3d
+        if not s.image:
+            self.report({"ERROR"}, "Erst ein Felgenbild laden.")
+            return {"CANCELLED"}
+        if _CLOUD.get("cmp"):
+            self.report({"WARNING"}, "Es läuft bereits ein Vergleich.")
+            return {"CANCELLED"}
+        want = [n for n, f in (("TRIPO", s.cmp_tripo), ("MESHY", s.cmp_meshy)) if f]
+        miss = [n for n in want if not cloud_key(n)]
+        if miss:
+            self.report({"ERROR"}, "Kein API-Key für %s: in den Add-on-Preferences eintragen (oder Anbieter abwählen)." % ", ".join(miss))
+            return {"CANCELLED"}
+        if not (want or s.cmp_local):
+            self.report({"ERROR"}, "Mindestens eine Quelle wählen.")
+            return {"CANCELLED"}
+        s.cloud_confirm = False
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def draw(self, context):
+        s = context.scene.felge3d
+        L = self.layout
+        if s.cmp_tripo or s.cmp_meshy:
+            L.label(text="Achtung: kostenpflichtig", icon="ERROR")
+            for n, f in (("TRIPO", s.cmp_tripo), ("MESHY", s.cmp_meshy)):
+                if f:
+                    p = make_provider(s, n)
+                    L.label(text="%s: %s" % (p.label, cost_text(p)))
+            L.label(text="Das Bild wird an die Anbieter gesendet.")
+            L.prop(s, "cloud_confirm")
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        cloud_on = [n for n, f in (("TRIPO", s.cmp_tripo), ("MESHY", s.cmp_meshy)) if f]
+        if cloud_on and not s.cloud_confirm:
+            self.report({"WARNING"}, "Bitte die Kosten bestätigen.")
+            return {"CANCELLED"}
+        path = bpy.path.abspath(s.image.filepath) if s.image.filepath else ""
+        if cloud_on and not os.path.isfile(path):
+            self.report({"ERROR"}, "Das Bild muss als Datei vorliegen (nicht nur im Speicher).")
+            return {"CANCELLED"}
+        self._jobs = {}
+        for n in cloud_on:                                  # Anbieter parallel, jeder in eigenem Thread
+            job = cloud.Job(make_provider(s, n), path, ai.data_dir())
+            self._jobs[n] = job
+            job.start()
+        _CLOUD["cmp"] = True
+        self._slot = 0
+        if s.cmp_local:                                     # lokal sofort (Hauptthread), Cloud läuft währenddessen
+            self._local(context, s)
+        if not self._jobs:
+            _CLOUD["cmp"] = False
+            return {"FINISHED"}
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.5, window=context.window)
+        wm.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _local(self, context, s):
+        keep = (s.result_mode, s.use_param)
+        try:
+            s.result_mode, s.use_param = "KI", False
+            col, _ = build_wheel(context, s, new_collection=True)
+            col.name = "KI-Mesh | Lokal"
+            for o in col.objects:
+                if o.parent is None:
+                    o.location.x += self._slot * self.SPACING
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, "Lokal fehlgeschlagen: %s" % e)
+        finally:
+            s.result_mode, s.use_param = keep
+        self._slot += 1
+
+    def modal(self, context, event):
+        if event.type == "ESC" and event.value == "PRESS":
+            for j in self._jobs.values():
+                j.cancel.set()
+        if event.type != "TIMER":
+            return {"PASS_THROUGH"}
+        s = context.scene.felge3d
+        s["cloud_status"] = " | ".join("%s: %s (%d %%)" % (n.title(), j.text if not j.done else ("Fehler" if j.error else "fertig"),
+                                                          int(j.progress * 100)) for n, j in self._jobs.items())
+        for area in context.screen.areas:
+            area.tag_redraw()
+        if not all(j.done for j in self._jobs.values()):
+            return {"PASS_THROUGH"}
+        context.window_manager.event_timer_remove(self._timer)
+        _CLOUD["cmp"] = False
+        for n, j in self._jobs.items():                      # jedes Ergebnis einzeln; ein Fehler stoppt die anderen nicht
+            if j.error:
+                self.report({"ERROR"}, "%s: %s" % (n.title(), j.error))
+                continue
+            if j.warning:
+                self.report({"WARNING"}, "%s: %s" % (n.title(), j.warning))
+            try:
+                _import_glb_collection(context, j.result, "KI-Mesh | " + n.title(), self._slot * self.SPACING)
+                self._slot += 1
+            except Exception as e:  # noqa: BLE001
+                self.report({"ERROR"}, "%s: Import fehlgeschlagen: %s" % (n.title(), e))
+        s["cloud_status"] = "Vergleich fertig (%d Collections)" % self._slot
+        return {"FINISHED"}
+
+    def cancel(self, context):
+        for j in getattr(self, "_jobs", {}).values():
+            j.cancel.set()
+        _CLOUD["cmp"] = False
 
 
 class FELGE3D_PT_cloud(Panel):
@@ -1875,10 +2073,33 @@ class FELGE3D_PT_cloud(Panel):
         col.prop(s, "cloud_provider")
         if not has_key:
             L.label(text="Kein API-Key: Edit → Preferences → Add-ons → Rim Generator", icon="INFO")
+        if s.cloud_provider == "MESHY":
+            b = L.box()
+            b.prop(s, "meshy_multi")
+            if s.meshy_multi:
+                b.template_ID(s, "meshy_image2", open="image.open")
+            b.prop(s, "meshy_remesh")
+            if s.meshy_remesh:
+                b.prop(s, "meshy_polycount")
+        try:
+            L.label(text="Kosten: " + cost_text(make_provider(s)), icon="FUND")
+        except Exception:  # noqa: BLE001
+            pass
+        row = L.row(align=True)
+        row.enabled = has_key
+        row.operator("felge3d.cloud_balance", icon="FILE_REFRESH")
+        row.label(text=s.get("cloud_balance", "Guthaben: nicht abgefragt"))
         row = L.row()
         row.enabled = has_key and bool(s.image)
         row.operator("felge3d.cloud_generate", icon="WORLD")
         L.label(text="Kostenpflichtig – vor jedem Aufruf Hinweis; ESC bricht ab", icon="ERROR")
+        c = L.box()
+        c.label(text="Vergleich: dasselbe Foto, getrennte Collections")
+        r = c.row(align=True)
+        r.prop(s, "cmp_local", toggle=True)
+        r.prop(s, "cmp_tripo", toggle=True)
+        r.prop(s, "cmp_meshy", toggle=True)
+        c.operator("felge3d.cloud_compare", icon="MOD_MIRROR")
         if s.get("cloud_status"):
             L.label(text=s["cloud_status"])
 
@@ -2178,6 +2399,8 @@ classes = (
     FELGE3D_OT_car_generate,
     FELGE3D_OT_import_fbx,
     FELGE3D_OT_cloud_generate,
+    FELGE3D_OT_cloud_balance,
+    FELGE3D_OT_cloud_compare,
     FELGE3D_OT_refresh_profile,
     FELGE3D_OT_reset_profile,
     FELGE3D_OT_curve_add,

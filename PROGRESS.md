@@ -3,7 +3,7 @@
 Arbeitsweise: nächste offene Aufgabe umsetzen → Subagent `reviewer` prüft (max. 3 Nachbesserungen, sonst verwerfen + hier notieren) → nur bei BESTANDEN committen und auf `dev` pushen → diese Datei aktualisieren.
 
 ## Stand
-- Version 0.42.0 (Commit f6327a8 auf `main`, Basis von `dev`: 8f7c6aa).
+- Version 0.43.0 (`dev`; Basis 0.42.0). Neu: Meshy als zweiter Cloud-Provider (siehe unten).
 - Pipeline: Foto → Felgenkreis → Maske → N/Phase → Käfig (Subdivision) → Diamond-Cut je Fläche (Abstimmung ≥ N−1, Registrierung je Sektor) → Teller (Bézier, 3 Punkte) → Nabenmitte → Felgenhorn.
 - Messung: `tests/diamond_cut/` (Ground Truth nur Volvo, **Entwurf aus Samen**).
 
@@ -41,8 +41,17 @@ Bilder: `progress/neu_gold_IMG_2695_abgleich_0.42.png`, `progress/neu_graphit_IM
 ## Erledigt (diese Sitzung, auf `main`)
 Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bild, Graustufen-Mapping mit Regler, Flächen-Klassifikation mit Abstimmung, Messung, Nabe/Ring in Zone und Messung.
 
+## Meshy-Anbindung (0.43.0, Reviewer: BESTANDEN im 2. Versuch)
+- Umgesetzt nach der aktuellen Doku (docs.meshy.ai/llms-full.txt, gelesen am 25.11.2026): `MeshyProvider` in `felge3d/cloud.py`; Image to 3D nur Mesh (`should_texture=false`, GLB), optional Multi-Image (Front + Schrägansicht, 1–4 Bilder), optional Remesh (`/v1/remesh`); Polling mit Retry-After, 429/Verbindungsfehler/5xx werden wiederholt; Create wird nie automatisch erneut gesendet; Guthaben `GET /v1/balance`; Kosten je Aufruf im Panel und im Bestätigungsdialog.
+- `ai_model` ist eine Einstellung in den Preferences (Standard `latest`), wird immer gesendet; die Preistabelle dient nur der Kostenanzeige. Bei einem abgeschalteten Modell kommt eine klare Meldung mit Hinweis auf die Preferences.
+- Key nur in den Preferences (maskiert), nie im Repo (geprüft per Suche).
+- Vergleichsmodus (Panel „Mesh-Quelle“): dasselbe Foto Lokal / Tripo / Meshy, jede Quelle in eigener Collection „KI-Mesh | …“ seitlich versetzt.
+- Tests: `python3.11 tests/cloud/test_meshy_mock.py` (32 Prüfungen, lokaler Mock-Server), `python3.11 tests/cloud/test_meshy_blender.py`. Regression Diamond-Cut unter Blender 5.3 (`/tmp/venv53/bin/python tests/diamond_cut/eval_diamond_cut.py`): Volvo 98,0 % / IoU 88,0 % / Ring-IoU 80,0 % – unverändert.
+- **Grenzen:** Kein echter Meshy-Aufruf getestet (kein Key), nur Mock nach Doku; der Vergleichs-Operator ist nur registriert, nicht ausgeführt getestet; der Tripo-Upload ist weiter gesperrt (Doku nie erreichbar). `meshy-7` ist als Modell veraltet (Abschaltung 31.12.2026).
+
 ## Nächste Aufgaben (Reihenfolge)
-1. BBS-Regression beheben (20 Speichen werden komplett „poliert“, Ursache vermutlich `fill_reflections` / helle Löcher im Nabenbereich oder Bright-All-Pfad).
+0. **Bildabgleich-Workflow** (Auftrag vom 25.11.): Kamera je Foto (Perspektive), prozedurale Materialien, Bewertungsmatrix (`tests/abgleich/`) – Reviewer und Nutzer bewerten je Screenshot, schlechteste Kriterien zuerst verbessern.
+1. ~~BBS-Regression~~ erledigt: kein Fehler, das Foto ist einfarbig silber (keine dunkle Klasse); die Änderung „gestufte Abstimmung“ wurde verworfen.
 2. Punkt 4: mehrere Merkmale (Helligkeit, Sättigung, lokale Streuung, Glanzlicht) + einfacher Klassifikator, Konfidenz je Fläche; Ziel: Audi-RS-Foto „sicher“ ≥ 85 %.
 3. Punkt 5: Kalibrierung per Klick (Blank-/Schwarz-Probe), unsichere Flächen markieren, Korrekturmodus (Fläche umschalten, gilt für alle Sektoren).
 4. Offene Kanten am Ringübergang (Porsche 20, Volvo 0–100) auf 0 bringen.

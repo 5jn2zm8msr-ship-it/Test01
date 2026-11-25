@@ -32,7 +32,7 @@ Im Panel *Parametrische Felge*: Konkavität-Slider, Kurven-Editor (Tiefe über d
 Diamond Cut = **Teller**: Bezier-Kurve „Teller-Kurve“ (3 Punkte, Maßstab 1:1, *Teller-Kurve bearbeiten*); die polierte Fläche liegt exakt auf der Drehfläche, schwarze Flächen „Rücksprung“ mm dahinter, Crease-Kante dazwischen,
 *Aus KI-Mesh neu ableiten*, *Anwenden* (Modifier festschreiben). *Felgen vergleichen* schaltet zwischen den Collections um.
 Die Musterspeiche (Pizzastück) liegt als Objekt in der Collection: *Muster zum Bearbeiten anwenden* → Edit Mode, alle Speichen und alle vier Räder folgen live.
-*Als neue Variante speichern* kopiert alles nach `Felge_01_v2`. Optional: Mesh-Quelle *Cloud-API* (Key nur in den Preferences, kostenpflichtig; Tripo-Upload noch gesperrt).
+*Als neue Variante speichern* kopiert alles nach `Felge_01_v2`. Optional: Mesh-Quelle *Cloud-API* (Key nur in den Preferences, kostenpflichtig): *Meshy* (Image to 3D nur Mesh, optional Multi-Image/Remesh, Modell einstellbar, Kosten und Guthaben im Panel; ohne echten Live-Test) und *Tripo* (Upload noch gesperrt); *Vergleich* erzeugt Lokal/Tripo/Meshy in getrennten Collections.
 
 ## Updates
 Panel **Rim Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.
