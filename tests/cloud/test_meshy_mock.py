@@ -179,6 +179,15 @@ p, res, err = run_case("poll429", {}, img)
 cloud.MeshyProvider.MAX_POLL_FAILS = saved
 check("Endgültiger Polling-Fehler nennt die Task-ID", err and "task1" in str(err), str(err))
 
+# 5c) Cache: dasselbe Bild + gleiche Einstellungen -> KEIN zweiter Aufruf (keine Credits)
+cdir = tempfile.mkdtemp()
+p, res1, err = run_case("ok", {"ai_model": "latest", "cache_dir": cdir}, img)
+n1 = len(STATE["posts"])
+p, res2, err = run_case("ok", {"ai_model": "latest", "cache_dir": cdir}, img)
+check("Cache: erster Lauf sendet, zweiter Lauf nicht", n1 == 1 and not STATE.get("posts") and res2 and not err, str(err))
+p, res3, err = run_case("ok", {"ai_model": "meshy-6", "cache_dir": cdir}, img)
+check("Cache: anderes Modell = neuer Aufruf", len(STATE.get("posts", [])) == 1 and res3, str(err))
+
 # 6) Guthaben + falscher Key
 STATE.clear()
 srv = HTTPServer(("127.0.0.1", 0), H)

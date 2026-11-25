@@ -16,3 +16,9 @@ Quelle dieser Regeln: Vorgaben des Nutzers aus dem bisherigen Verlauf (Entwurf, 
 - Regression über die Testfelgen (`testfelgen/`): Speichenzahl, Drehlage, „Zuordnung sicher“, offene Kanten, Käfiggröße.
 - Ein Schritt gilt als erledigt, wenn kein Messwert schlechter ist als zuvor (Subagent `reviewer`).
 - Bilder (Renderings, Abgleich) mit schwarzer Backplate; nicht beschnittene Speichen zeigen.
+
+## Meshy-Credits (Vorgabe des Nutzers, 25.11.2026)
+- Sparsam nutzen: mehrere Fotos derselben Felge brauchen nur EIN Meshy-Mesh (Gruppe in `tests/abgleich/fotos.json`, `meshy_aus` = Referenzfoto).
+- Vor JEDEM Meshy-Aufruf den Nutzer fragen (Anzahl Aufrufe, geschätzte Credits, Guthaben nennen); ohne ausdrückliche Zusage nichts senden. Das Skript `tests/abgleich/meshy_erzeugen.py` läuft ohne `MESHY_FREIGABE` nur als Trockenlauf.
+- Gleiche Bilder + gleiche Einstellungen kommen aus dem Cache (`MeshyProvider`, Option `cache_dir`), nie doppelt bezahlen.
+- Key nie ausgeben oder speichern: nur über den Proxy bzw. die Preferences.

@@ -13,6 +13,7 @@ Stand der Tripo-Anbindung (v3, Quelle: developers.tripo3d.com über Suchergebnis
 """
 import json
 import os
+import shutil
 import ssl
 import threading
 import time
@@ -272,9 +273,28 @@ class MeshyProvider(Provider):
                 pass
             self._sleep(wait, cancel)
 
+    def _cache_file(self, image_path, extra):
+        """Ergebnis-Cache nach Inhalt (Bild(er) + Modell + Optionen): dasselbe Bild wird nie zweimal bezahlt."""
+        d = self.options.get("cache_dir")
+        if not d:
+            return None
+        import hashlib
+        h = hashlib.sha1()
+        for p in [image_path] + list(extra):
+            with open(p, "rb") as fh:
+                h.update(fh.read())
+        h.update(("|%s|%s|%s|%s" % (self._opt("ai_model", "latest"), bool(self._opt("remesh")), self._opt("polycount", ""), self._opt("topology", ""))).encode())
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, "meshy_%s.glb" % h.hexdigest()[:20])
+
     def generate(self, image_path, out_dir, progress, cancel):
         model = str(self._opt("ai_model", "latest"))
         extra = [p for p in (self.options.get("extra_images") or []) if p]
+        cache = self._cache_file(image_path, extra)
+        if cache and os.path.isfile(cache) and os.path.getsize(cache) > 1000:
+            progress(1.0, "aus dem Cache (kein neuer Meshy-Aufruf, keine Credits)")
+            self.warning = "Dieses Bild wurde mit gleichen Einstellungen schon erzeugt: Ergebnis aus dem Cache, keine Credits verbraucht."
+            return cache
         progress(0.02, "Bild vorbereiten")
         main_uri = self._data_uri(image_path)
         if extra:                                                  # Multi-Image to 3D: erstes Bild = Vorderansicht, 1–4 Bilder
@@ -287,6 +307,7 @@ class MeshyProvider(Provider):
         payload.update(should_texture=False, target_formats=["glb"])                # nur Mesh, eigene Materialien
         progress(0.08, "Auftrag senden")
         tid = self._create(path, payload, model)
+        self.last_task_id = tid                                    # für Meldungen/Wiederherstellung (Task läuft beim Anbieter weiter)
         remesh = bool(self._opt("remesh"))
         d = self._wait(path, tid, progress, cancel, "Meshy", 0.10, 0.60 if remesh else 0.90)
         url = (d.get("model_urls") or {}).get("glb")
@@ -306,7 +327,10 @@ class MeshyProvider(Provider):
         if not url:
             raise CloudError("Fertig, aber ohne GLB-Link in der Antwort (Feld model_urls.glb fehlt).")
         progress(0.92, "Modell laden")
-        return download(url, os.path.join(out_dir, "meshy_%s.glb" % tid))
+        res = download(url, os.path.join(out_dir, "meshy_%s.glb" % tid))
+        if cache:
+            shutil.copyfile(res, cache)
+        return res
 
 
 PROVIDERS = {"TRIPO": TripoProvider, "MESHY": MeshyProvider}

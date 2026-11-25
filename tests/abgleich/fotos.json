@@ -1,0 +1,78 @@
+{
+ "porsche_graphit_IMG_2694": {
+  "foto": "../diamond_cut/neue_felgen/porsche_graphit_IMG_2694.jpg",
+  "ansicht": "frontal",
+  "speichen": 5,
+  "zentrum": "zentralverschluss",
+  "farbe": "graphit/titan mit blankem Rand",
+  "hinweis": "mit Reifen (Pirelli P Zero); Beton-Hintergrund; 5 Y-Speichen (je zwei Arme)",
+  "brennweite_mm": 135,
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.75,
+    "Roughness": 0.32
+   },
+   "blank": {}
+  },
+  "kreis": [
+   0.5004,
+   0.4972,
+   0.2854
+  ],
+  "gruppe": "porsche_992_turbo_s_zentralverschluss",
+  "meshy_aus": "porsche_gold_IMG_2695"
+ },
+ "porsche_gold_IMG_2695": {
+  "foto": "../diamond_cut/neue_felgen/porsche_gold_IMG_2695.jpg",
+  "ansicht": "frontal",
+  "speichen": 5,
+  "zentrum": "zentralverschluss",
+  "farbe": "mattgold mit weißem Rand/Innenkante",
+  "hinweis": "ohne Reifen; lackierte Felge, Kanten weiß; 5 Y-Speichen (je zwei Arme)",
+  "brennweite_mm": 135,
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.65,
+    "Roughness": 0.55
+   },
+   "blank": {
+    "Roughness": 0.35
+   }
+  },
+  "gruppe": "porsche_992_turbo_s_zentralverschluss",
+  "meshy_aus": "porsche_gold_IMG_2695"
+ },
+ "porsche_silber_IMG_2700": {
+  "foto": "../diamond_cut/neue_felgen/porsche_silber_IMG_2700.png",
+  "ansicht": "perspektivisch (schräg, Felge als Ellipse)",
+  "speichen": 5,
+  "zentrum": "zentralverschluss",
+  "farbe": "silber, blanke Kanten",
+  "hinweis": "Screenshot mit Handy-Oberfläche (oben/unten abschneiden); mehrere Felgen im Bild; 5 Y-Speichen (je zwei Arme)",
+  "brennweite_mm": 85,
+  "zuschnitt": [
+   0.0,
+   0.07,
+   1.0,
+   0.856
+  ],
+  "schraeg": {
+   "yaw_deg": 50.0,
+   "ellipse": [
+    589,
+    967,
+    458,
+    819
+   ]
+  },
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.85,
+    "Roughness": 0.3
+   },
+   "blank": {}
+  },
+  "gruppe": "porsche_992_turbo_s_zentralverschluss",
+  "meshy_aus": "porsche_gold_IMG_2695"
+ }
+}

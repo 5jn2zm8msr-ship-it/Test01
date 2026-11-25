@@ -1,0 +1,23 @@
+{
+  "skala": "1 = unbrauchbar, 2 = deutlich falsch, 3 = erkennbar, aber mit klaren Abweichungen, 4 = nah dran, 5 = deckungsgleich mit dem Foto",
+  "kriterien": [
+    {"id": "genauigkeit", "name": "Genauigkeit des Nachbaus gesamt",
+     "frage": "Stimmen Silhouette, Speichenzahl, Drehlage und Proportionen (Foto und Rendering übereinander)?",
+     "auto": "Silhouetten-IoU Felge, Speichenzahl, Drehlage in Grad"},
+    {"id": "speichenform", "name": "Speichenform",
+     "frage": "Passen Breite, Verlauf, Fenster/Aussparungen und Kantenführung der Speichen?",
+     "auto": "IoU der Speichenmaske (Material) Foto gegen Rendering"},
+    {"id": "speichenfarbe", "name": "Speichenfarbe",
+     "frage": "Passen Farbton, Helligkeit, Glanz und die Aufteilung blank/lackiert/schwarz?",
+     "auto": "Farbabstand (Delta E) der Mittelwerte je Zone, Flächenanteil blank"},
+    {"id": "zentrum", "name": "Genauigkeit des Zentrums",
+     "frage": "Stimmen Nabenradius, Tiefe der Nabe, Übergang Speiche-Nabe und die Kappe/Zentralverschluss-Größe?",
+     "auto": "Nabenradius Foto gegen Rendering (Verhältnis)"},
+    {"id": "wappen", "name": "Wappen korrekt gemappt",
+     "frage": "Sitzt das Wappen mittig, richtig skaliert, nicht gespiegelt/verdreht, mit passenden Farben?",
+     "auto": "Versatz und Skalierung des Wappens (Pixel, %)"},
+    {"id": "verschluss", "name": "Schrauben bzw. Zentralverschluss",
+     "frage": "Passt die Art (Zentralverschluss mit Rändel / Schrauben), Anzahl, Lage und Größe?",
+     "auto": "Typ erkannt (ja/nein), Anzahl, Radius der Rändel/Schraubenkreis"}
+  ]
+}

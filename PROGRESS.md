@@ -47,10 +47,19 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Key nur in den Preferences (maskiert), nie im Repo (geprüft per Suche).
 - Vergleichsmodus (Panel „Mesh-Quelle“): dasselbe Foto Lokal / Tripo / Meshy, jede Quelle in eigener Collection „KI-Mesh | …“ seitlich versetzt.
 - Tests: `python3.11 tests/cloud/test_meshy_mock.py` (32 Prüfungen, lokaler Mock-Server), `python3.11 tests/cloud/test_meshy_blender.py`. Regression Diamond-Cut unter Blender 5.3 (`/tmp/venv53/bin/python tests/diamond_cut/eval_diamond_cut.py`): Volvo 98,0 % / IoU 88,0 % / Ring-IoU 80,0 % – unverändert.
+- **Meshy-Verbrauch (25.11.):** 3 Aufträge für die drei Porsche-Fotos (60 Credits, Guthaben 1100 → 1040); es ist dasselbe Felgendesign, ein Auftrag hätte gereicht. Seither: Gruppen in `tests/abgleich/fotos.json`, Cache nach Bild-Hash, Freigabe-Sperre im Skript, Regel in CLAUDE.md.
 - **Grenzen:** Kein echter Meshy-Aufruf getestet (kein Key), nur Mock nach Doku; der Vergleichs-Operator ist nur registriert, nicht ausgeführt getestet; der Tripo-Upload ist weiter gesperrt (Doku nie erreichbar). `meshy-7` ist als Modell veraltet (Abschaltung 31.12.2026).
 
+## Bildabgleich und Bewertungsmatrix (Reviewer: Werkzeug BESTANDEN im 3. Versuch)
+- Werkzeug: `tests/abgleich/abgleich.py` (Blender 5.3): Kamera in der Perspektive des Fotos (Brennweite, Abstand, Verschiebung; Schrägansicht: Entzerrung der Ellipse und Drehung um die Hochachse, silber yaw 50°), Materialien aus den Foto-Farben (Lack/Blank, Metall/Rauheit je Foto), neutrales Studiolicht, schwarze Backplate. Blatt je Foto in `tests/abgleich/out/<foto>_vergleich.png`: Zeile 1 = 1 Foto | 2 Mesh lokal (KI-Mesh mit Foto-Textur) | 3 SubD lokal | 4 Meshy; Zeile 2 = Überlagerung | Kanten | Nabe 3x.
+- Matrix: `tests/abgleich/kriterien.json` (Genauigkeit, Speichenform, Speichenfarbe, Zentrum, Wappen, Schrauben/Zentralverschluss, Skala 1–5), Noten in `bewertung.json` (Spalten Reviewer / Nutzer), `python3 tests/abgleich/auswertung.py` erzeugt `bewertung.md` mit Priorität (schlechtester Mittelwert zuerst, nur neueste Version je Foto; Abweichung ≥ 2 Punkte = „klären“).
+- **Stand (Reviewer-Noten, Blatt v2/v3; Nutzer-Noten stehen noch aus):** Wappen 1,0 · Speichenform 1,7 · Genauigkeit 2,0 · Verschluss 2,0 · Zentrum 2,3 · Speichenfarbe 3,3. Zusatz Spalte 2/4 (Gesamtnote): KI-Mesh lokal 3 / 4 / 2 (graphit / gold / silber), Meshy 3 / 4 / 2.
+- Messwerte sind nur Hilfen (Kanten-Präzision/Recall ±3 px, Farbabstand, Kappenradius grob ±30 %, Wappenfarben); bei Schrägbildern „n/a“. Es gibt keine Foto-Maske/IoU für diese Fotos.
+- **Grenzen:** silber: Kappe ca. 15 % links der Foto-Kappe (Schüssel des Modells zu tief), Pitch/Roll fehlt; Kappenradius Gold weiter grob; `abgleich.py` überschreibt das Add-on im Blender-Benutzerordner (nur Testumgebung).
+
 ## Nächste Aufgaben (Reihenfolge)
-0. **Bildabgleich-Workflow** (Auftrag vom 25.11.): Kamera je Foto (Perspektive), prozedurale Materialien, Bewertungsmatrix (`tests/abgleich/`) – Reviewer und Nutzer bewerten je Screenshot, schlechteste Kriterien zuerst verbessern.
+0. **Verbesserungen nach Matrix-Priorität** (erst wenn die Nutzer-Noten da sind, Reihenfolge ggf. anpassen): (1) Wappen: Scheibe mit Wappen aus dem Foto auf die Kappe mappen (Material der Kappe, Foto-Ausschnitt, runde Maske); (2) Speichenform: lackierte Räder mit grauer Speichenfläche (Maske erkennt nur helle Kanten), Fenster/Speichenbreite; (3) Verschluss: Rändel (18–20 Noppen) und schwarzes Modul mit Ring; (4) Zentrum: geschlossene, weich auslaufende Nabe, Kappe vertieft; (5) Speichenfarbe: weißer/heller Lackrand.
+0b. Meshy-Cache nachschärfen (Reviewer-Hinweise): `last_task_id` zu Beginn von `generate()` zurücksetzen; nach fehlgeschlagenem Remesh nicht unter dem Remesh-Schlüssel cachen; Polycount/Topologie nur bei aktivem Remesh in den Schlüssel; `meshy_erzeugen.py` mit `cache_dir`; Test zum Remesh-Fehler mit Cache.
 1. ~~BBS-Regression~~ erledigt: kein Fehler, das Foto ist einfarbig silber (keine dunkle Klasse); die Änderung „gestufte Abstimmung“ wurde verworfen.
 2. Punkt 4: mehrere Merkmale (Helligkeit, Sättigung, lokale Streuung, Glanzlicht) + einfacher Klassifikator, Konfidenz je Fläche; Ziel: Audi-RS-Foto „sicher“ ≥ 85 %.
 3. Punkt 5: Kalibrierung per Klick (Blank-/Schwarz-Probe), unsichere Flächen markieren, Korrekturmodus (Fläche umschalten, gilt für alle Sektoren).
@@ -58,6 +67,8 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 5. Ground Truth für weitere Fotos (nach Rückmeldung zu Frage 1).
 
 ## Offene Fragen an dich
+0. **Gleiche Felge?** graphit, gold und silber (Porsche 992 Turbo S, Zentralverschluss): bitte bestätigen, dass es dasselbe Design ist (dann bleibt es bei einem Meshy-Mesh für alle drei). Und: **5 oder 10 Speichen?** Der SubD-Bau erkennt bei gold 10, bei graphit 5; im Foto sieht es nach 5 Y-Speichen aus, die Fenster sind aber nicht alle gleich. Welche Symmetrie soll gelten?
+0a. **„85 %“:** Ich lese deine Vorgabe als „Foto und Modell stimmen zu mindestens 85 % überein“ (IoU/Kanten). Stimmt das, oder meintest du maximal 85 % Abweichung? Aktuell erreicht nur die Kantendeckung bei graphit (Recall 80 %) in die Nähe; die übrigen Fotos liegen deutlich darunter.
 1. **Ground Truth:** `tests/diamond_cut/volvo/gt.png` ist nur ein Entwurf aus Samen. Bitte prüfen/nachmalen. Für welche weiteren Fotos soll ich Ground Truth anlegen (Vorschlag: Porsche 992, Audi-RS-Nutzerfoto, Mercedes)?
 2. **Ringbreite:** Im Foto ist der polierte Außenring ca. 6 mm breit, die Horn-Lippe im Modell nur „Wandstärke“ (5 mm) + Toleranz. Soll die Lippenbreite pro Foto aus dem Ring abgeleitet werden?
 3. **CLAUDE.md:** Die Modellier-Regeln (Punktzahl 300–600 je Sektor, 0 offene Kanten, Crease 1,0) sind aus deinen Aussagen abgeleitet – bitte korrigieren, wo sie nicht stimmen.

@@ -1808,6 +1808,7 @@ def make_provider(s, name=None):
             opts["ai_model"] = bpy.context.preferences.addons[__package__].preferences.meshy_model.strip() or "latest"
         except (KeyError, AttributeError):
             opts["ai_model"] = "latest"
+        opts["cache_dir"] = os.path.join(ai.data_dir(), "meshy_cache")
         opts["remesh"] = bool(s.meshy_remesh)
         opts["polycount"] = s.meshy_polycount
         if s.meshy_multi and s.meshy_image2 and s.meshy_image2.filepath:

@@ -1,0 +1,3 @@
+# große Zwischenbilder und Meshy-Dateien nicht einchecken; die Vergleichsblätter schon
+out/*
+!out/*_vergleich.png

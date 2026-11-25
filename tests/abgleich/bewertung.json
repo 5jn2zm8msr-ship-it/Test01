@@ -1,0 +1,1081 @@
+{
+ "porsche_graphit_IMG_2694 [0.43.0 Basis]": {
+  "version": "0.43.0 Basis",
+  "bild": "out/porsche_graphit_IMG_2694_vergleich.png",
+  "info": "5 Speichen · Drehlage -17° · Käfig 937 Punkte/Sektor (Subdivision) · poliert 55 % · Zuordnung sicher 51 % ⚠ unsichere Flächen prüfen · Felgenhorn poliert",
+  "auto": {
+   "genauigkeit": "Silhouette ±3 px auf Foto-Kanten: 82 % · mittl. Abstand 1.7 mm · Speichen 5 (Soll 5)",
+   "speichenfarbe": "blank ΔE 29 (Glanzlicht Foto 0.92 / Modell 0.99) · lack ΔE 21 (Glanzlicht Foto 0.77 / Modell 1.00)",
+   "speichenform": "Silhouette ±3 px auf Foto-Kanten: 82 % (Rand der Speichen)",
+   "zentrum": "Profil-Korrelation 0.54 · Kappenradius Foto 48 mm / Modell 51 mm (×1.05)",
+   "verschluss": "Rändel/Zähne Foto 9 (Stärke 0.02) / Modell 10 (Stärke 0.05)",
+   "wappen": "Foto: 519 bunte Pixel, Ø 46 px · Modell: 1 bunte Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "treffer3": 0.8167236001782266,
+    "mittl_abstand_px": 1.9400788834951457,
+    "mittl_abstand_mm": 1.6747192824798864,
+    "speichen_modell": 5,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 29.17071155635553,
+     "foto": [
+      0.615686297416687,
+      0.615686297416687,
+      0.6117647290229797
+     ],
+     "modell": [
+      0.7960785031318665,
+      0.917647123336792,
+      0.9725490212440491
+     ],
+     "hell95_foto": 0.9170837998390198,
+     "hell95_modell": 0.989452064037323,
+     "anteil": 0.4656571863564242
+    },
+    "lack": {
+     "de": 21.40578812224979,
+     "foto": [
+      0.2745097875595093,
+      0.2745097875595093,
+      0.2705881893634796
+     ],
+     "modell": [
+      0.37254902720451355,
+      0.43921568989753723,
+      0.5137253999710083
+     ],
+     "hell95_foto": 0.7725490927696228,
+     "hell95_modell": 0.9999999403953552,
+     "anteil": 0.3771518714517623
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.5440172069516359,
+    "kappenradius_foto_mm": 48.3404466780839,
+    "kappenradius_modell_mm": 50.93011346440982,
+    "verhaeltnis": 1.0535714285714286
+   },
+   "verschluss": {
+    "zaehne_foto": 9,
+    "staerke_foto": 0.01912286877632141,
+    "zaehne_modell": 10,
+    "staerke_modell": 0.048601310700178146
+   },
+   "wappen": {
+    "foto": {
+     "n": 519,
+     "cx": 0.6563316654837763,
+     "cy": 1.0084485033803503,
+     "ausdehnung": 46.0
+    },
+    "modell": {
+     "n": 1,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Kreis/Größe/Frontalansicht stimmen; Speichenmasse völlig anders: Foto 5 kräftige Y-Speichen + geschlossener Nabenkörper, Nachbau spinnenartig dünn, Nabe mit schwarzen Löchern; Rand als breiter Chrom-Ring"
+   },
+   "speichenform": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Y-Verzweigung grob erkennbar, Speichen ca. ein Drittel so breit wie im Foto, Fenster zu groß und zackig, Übergänge Speiche-Nabe/Rand fehlen"
+   },
+   "speichenfarbe": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto Satin-Graphit mit schmaler heller Kante; Nachbau Spiegelchrom mit Blaustich (teils Beleuchtungsfehler der Szene)"
+   },
+   "zentrum": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Kappenradius passt (×1,05), aber im Foto geschlossene Nabenscheibe; Nachbau schmaler Ring mit ca. 5 schwarzen Löchern, keine Tiefe (Regel 'Nabe geschlossen' verletzt)"
+   },
+   "wappen": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "kein Wappen im Nachbau"
+   },
+   "verschluss": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto Zentralverschluss mit Rändelring (ca. 18–20 Noppen); Nachbau glatte Kuppel ohne Rändel; Mitte/Größe passen"
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 3.560791831198144,
+   "kreis_px": [
+    550.4400074481964,
+    410.1900100708008,
+    313.94000351428986
+   ],
+   "bild_px": [
+    1100,
+    825
+   ]
+  }
+ },
+ "porsche_gold_IMG_2695 [0.43.0 Basis]": {
+  "version": "0.43.0 Basis",
+  "bild": "out/porsche_gold_IMG_2695_vergleich.png",
+  "info": "10 Speichen · Drehlage 36° · Käfig 249 Punkte/Sektor (Subdivision) · poliert 100 % · 3 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "Silhouette ±3 px auf Foto-Kanten: 59 % · mittl. Abstand 1.6 mm · Speichen 10 (Soll 5)",
+   "speichenfarbe": "blank ΔE 21 (Glanzlicht Foto 0.91 / Modell 0.95) · lack ΔE 57 (Glanzlicht Foto 0.66 / Modell 1.00)",
+   "speichenform": "Silhouette ±3 px auf Foto-Kanten: 59 % (Rand der Speichen)",
+   "zentrum": "Profil-Korrelation 0.84 · Kappenradius Foto 8 mm / Modell 41 mm (×5.13)",
+   "verschluss": "Rändel/Zähne Foto 8 (Stärke 0.04) / Modell 9 (Stärke 0.03)",
+   "wappen": "Foto: 73 bunte Pixel, Ø 22 px · Modell: 0 bunte Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "treffer3": 0.5894852135815991,
+    "mittl_abstand_px": 2.9163848396501457,
+    "mittl_abstand_mm": 1.5586066328587713,
+    "speichen_modell": 10,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 21.356909996045733,
+     "foto": [
+      0.6078431606292725,
+      0.5372549295425415,
+      0.4549019932746887
+     ],
+     "modell": [
+      0.7254902124404907,
+      0.7411764860153198,
+      0.7058823704719543
+     ],
+     "hell95_foto": 0.9140598177909851,
+     "hell95_modell": 0.9535537958145142,
+     "anteil": 0.9023398896039724
+    },
+    "lack": {
+     "de": 56.882510019978405,
+     "foto": [
+      0.4313725531101227,
+      0.3960784673690796,
+      0.3686274588108063
+     ],
+     "modell": [
+      0.9999999403953552,
+      0.9999999403953552,
+      0.9999999403953552
+     ],
+     "hell95_foto": 0.6631358861923218,
+     "hell95_modell": 0.9999999403953552,
+     "anteil": 0.07822329886470461
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.8402647369531608,
+    "kappenradius_foto_mm": 8.016465856984144,
+    "kappenradius_modell_mm": 41.15119139918527,
+    "verhaeltnis": 5.133333333333334
+   },
+   "verschluss": {
+    "zaehne_foto": 8,
+    "staerke_foto": 0.043291542679071426,
+    "zaehne_modell": 9,
+    "staerke_modell": 0.027738044038414955
+   },
+   "wappen": {
+    "foto": {
+     "n": 73,
+     "cx": 1.6328856291836473,
+     "cy": 1.4849165580044428,
+     "ausdehnung": 22.0
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Kreis/Größe auf wenige Pixel genau; aber 10 statt 5 Y-Speichen, Fenster schwarz und zu schmal, weißer Rand fehlt, Rad als 100 % poliert statt lackiert"
+   },
+   "speichenform": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto 5 breite Speichen mit eingefassten Taschen; Nachbau Sternkörper mit 8–10 dünnen Fingern, Fensterkanten mit Zacken, 5-zählige Symmetrie nicht getroffen"
+   },
+   "speichenfarbe": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto mattes Gold mit weißem Rand; Nachbau blass cremig-silbrig mit Spiegelglanz, weißer Lackrand fehlt"
+   },
+   "zentrum": {
+    "reviewer": 3,
+    "nutzer": null,
+    "kommentar": "Kappe mittig und ungefähr passend (ca. 15–20 % kleiner), aber erhabener goldener Nabenkörper mit Verrundungen fehlt, Mitte ist flache Platte"
+   },
+   "wappen": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "kein Wappen im Nachbau"
+   },
+   "verschluss": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto schwarzes Centerlock-Modul mit Rändel und Beschriftung; Nachbau glatte Kuppel mit Kranz kleiner schwarzer Schlitze"
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.2045281106706396,
+   "kreis_px": [
+    545.5999910831451,
+    541.2000149488449,
+    507.0813089609146
+   ],
+   "bild_px": [
+    1100,
+    1100
+   ]
+  }
+ },
+ "porsche_silber_IMG_2700 [0.43.0 Basis]": {
+  "version": "0.43.0 Basis",
+  "bild": "out/porsche_silber_IMG_2700_vergleich.png",
+  "info": "10 Speichen · Drehlage 47° · Käfig 318 Punkte/Sektor (Subdivision) · poliert 0 % · 8 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "Silhouette ±3 px auf Foto-Kanten: 59 % · mittl. Abstand 0.7 mm · Speichen 10 (Soll 5)",
+   "speichenfarbe": "lack ΔE 31 (Glanzlicht Foto 0.67 / Modell 0.66)",
+   "speichenform": "Silhouette ±3 px auf Foto-Kanten: 59 % (Rand der Speichen)",
+   "zentrum": "Profil-Korrelation -0.32 · Kappenradius Foto 47 mm / Modell 25 mm (×0.53)",
+   "verschluss": "Rändel/Zähne Foto 14 (Stärke 0.03) / Modell 8 (Stärke 0.03)",
+   "wappen": "Foto: 1560 bunte Pixel, Ø 62 px · Modell: 272 bunte Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "treffer3": 0.593177511054959,
+    "mittl_abstand_px": 1.2191528545119705,
+    "mittl_abstand_mm": 0.7367680774310609,
+    "speichen_modell": 10,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "lack": {
+     "de": 31.27274866933317,
+     "foto": [
+      0.11764705926179886,
+      0.1254901885986328,
+      0.14117646217346191
+     ],
+     "modell": [
+      0.32549020648002625,
+      0.3960784673690796,
+      0.46666669845581055
+     ],
+     "hell95_foto": 0.6739513874053955,
+     "hell95_modell": 0.6604947447776794,
+     "anteil": 1.0
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": -0.31898603672015446,
+    "kappenradius_foto_mm": 46.533247863247865,
+    "kappenradius_modell_mm": 24.77744366744367,
+    "verhaeltnis": 0.5324675324675324
+   },
+   "verschluss": {
+    "zaehne_foto": 14,
+    "staerke_foto": 0.026351317763328552,
+    "zaehne_modell": 8,
+    "staerke_modell": 0.027991581708192825
+   },
+   "wappen": {
+    "foto": {
+     "n": 1560,
+     "cx": 42.82756410256411,
+     "cy": -4.640384615384619,
+     "ausdehnung": 62.0
+    },
+    "modell": {
+     "n": 272,
+     "cx": -51.33088235294116,
+     "cy": -23.33088235294116,
+     "ausdehnung": 34.0
+    }
+   }
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "nur äußere Ellipse mit Fass links passt grob (Gierwinkel plausibel); Rad ist geschlossene flache Scheibe ohne Speichenfenster; Mitte ca. 50–60 px versetzt"
+   },
+   "speichenform": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "keine Speichen/Fenster; Platte mit 10 erfundenen Löchern"
+   },
+   "speichenfarbe": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto dunkles Graphit mit hellen polierten Kanten; Nachbau helle blau-silberne Platte; Aufteilung dunkel/hell invertiert"
+   },
+   "zentrum": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto schwarze Kappe vertieft in erhabenem Nabenkörper; Nachbau hervorstehender glatter Zylinder, ca. 25 % zu groß, versetzt"
+   },
+   "wappen": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "kein Wappen im Nachbau (die 'bunten Pixel' sind Himmelsspiegelungen)"
+   },
+   "verschluss": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto Rändelmutter mit 14+ Noppen; Nachbau glatter Zylinder; zusätzliche Schraubenlöcher gibt es im Foto nicht"
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 85,
+   "abstand_m": 1.5695738366571699,
+   "kreis_px": [
+    322.49875559980086,
+    529.4673967147835,
+    448.4320557491289
+   ],
+   "bild_px": [
+    646,
+    1100
+   ]
+  }
+ },
+ "porsche_graphit_IMG_2694 [0.43.0 Basis v2]": {
+  "version": "0.43.0 Basis v2",
+  "bild": "out/porsche_graphit_IMG_2694_vergleich.png",
+  "info": "5 Speichen · Drehlage -17° · Käfig 937 Punkte/Sektor (Subdivision) · poliert 55 % · Zuordnung sicher 51 % ⚠ unsichere Flächen prüfen · Felgenhorn poliert",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 58 %, Recall 77 % (F1 66 %) · Speichen 5 (Soll 5)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 77 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "blank ΔE 13 (Glanzlicht 95 %: Foto 0.92 / Modell 0.87, Flächenanteil 47 %) · lack ΔE 1 (Glanzlicht 95 %: Foto 0.78 / Modell 0.59, Flächenanteil 37 %)",
+   "zentrum": "Profil-Korrelation 0.47 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius Foto 53 mm, Modell 59 mm (×1.11)",
+   "wappen": "Wappenfarben Foto: 519 Pixel (Ø 46 px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.5811934458302763,
+    "recall": 0.7739244540256819,
+    "f1": 0.6638534112719088,
+    "speichen_modell": 5,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 13.138238561372747,
+     "foto": [
+      0.6117647290229797,
+      0.6117647290229797,
+      0.6039215922355652
+     ],
+     "modell": [
+      0.4784314036369324,
+      0.4784314036369324,
+      0.4705882668495178
+     ],
+     "hell95_foto": 0.9170837998390198,
+     "hell95_modell": 0.8658244013786316,
+     "anteil": 0.4719814029809927
+    },
+    "lack": {
+     "de": 1.4120980344804281,
+     "foto": [
+      0.2745097875595093,
+      0.2745097875595093,
+      0.2745097875595093
+     ],
+     "modell": [
+      0.28235292434692383,
+      0.2862744927406311,
+      0.28235292434692383
+     ],
+     "hell95_foto": 0.7759078741073608,
+     "hell95_modell": 0.5876891016960144,
+     "anteil": 0.372578513150098
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.46884615261567864,
+    "kappe_foto_mm": 52.65655798862711,
+    "kappe_modell_mm": 58.69911382338759,
+    "verhaeltnis": 1.1147540983606556
+   },
+   "wappen": {
+    "foto": {
+     "n": 519,
+     "cx": 0.6563316654837763,
+     "cy": 1.0084485033803503,
+     "ausdehnung": 46.0
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 0.9521134809135005,
+   "ausdehnung_y": 0.2634660471631224,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 3.560791831198144,
+   "kreis_px": [
+    550.4400074481964,
+    410.1900100708008,
+    313.94000351428986
+   ],
+   "bild_px": [
+    1100,
+    825
+   ],
+   "yaw_deg": 0.0
+  }
+ },
+ "porsche_gold_IMG_2695 [0.43.0 Basis v2]": {
+  "version": "0.43.0 Basis v2",
+  "bild": "out/porsche_gold_IMG_2695_vergleich.png",
+  "info": "10 Speichen · Drehlage 36° · Käfig 249 Punkte/Sektor (Subdivision) · poliert 100 % · 3 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 39 %, Recall 23 % (F1 29 %) · Speichen 10 (Soll 5)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 23 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "blank ΔE 13 (Glanzlicht 95 %: Foto 0.91 / Modell 0.91, Flächenanteil 90 %) · lack ΔE 20 (Glanzlicht 95 %: Foto 0.66 / Modell 0.66, Flächenanteil 8 %)",
+   "zentrum": "Profil-Korrelation 0.88 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius Foto 57 mm, Modell 46 mm (×0.80)",
+   "wappen": "Wappenfarben Foto: 486 Pixel (Ø 133 px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.3862530413625304,
+    "recall": 0.23394075846056428,
+    "f1": 0.2913938497283418,
+    "speichen_modell": 10,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 12.951659123768248,
+     "foto": [
+      0.6078431606292725,
+      0.5372549295425415,
+      0.4549019932746887
+     ],
+     "modell": [
+      0.4705882668495178,
+      0.4117647409439087,
+      0.3450980484485626
+     ],
+     "hell95_foto": 0.9135132431983948,
+     "hell95_modell": 0.9065742492675781,
+     "anteil": 0.9037731382285339
+    },
+    "lack": {
+     "de": 19.57972570997881,
+     "foto": [
+      0.4235294461250305,
+      0.38823533058166504,
+      0.3686274588108063
+     ],
+     "modell": [
+      0.5882352590560913,
+      0.5843137502670288,
+      0.5803921818733215
+     ],
+     "hell95_foto": 0.6561631560325623,
+     "hell95_modell": 0.6632996797561646,
+     "anteil": 0.076967105282873
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.8837665035499065,
+    "kappe_foto_mm": 57.184123113153554,
+    "kappe_modell_mm": 45.96107091337576,
+    "verhaeltnis": 0.8037383177570093
+   },
+   "wappen": {
+    "foto": {
+     "n": 486,
+     "cx": 4.1901323736449285,
+     "cy": 17.546898631401973,
+     "ausdehnung": 133.0
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 0.9512697077781553,
+   "ausdehnung_y": 0.6492877016743894,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.2045281106706396,
+   "kreis_px": [
+    545.5999910831451,
+    541.2000149488449,
+    507.0813089609146
+   ],
+   "bild_px": [
+    1100,
+    1100
+   ],
+   "yaw_deg": 0.0
+  }
+ },
+ "porsche_silber_IMG_2700 [0.43.0 Basis v2]": {
+  "version": "0.43.0 Basis v2",
+  "bild": "out/porsche_silber_IMG_2700_vergleich.png",
+  "info": "10 Speichen · Drehlage 47° · Käfig 318 Punkte/Sektor (Subdivision) · poliert 0 % · 8 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 38 %, Recall 3 % (F1 5 %) · Speichen 10 (Soll 5) [Schrägbild: im entzerrten Bild gemessen, ungefähr]",
+   "speichenform": "Recall der Foto-Kanten im Rad: 3 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft) [Schrägbild: im entzerrten Bild gemessen, ungefähr]",
+   "speichenfarbe": "lack ΔE 14 (Glanzlicht 95 %: Foto 0.67 / Modell 0.30, Flächenanteil 100 %) [Schrägbild: im entzerrten Bild gemessen, ungefähr]",
+   "zentrum": "Profil-Korrelation -0.42 (Helligkeit über dem Radius, r < 0,3 R) [Schrägbild: im entzerrten Bild gemessen, ungefähr]",
+   "verschluss": "Kappen-/Verschlussradius Foto 56 mm, Modell 28 mm (×0.49) [Schrägbild: im entzerrten Bild gemessen, ungefähr]",
+   "wappen": "Wappenfarben Foto: 1965 Pixel (Ø 62 px) · Modell: 0 Pixel (kein Wappen im Modell) [Schrägbild: im entzerrten Bild gemessen, ungefähr]"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.3766314481044127,
+    "recall": 0.02921775989965181,
+    "f1": 0.05422864948038876,
+    "speichen_modell": 10,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "lack": {
+     "de": 14.246439879854497,
+     "foto": [
+      0.11764705926179886,
+      0.1254901885986328,
+      0.14117646217346191
+     ],
+     "modell": [
+      0.24313727021217346,
+      0.24313727021217346,
+      0.24705880880355835
+     ],
+     "hell95_foto": 0.6733146905899048,
+     "hell95_modell": 0.2983244061470032,
+     "anteil": 1.0
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": -0.42425023400994766,
+    "kappe_foto_mm": 56.20249417249418,
+    "kappe_modell_mm": 27.79908313908314,
+    "verhaeltnis": 0.4946236559139785
+   },
+   "wappen": {
+    "foto": {
+     "n": 1965,
+     "cx": 47.100254452926265,
+     "cy": -4.6849872773536845,
+     "ausdehnung": 62.0
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 1.0983357612600202,
+   "ausdehnung_y": 0.7411650933311464,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 85,
+   "abstand_m": 1.5695738366571699,
+   "kreis_px": [
+    322.49875559980086,
+    529.4673967147835,
+    448.4320557491289
+   ],
+   "bild_px": [
+    646,
+    1100
+   ],
+   "yaw_deg": 56.0
+  }
+ },
+ "porsche_silber_IMG_2700 [0.43.0 Basis v3]": {
+  "version": "0.43.0 Basis v3",
+  "bild": "out/porsche_silber_IMG_2700_vergleich.png",
+  "info": "10 Speichen · Drehlage 47° · Käfig 318 Punkte/Sektor (Subdivision) · poliert 0 % · 8 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten) · Speichen im Modell: 10 (Soll 5)",
+   "speichenform": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "speichenfarbe": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "zentrum": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "wappen": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "verschluss": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)"
+  },
+  "messung": {},
+  "meshy": {
+   "r_out": 0.9512697077781553,
+   "ausdehnung_y": 0.6492877016743894,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "nur äußere Ellipse mit Fass passt (nach yaw 50° liegt der rechte Rand auf der Foto-Kante); Rad selbst geschlossene flache Scheibe ohne Fenster; Pitch/Roll fehlt [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "speichenform": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "keine Speichen/Fenster, Platte mit 10 erfundenen Löchern [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "speichenfarbe": {
+    "reviewer": 3,
+    "nutzer": null,
+    "kommentar": "dunkles Graphit und silbriges Horn nah am Foto; helle polierte Speichenkanten und Tiefe fehlen [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "zentrum": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "hervorstehender glatter Zylinder statt vertiefter Kappe im Nabenkörper; Schüssel zu tief, Kappe seitlich versetzt [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "wappen": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "kein Wappen im Modell [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "verschluss": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto Rändelmutter 14+ Noppen; Modell glatter Zylinder plus 8–10 Schraubenlöcher, die es im Foto nicht gibt [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 85,
+   "abstand_m": 1.5695738366571699,
+   "kreis_px": [
+    322.49875559980086,
+    529.4673967147835,
+    448.4320557491289
+   ],
+   "bild_px": [
+    646,
+    1100
+   ],
+   "yaw_deg": 50.0
+  },
+  "zusatz_reviewer": {
+   "ki_mesh": {
+    "note": 2,
+    "kommentar": "Speichen nur als graue Flecken in durchscheinender Hülle; Wappen sichtbar, aber flickiges Mesh"
+   },
+   "meshy": {
+    "note": 2,
+    "kommentar": "(v2: eigenes Mesh mit drei verschmolzenen Rädern; ab v3 wird das Gold-Mesh genutzt)"
+   }
+  }
+ },
+ "porsche_graphit_IMG_2694 [0.43.0 Basis v3]": {
+  "version": "0.43.0 Basis v3",
+  "bild": "out/porsche_graphit_IMG_2694_vergleich.png",
+  "info": "5 Speichen · Drehlage -17° · Käfig 937 Punkte/Sektor (Subdivision) · poliert 55 % · Zuordnung sicher 51 % ⚠ unsichere Flächen prüfen · Felgenhorn poliert",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 41 %, Recall 80 % (F1 54 %) · Speichen 5 (Soll 5)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 80 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "blank ΔE 13 (Glanzlicht 95 %: Foto 0.92 / Modell 0.87, Flächenanteil 47 %) · lack ΔE 1 (Glanzlicht 95 %: Foto 0.78 / Modell 0.59, Flächenanteil 37 %)",
+   "zentrum": "Profil-Korrelation 0.47 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius Foto 47 mm, Modell 59 mm (×1.26)",
+   "wappen": "Wappenfarben Foto: 519 Pixel (Ø 37 px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.40963560772805085,
+    "recall": 0.8049329879490934,
+    "f1": 0.5429569229312282,
+    "speichen_modell": 5,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 13.138238561372747,
+     "foto": [
+      0.6117647290229797,
+      0.6117647290229797,
+      0.6039215922355652
+     ],
+     "modell": [
+      0.4784314036369324,
+      0.4784314036369324,
+      0.4705882668495178
+     ],
+     "hell95_foto": 0.9170837998390198,
+     "hell95_modell": 0.8658244013786316,
+     "anteil": 0.4719814029809927
+    },
+    "lack": {
+     "de": 1.4120980344804281,
+     "foto": [
+      0.2745097875595093,
+      0.2745097875595093,
+      0.2745097875595093
+     ],
+     "modell": [
+      0.28235292434692383,
+      0.2862744927406311,
+      0.28235292434692383
+     ],
+     "hell95_foto": 0.7759078741073608,
+     "hell95_modell": 0.5851503014564514,
+     "anteil": 0.372578513150098
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.4695344110278689,
+    "kappe_foto_mm": 46.614002153866615,
+    "kappe_modell_mm": 58.69911382338759,
+    "verhaeltnis": 1.2592592592592593
+   },
+   "wappen": {
+    "foto": {
+     "n": 519,
+     "cx": 0.6563316654837763,
+     "cy": 1.0084485033803503,
+     "ausdehnung": 37.0
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 0.9512697077781553,
+   "ausdehnung_y": 0.6492877016743894,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Kreis/Größe stimmen; Y-Speichen nur ca. ein Drittel so breit wie im Foto, Fenster zu groß, Nabe von schwarzen Lappen umgeben [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "speichenform": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Y-Verzweigung erkennbar, aber zu dünn und zackig; breite Speichenfüße am Hub und Verrundungen fehlen [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "speichenfarbe": {
+    "reviewer": 4,
+    "nutzer": null,
+    "kommentar": "nach neutralem Licht deutlich besser: Lack neutral dunkelgrau, Horn silber; Glanz Lack Foto 0,78 / Modell 0,59 [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "zentrum": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Kappenradius grob ok; Foto geschlossene Nabenscheibe, Modell glatte Kuppel im Ring schwarzer Löcher (Regel 'Nabe geschlossen' verletzt) [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "wappen": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "kein Wappen im Modell [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "verschluss": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto Zentralverschluss mit Rändelring (ca. 18–20 Noppen); Modell glatte Kuppel ohne Rändel [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 3.560791831198144,
+   "kreis_px": [
+    550.4400074481964,
+    410.1900100708008,
+    313.94000351428986
+   ],
+   "bild_px": [
+    1100,
+    825
+   ],
+   "yaw_deg": 0.0
+  },
+  "zusatz_reviewer": {
+   "ki_mesh": {
+    "note": 3,
+    "kommentar": "5 Y-Speichen mit Fotofarbe plausibel, aber wellig/dünn; schwarzer Spalt um die Kappe; Wappen über dem Loch"
+   },
+   "meshy": {
+    "note": 3,
+    "kommentar": "schlanke Arme eher 8–10 als 5 Y; 5 Schraubenbosse, die es im Foto nicht gibt; Wappen nur Relief"
+   }
+  }
+ },
+ "porsche_gold_IMG_2695 [0.43.0 Basis v3]": {
+  "version": "0.43.0 Basis v3",
+  "bild": "out/porsche_gold_IMG_2695_vergleich.png",
+  "info": "10 Speichen · Drehlage 36° · Käfig 249 Punkte/Sektor (Subdivision) · poliert 100 % · 3 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 36 %, Recall 24 % (F1 29 %) · Speichen 10 (Soll 5)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 24 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "blank ΔE 13 (Glanzlicht 95 %: Foto 0.91 / Modell 0.91, Flächenanteil 90 %) · lack ΔE 20 (Glanzlicht 95 %: Foto 0.66 / Modell 0.66, Flächenanteil 8 %)",
+   "zentrum": "Profil-Korrelation 0.88 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius Foto 57 mm, Modell 46 mm (×0.80)",
+   "wappen": "Wappenfarben Foto: 486 Pixel (Ø 59 px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.36394971613949717,
+    "recall": 0.2417864698009757,
+    "f1": 0.2905493153386877,
+    "speichen_modell": 10,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 12.951659123768248,
+     "foto": [
+      0.6078431606292725,
+      0.5372549295425415,
+      0.4549019932746887
+     ],
+     "modell": [
+      0.4705882668495178,
+      0.4117647409439087,
+      0.3450980484485626
+     ],
+     "hell95_foto": 0.9135132431983948,
+     "hell95_modell": 0.9090929627418518,
+     "anteil": 0.9037731382285339
+    },
+    "lack": {
+     "de": 19.57972570997881,
+     "foto": [
+      0.4235294461250305,
+      0.38823533058166504,
+      0.3686274588108063
+     ],
+     "modell": [
+      0.5882352590560913,
+      0.5843137502670288,
+      0.5803921818733215
+     ],
+     "hell95_foto": 0.6561631560325623,
+     "hell95_modell": 0.6632996797561646,
+     "anteil": 0.076967105282873
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.880833305313307,
+    "kappe_foto_mm": 57.184123113153554,
+    "kappe_modell_mm": 45.96107091337576,
+    "verhaeltnis": 0.8037383177570093
+   },
+   "wappen": {
+    "foto": {
+     "n": 486,
+     "cx": 4.1901323736449285,
+     "cy": 17.546898631401973,
+     "ausdehnung": 58.75
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 0.9512697077781553,
+   "ausdehnung_y": 0.6492877016743894,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Kreis/Größe stimmen; Modell 10 Fenster/Arme statt 5 Y-Speichen (Symmetrie 5 vs. 10 ist offene Frage), flache Sternplatte, weißer Rand fehlt [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "speichenform": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto 5 breite Speichen mit Taschen, weiß eingefasst; Modell Stern mit ca. 10 dünnen Fingern; Fensterkanten zackig [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "speichenfarbe": {
+    "reviewer": 3,
+    "nutzer": null,
+    "kommentar": "Matt-Gold passt jetzt (blank ΔE 13); weißer Lackrand der Fenster/des Horns fehlt, Horn bronzebraun [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "zentrum": {
+    "reviewer": 3,
+    "nutzer": null,
+    "kommentar": "Kappe mittig und ungefähr passend; erhabener Nabenkörper mit Verrundungen fehlt, Mitte flache Platte [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "wappen": {
+    "reviewer": 1,
+    "nutzer": null,
+    "kommentar": "kein Wappen im Modell [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   },
+   "verschluss": {
+    "reviewer": 2,
+    "nutzer": null,
+    "kommentar": "Foto schwarzes Centerlock-Modul mit Rändel und Schrift; Modell glatte Kuppel mit Kranz aus 10 schwarzen Schlitzen [Reviewer-Bewertung am Blatt v2; SubD-Geometrie unverändert]"
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.2045281106706396,
+   "kreis_px": [
+    545.5999910831451,
+    541.2000149488449,
+    507.0813089609146
+   ],
+   "bild_px": [
+    1100,
+    1100
+   ],
+   "yaw_deg": 0.0
+  },
+  "zusatz_reviewer": {
+   "ki_mesh": {
+    "note": 4,
+    "kommentar": "5 Y-Speichen mit weißem Rand, Fensterform und Ventilloch nah am Foto; großer schwarzer Ausschnitt um die Kappe"
+   },
+   "meshy": {
+    "note": 4,
+    "kommentar": "5 Y-Speichen, Fenster und Ventilloch geometrisch nah; Nabe geschlossen mit Rändel; nur Ton, Wappen als Relief"
+   }
+  }
+ }
+}
