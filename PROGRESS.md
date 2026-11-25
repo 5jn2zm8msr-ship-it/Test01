@@ -27,6 +27,17 @@ Regression über die Testfelgen (Info-Text; „sicher“ = Flächenanteil mit Ko
 | s-l1200.jpg | 5 | 43 % | 74 % ⚠ | |
 | BBS (20 Speichen) | 20 | **100 %** | – | **Verschlechterung** (0.41.0: ~58 % zweifarbig) |
 
+## Neue Testfotos (vom Nutzer auf `main` hochgeladen, jetzt in `tests/diamond_cut/neue_felgen/`)
+Porsche-911-Turbo-Räder mit **lackiertem Stern und nur schmaler polierter Kante** (Fensterränder + Außenring, ca. 2–3 mm breit):
+
+| Foto | Speichen (erkannt) | poliert | Beobachtung |
+|---|---|---|---|
+| graphit IMG_2694 | 11 ⚠ (vermutlich 5) | 0 % | Kante zu schmal, kein Diamond Cut erkannt; Speichenzahl falsch |
+| gold IMG_2695 | 10 (vermutlich 5) | 100 % | ganzer Stern als „poliert“ gewertet (gold ist hell), Soll: nur weiße Kante + Ring |
+| IMG_2697 (Nahaufnahme, schräg), IMG_2700 (Screenshot, perspektivisch) | – | – | nicht frontal, vom Add-on nicht unterstützt; nur Referenz |
+
+Bilder: `progress/neu_gold_IMG_2695_abgleich_0.42.png`, `progress/neu_graphit_IMG_2694_abgleich_0.42.png`.
+
 ## Erledigt (diese Sitzung, auf `main`)
 Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bild, Graustufen-Mapping mit Regler, Flächen-Klassifikation mit Abstimmung, Messung, Nabe/Ring in Zone und Messung.
 
@@ -41,4 +52,6 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 1. **Ground Truth:** `tests/diamond_cut/volvo/gt.png` ist nur ein Entwurf aus Samen. Bitte prüfen/nachmalen. Für welche weiteren Fotos soll ich Ground Truth anlegen (Vorschlag: Porsche 992, Audi-RS-Nutzerfoto, Mercedes)?
 2. **Ringbreite:** Im Foto ist der polierte Außenring ca. 6 mm breit, die Horn-Lippe im Modell nur „Wandstärke“ (5 mm) + Toleranz. Soll die Lippenbreite pro Foto aus dem Ring abgeleitet werden?
 3. **CLAUDE.md:** Die Modellier-Regeln (Punktzahl 300–600 je Sektor, 0 offene Kanten, Crease 1,0) sind aus deinen Aussagen abgeleitet – bitte korrigieren, wo sie nicht stimmen.
+5. **Lackierte Räder mit polierter Kante (neue Fotos):** Soll die schmale polierte Kante (2–3 mm) modelliert werden? Vorschlag: zusätzliche schmale Randband-Flächen entlang aller Außenkonturen (Fenster + Ring), je Foto nach Helligkeit blank/lackiert beschriftet, Crease auf beiden Seiten. Und: Soll die **Grundfarbe aus dem Foto** übernommen werden (gold, graphit), statt Schwarz?
+6. **Perspektivische Fotos** (IMG_2697, IMG_2700): sollen sie unterstützt werden (Entzerrung der Ellipse) oder nur frontale Fotos?
 4. **BBS/Netzfelgen:** Soll Diamond Cut bei Netzfelgen (20 Speichen) überhaupt automatisch erkannt werden, oder reicht „kein Diamond Cut“ als Standard?
