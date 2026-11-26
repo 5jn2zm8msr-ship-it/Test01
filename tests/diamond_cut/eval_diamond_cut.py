@@ -30,6 +30,8 @@ def install():
     for f in os.listdir(os.path.join(REPO, "felge3d")):
         if f.endswith((".py", ".toml")):
             shutil.copy(os.path.join(REPO, "felge3d", f), d)
+    if os.path.isdir(os.path.join(REPO, "felge3d", "assets")):                       # mitgelieferte Objekte (assets/) mitkopieren
+        shutil.copytree(os.path.join(REPO, "felge3d", "assets"), os.path.join(d, "assets"))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     addon_utils.enable("felge3d", default_set=True)
 

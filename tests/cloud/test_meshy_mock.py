@@ -188,6 +188,16 @@ check("Cache: erster Lauf sendet, zweiter Lauf nicht", n1 == 1 and not STATE.get
 p, res3, err = run_case("ok", {"ai_model": "meshy-6", "cache_dir": cdir}, img)
 check("Cache: anderes Modell = neuer Aufruf", len(STATE.get("posts", [])) == 1 and res3, str(err))
 
+# 5d) Textur: Option, Preis +10, Cache-Schlüssel getrennt
+p, res, err = run_case("ok", {"ai_model": "latest", "texture": True}, img)
+check("Textur an: should_texture=true", STATE["posts"][0][1].get("should_texture") is True and res, str(err))
+check("Textur: Kosten 30 (20 + 10)", cloud.MeshyProvider("x", {"ai_model": "latest", "texture": True}).estimate_credits() == 30)
+check("Textur + Remesh: Kosten 35", cloud.MeshyProvider("x", {"ai_model": "latest", "texture": True, "remesh": True}).estimate_credits() == 35)
+cdir2 = tempfile.mkdtemp()
+run_case("ok", {"ai_model": "latest", "cache_dir": cdir2}, img)
+p, res, err = run_case("ok", {"ai_model": "latest", "cache_dir": cdir2, "texture": True}, img)
+check("Cache: mit Textur ist ein anderer Auftrag als ohne", len(STATE.get("posts", [])) == 1 and res, str(err))
+
 # 6) Guthaben + falscher Key
 STATE.clear()
 srv = HTTPServer(("127.0.0.1", 0), H)

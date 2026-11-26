@@ -1,6 +1,6 @@
 # PROGRESS – Felgen-Add-on (Branch `dev`, niemals `main`)
 
-Arbeitsweise: nächste offene Aufgabe umsetzen → Subagent `reviewer` prüft (max. 3 Nachbesserungen, sonst verwerfen + hier notieren) → nur bei BESTANDEN committen und auf `dev` pushen → diese Datei aktualisieren.
+Arbeitsweise (seit 27.11.2026): nächste offene Aufgabe umsetzen → eigene Tests/Messung ausführen → committen und auf `dev` pushen (ohne Rückfrage, nie `main`) → diese Datei aktualisieren. Der Subagent `reviewer` ist auf Wunsch des Nutzers dauerhaft pausiert.
 
 ## Stand
 - Version 0.43.0 (`dev`; Basis 0.42.0). Neu: Meshy als zweiter Cloud-Provider (siehe unten).
@@ -63,10 +63,26 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Felge/Reifen-Versatz, Sattelstellung (27.11., Version 0.47.0)
+- Vorgabe des Nutzers: Felge in Y ca. 5 mm nach außen (wird sonst vom Reifen abgeschnitten); Sättel vorn auf 3 Uhr, hinten auf 9 Uhr, immer Richtung Fahrzeugmitte wie beim Porsche.
+- Umsetzung: `rim_offset` (Standard 5 mm, alle Felgenwege: Foto-/KI-Felge, parametrisch, eigene/Meshy-Felge; Rückseitenprofil für die Bremse verschiebt mit); `front_caliper_angle` = 90°, `rear_caliper_angle` = −90° (ersetzen `caliper_angle`); `build_brake(..., caliper_deg)`.
+- Tests (`tests/car/test_car_layout.py`): Versatz exakt 5,00 mm an allen vier Rädern, Sattel vorn hinter der Achse (−X), hinten vor der Achse (+X), Standardwerte. Sichtprüfung `tests/car/render_car.py` (Ansichten linke Seite und schräg).
+- Offen: 3 Uhr/9 Uhr ist von der linken Fahrzeugseite gemeint (Front links im Bild); bei der rechten Seite ist es spiegelbildlich, beide zeigen zur Fahrzeugmitte.
+
+## Mitgelieferter Reifen (27.11., Version 0.46.0)
+- Auftrag: Reifen aus „car-tyre-game-ready-p-zero.zip“ herauslösen (Felge und Bremsen verwerfen) und als vorinstallierten Reifen im Add-on verwenden.
+- Befund zum ZIP: abgeschnitten (kein Zentralverzeichnis, die letzte Textur fehlt zu ca. 31 KB); das Modell `Maserati_Granturismo_tyres_gltf.glb` ist vollständig, die Dateien wurden aus den Dateiköpfen gerettet (in einem eigenen Ordner, ohne Pfade aus dem Archiv). 13 Teile; Reifen = `masaretti_tyer_parts00_low` (3472 Vertices), der Rest sind Felge, Schrauben, Scheibe, Sattel.
+- Umsetzung: `tools/extract_tyre_asset.py` → `felge3d/assets/reifen/pzero_gt.glb` (2,4 MB, mit Textur), `reifen.json`, `QUELLE.md`; Modul `assets.py` (einmaliger Import in verborgene Collection); Reifenquelle *Mitgelieferter Reifen* mit Auswahlliste; Update-Knopf kopiert `assets/`. Test: `tests/car/test_car_layout.py` (Radius, Breite, Wulstsitz, Textur, ein Import, alle 4 Räder); Test-Installer kopieren `assets/` mit.
+- **Lizenz geklärt (Nutzerangabe):** CC BY 4.0, Iftekhar.Tushar, https://skfb.ly/oNqAJ → Namensnennung eingebaut (Code, reifen.json, QUELLE.md, Preferences, Panel). Marken (Pirelli, Maserati) auf dem Reifen bleiben Rechte der Inhaber.
+- Der Standard-Reifen bleibt „Generierter Reifen“; der mitgelieferte ist eine Auswahl.
+- Drehung (27.11.): Standard-Drehung des mitgelieferten Reifens −90° (`standard_drehung` in `reifen.json`): „P ZERO“ oben wie beim Porsche 992, Größe rechts, PIRELLI unten links, Außenseite = beschriftete Flanke; zusätzliche Drehung/Umdrehen im Panel addiert sich. Paket mit der Meshy-Felge (vorhandenes Mesh, grau) und diesem Reifen gerendert (`MESHY_GLB=… TIRE=BUNDLED tests/car/render_car.py`).
+- Fehler behoben: verborgene Quell-Collections (Meshy-Quelle, 3D-Felge, 3D-Reifen) waren nur im Viewport, nicht im Rendering verborgen und tauchten beim Rendern in Original-Größe auf (`hide_render`); Tests ergänzt.
+
 ## Drei Methoden + Sattelfarbe (26.11., Version 0.45.0)
 - Vorgabe des Nutzers: oben das Bild, dann Auswahl aus **Lokale KI / Geometry Nodes (erkennt Materialien, Formen) / Meshy**; Bremssattel-Farbe nicht mehr grün, vorerst weiß.
 - Umsetzung: Einstellung `method` (setzt `result_mode`/Anbieter), Operator `felge3d.create_rim` („Felge erstellen“; Meshy öffnet den Kosten-/Bestätigungsdialog), eigene Collection je Methode (`felge3d_method`), `make_meshy_rim` (GLB → sichtbare Felge in Rad-Größe, Quelle `meshy_source` für die vier Räder, die ‚Eigene Felge‘ des Nutzers wird nicht überschrieben); Meshy-Panel nur bei Methode Meshy; Sattelfarbe als Einstellung (`caliper_color`, Standard Weiß; Foto liefert nur noch die Helligkeitsstruktur).
 - Tests: `tests/methods/test_methods.py` (22 Prüfungen), `tests/car/test_car_layout.py` (Sattelfarbe, rechtes Rad, Sturz, Außenseite, Anker-Z, Rad-Empty als Anker abgelehnt, `import_tire`).
+- Meshy-Ausgabe wählbar (27.11.): *Mit Textur (30 Credits)* / *Nur Mesh (20 Credits)*, Credits live aus Modell/Remesh/Preisliste (`meshy_texture_mode`); Standard mit Textur; Meshy-Texturen bleiben in der Felge erhalten. Neues Testfoto IMG_2710 (Mercedes-AMG) in `fotos.json`; Lokale KI und Geometry Nodes getestet (SubD erst mit entzerrter Ellipse brauchbar), Meshy-Aufruf wartet auf Freigabe.
 - Grenzen: Die Meshy-Felge ist grau (Farbe/Textur = Schritt B, noch offen); die Panel-Oberfläche wurde nicht im GUI geklickt, nur Code und Tests; der Meshy-Weg im GUI (Dialog, Job, Import) ist ohne Netz nicht ausgeführt, nur der Import aus einem GLB ist getestet.
 - Reviewer-Auflagen zum Fahrzeug-Paket 0.44.0 umgesetzt: erzeugter Anker folgt der Zollgröße (Boden bei Z = 0), Rad-Empties können nicht Anker sein, zusätzliche Tests (rechtes Rad, Sturz, Außenseite, `import_tire`). Offen: Custom-Normals echter Reifen-Meshes nach der radialen Verformung nicht geprüft.
 

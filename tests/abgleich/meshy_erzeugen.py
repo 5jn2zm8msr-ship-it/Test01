@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
 Meshy-Mesh (Image to 3D, nur Mesh, ai_model "latest") je Foto erzeugen und in out/meshy/<key>.glb ablegen.
-Kostet Credits (ca. 20 je Foto). Existiert die GLB schon, wird NICHT erneut gesendet. Ein Fehler beim Senden wird nie automatisch wiederholt.
+Kostet Credits (mit Textur ca. 30, nur Mesh 20 je Foto). Existiert die GLB schon, wird NICHT erneut gesendet. Ein Fehler beim Senden wird nie automatisch wiederholt.
 Key: kommt nicht aus dem Repo. In der Cloud-Sitzung setzt der Proxy ihn ein (Platzhalter "proxy-injected"); lokal: Umgebungsvariable MESHY_API_KEY.
 REGELN (Nutzervorgabe): 1) Meshy sparsam nutzen: Fotos derselben Felge (Feld "gruppe" in fotos.json) brauchen nur EIN Mesh ("meshy_aus" = Referenzfoto).
 2) Vor JEDEM Lauf den Nutzer fragen; ohne seine ausdrückliche Zusage in dieser Sitzung wird nicht gestartet. Die Zusage wird mit
@@ -26,7 +26,9 @@ def main(keys):
     fotos = json.load(open(os.path.join(HERE, "fotos.json"), encoding="utf-8"))
     outdir = os.path.join(HERE, "out", "meshy")
     os.makedirs(outdir, exist_ok=True)
-    prov = cloud.MeshyProvider(os.environ.get("MESHY_API_KEY", "proxy-injected"), {"ai_model": "latest"})
+    prov = cloud.MeshyProvider(os.environ.get("MESHY_API_KEY", "proxy-injected"),
+                               {"ai_model": "latest", "texture": os.environ.get("MESHY_TEXTUR", "1") != "0",        # Standard: MIT Textur (+10 Credits)
+                                "cache_dir": os.path.join(HERE, "out", "meshy_cache")})
     # gleiche Felge -> nur das Referenzfoto der Gruppe erzeugen
     plan = []
     for k in keys:

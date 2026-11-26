@@ -76,5 +76,31 @@
   },
   "gruppe": "porsche_992_turbo_s_zentralverschluss",
   "meshy_aus": "porsche_gold_IMG_2695"
+ },
+ "mercedes_amg_IMG_2710": {
+  "foto": "../diamond_cut/neue_felgen/mercedes_amg_IMG_2710.jpeg",
+  "ansicht": "leicht schräg (Fass rechts sichtbar)",
+  "speichen": null,
+  "zentrum": "Zentralkappe mit Stern",
+  "farbe": "dunkles Graphit, Speichenkanten diamantgedreht (blank)",
+  "hinweis": "Mercedes-AMG, ohne Reifen, Produktfoto, Beton-/weißer Hintergrund",
+  "gruppe": "mercedes_amg",
+  "brennweite_mm": 135,
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.7,
+    "Roughness": 0.3
+   },
+   "blank": {}
+  },
+  "schraeg": {
+   "yaw_deg": 20.0,
+   "ellipse": [
+    264,
+    293,
+    256,
+    272
+   ]
+  }
  }
 }

@@ -154,7 +154,7 @@ class TripoProvider(Provider):
 class MeshyProvider(Provider):
     """
     Meshy (https://docs.meshy.ai, Stand der Doku: llms-full.txt vom 25.11.2026).
-    Image to 3D (Standard, nur Mesh ohne Textur: should_texture=false), optional Multi-Image to 3D (Front + weitere Ansichten) und
+    Image to 3D (Standard: Mesh mit Textur, Option „texture“; ohne Textur: should_texture=false), optional Multi-Image to 3D (Front + weitere Ansichten) und
     optional Remesh. Auth: „Authorization: Bearer msy_…“. Alle Zeitstempel der API sind Millisekunden.
     Regeln aus der Doku, die hier befolgt werden: Create bei Timeout/5xx NIE automatisch erneut senden (kein Idempotenz-Schlüssel, Task kann
     existieren); Polling mit Retry-After (sonst 5 s); mindestens 60 Minuten ab created_at warten; Dateien sofort laden (Links signiert,
@@ -171,8 +171,9 @@ class MeshyProvider(Provider):
     MESH_CREDITS = {"latest": 20, "meshy-7.1": 20, "meshy-7": 20, "meshy-6": 20, "meshy-6-lite": 5, "meshy-t2": 5, "meshy-t2.5": 5}
     MULTI_MODELS = ("latest", "meshy-7.1", "meshy-6", "meshy-6-lite", "meshy-7")   # Multi-Image to 3D laut Doku; nur für die Kostenanzeige
     REMESH_CREDITS = 5
+    TEXTURE_EXTRA = 10           # Doku „API pricing“: Image to 3D mit 2K-/4K-Textur = Mesh + 10 (latest/meshy-6: 20 -> 30; lite/t2: 5 -> 15); 8K +15
     SMART = ("meshy-t2", "meshy-t2.5")              # Smart-Topology-Modelle brauchen model_type "smart-topology" (nur Image to 3D)
-    cost_note = "Meshy berechnet Credits von deinem Konto pro Generierung (Mesh ohne Textur: je nach Modell 5–20 Credits, Remesh +5)."
+    cost_note = "Meshy berechnet Credits von deinem Konto pro Generierung (Mesh: je nach Modell 5–20 Credits, Textur +10, Remesh +5)."
 
     def _opt(self, name, default=None):
         v = self.options.get(name)
@@ -186,7 +187,7 @@ class MeshyProvider(Provider):
         base = self.MESH_CREDITS.get(model)
         if base is None or (self._multi() and model not in self.MULTI_MODELS):
             return None
-        return base + (self.REMESH_CREDITS if self._opt("remesh") else 0)
+        return base + (self.TEXTURE_EXTRA if self._opt("texture") else 0) + (self.REMESH_CREDITS if self._opt("remesh") else 0)
 
     def _call(self, method, path, payload=None, timeout=60, with_headers=False):
         return http_json(method, self.BASE + path, self.api_key, payload, timeout=timeout, with_headers=with_headers)
@@ -283,7 +284,8 @@ class MeshyProvider(Provider):
         for p in [image_path] + list(extra):
             with open(p, "rb") as fh:
                 h.update(fh.read())
-        h.update(("|%s|%s|%s|%s" % (self._opt("ai_model", "latest"), bool(self._opt("remesh")), self._opt("polycount", ""), self._opt("topology", ""))).encode())
+        h.update(("|%s|%s|%s|%s|tex=%s" % (self._opt("ai_model", "latest"), bool(self._opt("remesh")), self._opt("polycount", ""),
+                                            self._opt("topology", ""), bool(self._opt("texture")))).encode())
         os.makedirs(d, exist_ok=True)
         return os.path.join(d, "meshy_%s.glb" % h.hexdigest()[:20])
 
@@ -304,7 +306,7 @@ class MeshyProvider(Provider):
             path, payload = "/v1/image-to-3d", {"image_url": main_uri, "ai_model": model}
             if model in self.SMART:
                 payload["model_type"] = "smart-topology"
-        payload.update(should_texture=False, target_formats=["glb"])                # nur Mesh, eigene Materialien
+        payload.update(should_texture=bool(self._opt("texture")), target_formats=["glb"])   # Textur nur auf Wunsch (kostet +10 Credits)
         progress(0.08, "Auftrag senden")
         tid = self._create(path, payload, model)
         self.last_task_id = tid                                    # für Meldungen/Wiederherstellung (Task läuft beim Anbieter weiter)

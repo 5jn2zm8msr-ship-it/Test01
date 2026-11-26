@@ -700,14 +700,14 @@ def _brake_vanes(bm, s, r0, r1, xa, xb, n, sweep, width, mat):
             f.smooth = True
 
 
-def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
+def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta, caliper_deg=None):
     """
     Bremse als echtes 3D-Mesh, das Bremsenfoto liegt als Textur auf den passenden Flächen:
       Scheibe: innenbelüftet (zwei Reibringe + 36 gebogene Stege), Topf mit Übergang, Nabenkappe;
       Sattel: Außenplatte (Umriss aus dem Foto), Innenplatte, Brücke über dem Scheibenrand, zwei Bremsbeläge,
               zwei Torx-Schrauben und Entlüfter/Leitung (Positionen aus dem Foto).
-    Die Schlitze der Scheibe kommen als Bump aus dem Foto. Der Sattel wird um die Achse auf c.caliper_angle gedreht
-    (0 = oben, 90 = Richtung Heck); die Textur bleibt an der Geometrie.
+    Die Schlitze der Scheibe kommen als Bump aus dem Foto. Der Sattel wird um die Achse auf caliper_deg gedreht
+    (0 = oben, 90 = Richtung Heck, -90 = Richtung Front; Standard: vorn 90, hinten -90 = beide Richtung Fahrzeugmitte); die Textur bleibt an der Geometrie.
     Rechte Seite (s<0): Geometrie gespiegelt, Textur gespiegelt mit korrigierter Schrift.
     Gibt (Scheibenmesh, Sattelmesh, x_d) zurück.
     """
@@ -884,7 +884,7 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
                 for loop in f.loops:
                     co = loop.vert.co
                     loop[uv_lay].uv = uv_of(co.y / u_m, co.z / u_m)
-    delta = math.radians(90.0 - c.caliper_angle)
+    delta = math.radians(90.0 - (c.front_caliper_angle if caliper_deg is None else caliper_deg))
     if abs(delta) > 1e-6:
         bmesh.ops.rotate(bm, cent=(0.0, 0.0, 0.0), matrix=Matrix.Rotation(delta, 3, 'X'), verts=bm.verts)
     r_max = max(math.hypot(v.co.y, v.co.z) for v in bm.verts)

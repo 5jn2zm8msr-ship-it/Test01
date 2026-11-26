@@ -15,10 +15,19 @@ OUT = sys.argv[-1] if len(sys.argv) > 1 else os.path.join(HERE, "out")
 os.makedirs(OUT, exist_ok=True)
 ab.install_addon()
 sc = bpy.context.scene
-bpy.ops.felge3d.import_image(filepath=os.path.join(ab.REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg"))
+GLB = os.environ.get("MESHY_GLB")                           # vorhandenes Meshy-Mesh als Felge (kein API-Aufruf)
+if GLB:
+    import felge3d
+    sc.felge3d.method = "MESHY"
+    felge3d.make_meshy_rim(bpy.context, sc.felge3d, GLB)
+else:
+    bpy.ops.felge3d.import_image(filepath=os.path.join(ab.REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg"))
+if os.environ.get("TIRE"):                                  # z. B. TIRE=BUNDLED: mitgelieferter Reifen
+    sc.felge3d_car.tire_source = os.environ["TIRE"]
 bpy.ops.felge3d.car_generate()
-sc.felge3d.collection.hide_render = True
-sc.felge3d.collection.hide_viewport = True
+if sc.felge3d.collection is not None:
+    sc.felge3d.collection.hide_render = True
+    sc.felge3d.collection.hide_viewport = True
 ab.setup_world(sc)
 sc.render.engine = "CYCLES"
 sc.cycles.samples = int(os.environ.get("SAMPLES", "32"))
@@ -35,10 +44,13 @@ cam = bpy.data.objects.new("K", bpy.data.cameras.new("K"))
 sc.collection.objects.link(cam)
 sc.camera = cam
 mid = Vector((-1.2285, 0.0, 0.35))
-for name, loc, lens in (("dreiviertel", Vector((2.6, -4.3, 1.4)), 38), ("seite", Vector((-1.2285, -6.5, 0.6)), 45)):
+for name, loc, lens, tgt in (("dreiviertel", Vector((2.6, -4.3, 1.4)), 38, mid), ("seite", Vector((-1.2285, -6.5, 0.6)), 45, mid),
+                             ("nahaufnahme", Vector((0.0, 3.0, 0.45)), 60, Vector((0.0, 0.8, 0.35))),
+                             ("linke_seite", Vector((-1.2285, 6.5, 0.55)), 45, mid),
+                             ("felge_schraeg", Vector((1.5, 2.2, 0.5)), 70, Vector((0.0, 0.8, 0.35)))):
     cam.location = loc
     cam.data.lens = lens
-    cam.rotation_euler = (mid - loc).to_track_quat("-Z", "Y").to_euler()
+    cam.rotation_euler = (tgt - loc).to_track_quat("-Z", "Y").to_euler()
     sc.render.filepath = os.path.join(OUT, "paket_%s.png" % name)
     bpy.ops.render.render(write_still=True)
     print("gerendert:", sc.render.filepath)

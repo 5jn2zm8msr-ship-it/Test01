@@ -143,6 +143,8 @@ def install_addon():
     for f in os.listdir(os.path.join(REPO, "felge3d")):
         if f.endswith((".py", ".toml")):
             shutil.copy(os.path.join(REPO, "felge3d", f), d)
+    if os.path.isdir(os.path.join(REPO, "felge3d", "assets")):                       # mitgelieferte Objekte (assets/) mitkopieren
+        shutil.copytree(os.path.join(REPO, "felge3d", "assets"), os.path.join(d, "assets"))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     addon_utils.enable("felge3d", default_set=True)
 
@@ -316,8 +318,10 @@ def import_meshy(sc, glb, R_target, lipz, piv, rim_ratio):
         if o.parent is None:
             o.parent = holder
         if o.type == "MESH":
-            o.data.materials.clear()
-            o.data.materials.append(clay)
+            has_tex = any(m_ and m_.use_nodes and any(n_.type == "TEX_IMAGE" and n_.image for n_ in m_.node_tree.nodes) for m_ in o.data.materials)
+            if not has_tex:                                  # nur Mesh: Ton-Material; mit Meshy-Textur bleibt das Meshy-Material
+                o.data.materials.clear()
+                o.data.materials.append(clay)
     return col, dict(r_out=float(r_out), ausdehnung_y=float(P[:, 1].max() - P[:, 1].min()), punkte=int(len(P)))
 
 

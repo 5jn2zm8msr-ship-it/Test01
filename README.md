@@ -60,8 +60,17 @@ Siehe **ROADMAP.md** für den Stand und die nächsten Schritte.
 Reiter *2D to 3D Rim*: **1 Bild** laden, **2 Methode** wählen, **Felge erstellen**.
 - **Lokale KI:** KI-Mesh mit Foto-Textur, lokal und kostenlos (gut als Vorlage, schlecht bearbeitbar).
 - **Geometry Nodes:** erkennt Formen und Materialien (blank/schwarz, Diamond Cut) und baut eine bearbeitbare SubD-Felge (Blender 5.3).
-- **Meshy:** Mesh von Meshy (Cloud). Vor jedem Aufruf zeigt der Dialog Kosten und verlangt eine Bestätigung; dasselbe Bild mit gleichen Einstellungen kommt aus dem Cache (keine Credits). Ergebnis: sichtbare Felgen-Collection in Rad-Größe (neutrales Metall, noch ohne Farbe/Textur) und Quelle für die vier Räder.
+- **Meshy:** Mesh von Meshy (Cloud). Auswahl **Mit Textur (30 Credits) / Nur Mesh (20 Credits)** direkt unter der Methode; die Zahlen werden aus Modell, Remesh und Preisliste berechnet. Vor jedem Aufruf zeigt der Dialog Kosten und verlangt eine Bestätigung; dasselbe Bild mit gleichen Einstellungen kommt aus dem Cache (keine Credits). Ergebnis: sichtbare Felgen-Collection in Rad-Größe (neutrales Metall, noch ohne Farbe/Textur) und Quelle für die vier Räder.
 Jede Methode legt eine eigene Collection an (`Felge_01 …`); zwischen ihnen schaltet der Felgen-Umschalter um. Das Paket (Reiter *Package*) nutzt die Felge der gewählten Methode.
 
 **Sattelfarbe:** Reiter *Package* → Optionen → *Sattelfarbe* (Standard Weiß statt Grün); Schrift und Kanten aus dem Foto bleiben als Helligkeitsstruktur sichtbar. Zum Anwenden *Aktualisieren*.
 Tests: `tests/methods/test_methods.py`, `tests/car/test_car_layout.py` (Blender 5.3).
+
+## Mitgelieferter Reifen (ab 0.46.0)
+Reiter *Package* → Box „Reifen“ → **Mitgelieferter Reifen** (Liste). Der Reifen liegt als GLB im Add-on (`felge3d/assets/reifen/`, Liste in `reifen.json`) und wird beim ersten Gebrauch einmal importiert. Er passt sich wie der „Eigene Reifen“ an Zoll, Breite und Querschnitt an (Wulstsitz = Felgenradius), behält Profil und Flankentextur und steht standardmäßig so gedreht, dass „P ZERO“ oben steht (wie beim Porsche 992; Feinkorrektur mit *Reifen drehen*). Mitgeliefert: *Pirelli P Zero (GT, 20 Zoll, Game-Ready)* – nur der Reifen, Felge/Schrauben/Bremse wurden herausgelöst (`tools/extract_tyre_asset.py`).
+Neue Reifen: GLB nach `felge3d/assets/reifen/` legen und in `reifen.json` eintragen; der Update-Knopf kopiert jetzt auch `assets/` (GLB/JSON/MD/Bilder).
+**Credits (CC BY 4.0):** „car tyre game ready p zero“ (https://skfb.ly/oNqAJ) von Iftekhar.Tushar, Lizenz http://creativecommons.org/licenses/by/4.0/ – Änderungen: nur der Reifen herausgelöst, neu exportiert, angepasst. Die Namensnennung steht im Code (`__init__.py`, `assets.py`), in `assets/reifen/reifen.json` und `QUELLE.md`, in den Add-on-Preferences und im Reifen-Bereich des Panels.
+
+## Felge/Reifen-Versatz und Sattelstellung (ab 0.47.0)
+- **Felge nach außen (mm):** Reiter *Package → Optionen*, Standard **5 mm**: Die Felge sitzt in Achsrichtung (Y) so weit außen, dass der Reifen sie nicht abschneidet; die Bremse berücksichtigt den Versatz.
+- **Sattel vorn / hinten (Grad):** Standard **vorn 90°** (von der linken Fahrzeugseite gesehen auf 3 Uhr, Richtung Heck) und **hinten −90°** (9 Uhr, Richtung Front), also immer zur Fahrzeugmitte, wie beim Porsche. 0° = oben.

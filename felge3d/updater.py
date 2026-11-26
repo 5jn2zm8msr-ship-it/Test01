@@ -96,7 +96,7 @@ def remote_version(repo, branch="main", token=""):
 
 
 def install_latest(repo, branch="main", token=""):
-    """Lädt das Repo als ZIP und ersetzt die .py/.toml-Dateien des Add-ons. Gibt Liste der Dateien zurück."""
+    """Lädt das Repo als ZIP und ersetzt die .py/.toml-Dateien, textures/ und assets/ (mitgelieferte 3D-Objekte) des Add-ons. Gibt Liste der Dateien zurück."""
     urls = [
         ("https://codeload.github.com/%s/zip/refs/heads/%s" % (repo, branch), {}),
         ("https://github.com/%s/archive/refs/heads/%s.zip" % (repo, branch), {}),
@@ -120,7 +120,9 @@ def install_latest(repo, branch="main", token=""):
             continue
         rel = name[len(prefix):]
         is_tex = rel.startswith("textures/") and rel.count("/") == 1 and rel.lower().endswith((".jpg", ".jpeg", ".png", ".json"))
-        if not is_tex and ("/" in rel or not rel.endswith((".py", ".toml"))):
+        is_asset = (rel.startswith("assets/") and 2 <= rel.count("/") <= 3 and ".." not in rel.split("/")
+                    and rel.lower().endswith((".glb", ".json", ".md", ".jpg", ".jpeg", ".png")))      # mitgelieferte 3D-Objekte (z. B. Reifen)
+        if not (is_tex or is_asset) and ("/" in rel or not rel.endswith((".py", ".toml"))):
             continue
         os.makedirs(os.path.dirname(os.path.join(ADDON_DIR, rel)), exist_ok=True)
         tmp = os.path.join(ADDON_DIR, rel + ".tmp")

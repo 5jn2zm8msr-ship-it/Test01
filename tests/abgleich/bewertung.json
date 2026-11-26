@@ -1077,5 +1077,199 @@
     "kommentar": "5 Y-Speichen, Fenster und Ventilloch geometrisch nah; Nabe geschlossen mit Rändel; nur Ton, Wappen als Relief"
    }
   }
+ },
+ "mercedes_amg_IMG_2710 [Test Mercedes 0.45]": {
+  "version": "Test Mercedes 0.45",
+  "bild": "out/mercedes_amg_IMG_2710_vergleich.png",
+  "info": "4 Speichen · Drehlage -34° · Käfig 1353 Punkte/Sektor (Subdivision) · poliert 52 % · 2 Spiegelung(en) als Material gewertet · Zuordnung sicher 43 % ⚠ unsichere Flächen prüfen",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 47 %, Recall 60 % (F1 53 %) · Speichen 4 (Soll None)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 60 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "blank ΔE 11 (Glanzlicht 95 %: Foto 1.00 / Modell 0.81, Flächenanteil 35 %) · lack ΔE 3 (Glanzlicht 95 %: Foto 1.00 / Modell 0.61, Flächenanteil 49 %)",
+   "zentrum": "Profil-Korrelation -0.59 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius (grober Hilfswert, ±30 %) Foto 2 mm, Modell 36 mm (×19.00)",
+   "wappen": "Wappenfarben Foto: 0 Pixel (Ø – px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.4685380557648832,
+    "recall": 0.6045163868904876,
+    "f1": 0.527911579007642,
+    "speichen_modell": 4,
+    "speichen_soll": null
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 10.875346639774431,
+     "foto": [
+      0.3607843220233917,
+      0.3686274588108063,
+      0.41568630933761597
+     ],
+     "modell": [
+      0.2666666507720947,
+      0.2705881893634796,
+      0.3019607961177826
+     ],
+     "hell95_foto": 0.9999999403953552,
+     "hell95_modell": 0.8081029057502747,
+     "anteil": 0.3459585435402501
+    },
+    "lack": {
+     "de": 3.132194720308086,
+     "foto": [
+      0.37254902720451355,
+      0.3803921937942505,
+      0.41960787773132324
+     ],
+     "modell": [
+      0.3490196168422699,
+      0.35686275362968445,
+      0.38431379199028015
+     ],
+     "hell95_foto": 0.9999999403953552,
+     "hell95_modell": 0.6089397668838501,
+     "anteil": 0.49035972801052863
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": -0.5873372939743832,
+    "kappe_foto_mm": 1.8720901645045112,
+    "kappe_modell_mm": 35.569713125585714,
+    "verhaeltnis": 19.0
+   },
+   "wappen": {
+    "foto": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": null,
+  "meshy_maske": {
+   "fit": null,
+   "messung": null,
+   "auto": null
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.0534488991908857,
+   "kreis_px": [
+    294.2999929189682,
+    312.2999918460846,
+    289.5159700512886
+   ],
+   "bild_px": [
+    585,
+    585
+   ],
+   "yaw_deg": 0.0
+  }
+ },
+ "mercedes_amg_IMG_2710 [Test Mercedes 0.45 entzerrt]": {
+  "version": "Test Mercedes 0.45 entzerrt",
+  "bild": "out/mercedes_amg_IMG_2710_vergleich.png",
+  "info": "5 Speichen · Drehlage 52° · Käfig 1269 Punkte/Sektor (Subdivision) · poliert 44 % · 5 Spiegelung(en) als Material gewertet · Zuordnung sicher 48 % ⚠ unsichere Flächen prüfen · Felgenhorn poliert",
+  "auto": {
+   "genauigkeit": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten) · Speichen im Modell: 5 (Soll None)",
+   "speichenform": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "speichenfarbe": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "zentrum": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "wappen": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)",
+   "verschluss": "n/a (Schrägbild: Messung nicht belastbar, bitte am Bild bewerten)"
+  },
+  "messung": {},
+  "meshy": null,
+  "meshy_maske": {
+   "fit": null,
+   "messung": null,
+   "auto": null
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.1856847426470587,
+   "kreis_px": [
+    264.0,
+    293.0,
+    272.0
+   ],
+   "bild_px": [
+    585,
+    585
+   ],
+   "yaw_deg": 20.0
+  }
  }
 }

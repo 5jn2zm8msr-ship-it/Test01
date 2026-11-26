@@ -14,7 +14,8 @@ Quelle dieser Regeln: Vorgaben des Nutzers aus dem bisherigen Verlauf (Entwurf, 
 ## Messung / Freigabe
 - `python tests/diamond_cut/eval_diamond_cut.py` (Ziel: Flächengenauigkeit ≥ 98 %); IoU und Ring-IoU dürfen nicht schlechter werden.
 - Regression über die Testfelgen (`testfelgen/`): Speichenzahl, Drehlage, „Zuordnung sicher“, offene Kanten, Käfiggröße.
-- Ein Schritt gilt als erledigt, wenn kein Messwert schlechter ist als zuvor (Subagent `reviewer`).
+- Ein Schritt gilt als erledigt, wenn kein Messwert schlechter ist als zuvor. **Der Subagent `reviewer` ist auf Wunsch des Nutzers dauerhaft pausiert (27.11.2026)**: nicht mehr starten. Stattdessen die Tests selbst ausführen (`tests/car`, `tests/methods`, `tests/cloud`, Diamond-Cut-Regression) und Ergebnisse ehrlich melden.
+- **Pushen:** Fertige Änderungen ohne Rückfrage auf `dev` committen und pushen (nie `main`); kein Reviewer-Gate mehr. Meshy-Aufrufe bleiben freigabepflichtig (siehe unten).
 - Bilder (Renderings, Abgleich) mit schwarzer Backplate; nicht beschnittene Speichen zeigen.
 
 ## Meshy-Credits (Vorgabe des Nutzers, 25.11.2026)

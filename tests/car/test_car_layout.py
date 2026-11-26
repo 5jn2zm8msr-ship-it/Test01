@@ -18,6 +18,8 @@ os.makedirs(d)
 for f in os.listdir(os.path.join(REPO, "felge3d")):
     if f.endswith((".py", ".toml")):
         shutil.copy(os.path.join(REPO, "felge3d", f), d)
+if os.path.isdir(os.path.join(REPO, "felge3d", "assets")):                       # mitgelieferte Objekte (assets/) mitkopieren
+    shutil.copytree(os.path.join(REPO, "felge3d", "assets"), os.path.join(d, "assets"))
 bpy.ops.wm.read_factory_settings(use_empty=True)
 addon_utils.enable("felge3d", default_set=True)
 import felge3d  # noqa: E402
@@ -30,6 +32,15 @@ def check(name, cond, info=""):
     global bad
     print("OK   " if cond else "FEHLT", name, info)
     bad += 0 if cond else 1
+
+
+def tire_dims(obj_name):
+    ob = bpy.data.objects[obj_name]
+    n = len(ob.data.vertices)
+    v = np.empty(n * 3)
+    ob.data.vertices.foreach_get("co", v)
+    v = v.reshape(-1, 3)
+    return np.hypot(v[:, 1], v[:, 2]).max(), v[:, 0].max() - v[:, 0].min()
 
 
 sc = bpy.context.scene
@@ -75,14 +86,35 @@ def world_pts(ob):
     return out
 
 
+FACE5 = {}
 for n, sg in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("Hinten rechts", -1)):
     w = bpy.data.objects["Rad " + n]
     rim_ob = next(o for o in w.children if o.name.startswith("Felge") and o.type == "MESH")
     face_out = (world_pts(rim_ob)[:, 1] * sg).max()
+    FACE5[n] = face_out
     disc_c = (world_pts(bpy.data.objects["Bremsscheibe " + n])[:, 1] * sg).mean()
     check("Felgenfläche liegt außen, Bremse innen davon (%s)" % n, face_out - disc_c > 0.03, "Fläche %.3f / Scheibe %.3f" % (face_out, disc_c))
     up = w.matrix_world.to_3x3() @ mathutils.Vector((0, 0, 1))
     check("Sturz: Radoberkante nach innen (%s)" % n, up.y * sg < -0.01, "up.y=%.3f" % up.y)
+
+# Felge 5 mm nach außen (Standard), Verschiebung wirkt in Achsrichtung nach außen; Sättel Richtung Fahrzeugmitte
+check("Standard: Felge 5 mm nach außen", abs(c.rim_offset - 5.0) < 1e-9)
+c.rim_offset = 0.0
+bpy.ops.felge3d.car_update()
+dg = bpy.context.evaluated_depsgraph_get()
+for n, sg in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("Hinten rechts", -1)):
+    rim_ob = next(o for o in bpy.data.objects["Rad " + n].children if o.name.startswith("Felge") and o.type == "MESH")
+    f0 = (world_pts(rim_ob)[:, 1] * sg).max()
+    check("Felge liegt mit 5 mm Versatz 5 mm weiter außen (%s)" % n, abs((FACE5[n] - f0) - 0.005) < 0.0006, "%.2f mm" % (1000 * (FACE5[n] - f0)))
+c.rim_offset = 5.0
+bpy.ops.felge3d.car_update()
+check("Sattelwinkel Standard: vorn 90°, hinten −90° (Richtung Fahrzeugmitte)", c.front_caliper_angle == 90 and c.rear_caliper_angle == -90)
+for n in ("Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts"):
+    w = bpy.data.objects["Rad " + n]
+    cal = world_pts(bpy.data.objects["Bremssattel " + n])
+    dx = cal[:, 0].mean() - w.matrix_world.translation.x
+    want = -1 if n.startswith("Vorne") else 1             # vorn: Sattel hinter der Achse (−X), hinten: vor der Achse (+X) = Fahrzeugmitte
+    check("Sattel zeigt zur Fahrzeugmitte (%s)" % n, dx * want > 0.04, "dx=%.3f m" % dx)
 
 # erzeugter Anker folgt dem Reifenradius, solange Z nicht verstellt wurde (Boden bleibt bei 0)
 c.front_rim = 19
@@ -90,6 +122,35 @@ bpy.ops.felge3d.car_update()
 d19b = carmod.wheel_dims(c, True)
 check("Anker-Z folgt der Zollgröße (Boden bei 0)", abs(anchor.location.z - d19b["R"]) < 1e-6, "%.4f / %.4f" % (anchor.location.z, d19b["R"]))
 c.front_rim = 20
+bpy.ops.felge3d.car_update()
+
+# Mitgelieferter Reifen (assets/reifen): einmal importiert, Textur bleibt, Größe passt sich an
+c.tire_source = "COLLECTION"
+c.tire_collection = None
+c.tire_source = "BUNDLED"
+check("mitgelieferte Reifen in der Liste", len(felge3d.assets.tyre_list()) >= 1 and c.tire_bundled == felge3d.assets.tyre_list()[0]["id"], c.tire_bundled)
+r_ = bpy.ops.felge3d.car_update()
+check("Update mit mitgeliefertem Reifen", r_ == {"FINISHED"})
+dB = carmod.wheel_dims(c, True)
+tb_ = [o.name for o in bpy.data.collections[carmod.COLL_NAME].all_objects if o.name == "Reifen Vorne links"]
+check("mitgelieferter Reifen am Rad", len(tb_) == 1 and any(n_.type == "TEX_IMAGE" for n_ in bpy.data.objects[tb_[0]].data.materials[0].node_tree.nodes), str(tb_))
+roB, wdB = tire_dims(tb_[0])
+check("mitgelieferter Reifen: Radius und Breite = Reifenmaße", abs(roB - dB["R"]) < 0.004 and abs(wdB - dB["W"]) < 0.004, "%.3f/%.3f %.3f/%.3f" % (roB, dB["R"], wdB, dB["W"]))
+vB = np.empty(len(bpy.data.objects[tb_[0]].data.vertices) * 3)
+bpy.data.objects[tb_[0]].data.vertices.foreach_get("co", vB)
+vB = vB.reshape(-1, 3)
+check("mitgelieferter Reifen: Wulst sitzt auf dem Felgenradius", abs(np.hypot(vB[:, 1], vB[:, 2]).min() - dB["r_rim"]) < 0.004, "%.3f / %.3f" % (np.hypot(vB[:, 1], vB[:, 2]).min(), dB["r_rim"]))
+mats_ = bpy.data.objects[tb_[0]].data.materials
+check("mitgelieferter Reifen: Textur bleibt erhalten", len(mats_) >= 1 and any(n_.type == "TEX_IMAGE" and n_.image for n_ in mats_[0].node_tree.nodes))
+te_ = felge3d.assets.tyre_entry("pzero_gt")
+check("Credits: Autor, Quelle und Lizenz CC BY 4.0 vorhanden", te_["autor"] == "Iftekhar.Tushar" and te_["quelle_url"] == "https://skfb.ly/oNqAJ"
+      and te_["lizenz"] == "CC BY 4.0" and te_["lizenz_url"].startswith("http://creativecommons.org/licenses/by/4.0"), str(te_.get("autor")))
+check("Credits: Änderungen genannt, Zeilen für die Oberfläche", bool(te_.get("aenderungen")) and len(felge3d.assets.all_credits()) >= 4)
+check("Standard-Drehung des Reifens (P ZERO oben): -90°", abs(te_["standard_drehung"] + 90.0) < 1e-9)
+check("mitgelieferter Reifen: nur ein Import (Collection einmalig)", len([x for x in bpy.data.collections if x.name.startswith(felge3d.assets.PREFIX)]) == 1)
+check("alle vier Räder mit dem mitgelieferten (texturierten) Reifen", all(any(n2.type == "TEX_IMAGE" for n2 in bpy.data.objects["Reifen " + n_].data.materials[0].node_tree.nodes)
+      for n_ in ("Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts")))
+c.tire_source = "GENERATED"
 bpy.ops.felge3d.car_update()
 
 # Rad-Empties können nicht Anker sein
@@ -126,14 +187,6 @@ check("nach Update nicht mehr veraltet", not felge3d.car_is_stale(s, c))
 check("Anker bleibt derselbe Empty und an derselben Stelle", c.car_anchor is anchor and tuple(anchor.location) == moved, str(tuple(anchor.location)))
 check("nur ein Anker im Paket", sum(1 for o in bpy.data.collections[carmod.COLL_NAME].all_objects if o.get("felge3d_role") == "car_anchor") == 1)
 
-
-def tire_dims(obj_name):
-    ob = bpy.data.objects[obj_name]
-    n = len(ob.data.vertices)
-    v = np.empty(n * 3)
-    ob.data.vertices.foreach_get("co", v)
-    v = v.reshape(-1, 3)
-    return np.hypot(v[:, 1], v[:, 2]).max(), v[:, 0].max() - v[:, 0].min()
 
 
 d19 = carmod.wheel_dims(c, True)
@@ -186,6 +239,7 @@ bpy.ops.mesh.primitive_torus_add(major_radius=0.3, minor_radius=0.12, major_segm
 bpy.context.active_object.rotation_euler = (math.pi / 2, 0, 0)
 bpy.ops.export_scene.gltf(filepath=glb_t, export_format="GLB", use_selection=True)
 bpy.data.objects.remove(bpy.context.active_object)
+check("Reifen-Quelle auch im Rendering verborgen", c.tire_collection is not None and c.tire_collection.hide_render) if bpy.ops.felge3d.import_tire(filepath=glb_t) == {"FINISHED"} else None
 check("import_tire importiert und wählt die Collection", bpy.ops.felge3d.import_tire(filepath=glb_t) == {"FINISHED"} and c.tire_collection is not None
       and c.tire_collection.name.startswith("Rim Generator | 3D-Reifen") and "Ø außen" in c.tire_info, c.tire_info)
 r_ = bpy.ops.felge3d.car_update()

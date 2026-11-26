@@ -1,0 +1,19 @@
+{
+ "reifen": [
+  {
+   "id": "pzero_gt",
+   "name": "Pirelli P Zero (GT, 20 Zoll, Game-Ready)",
+   "datei": "pzero_gt.glb",
+   "beschreibung": "Reifen mit Profil und Flankentextur (PBR), nur der Reifen: Felge, Schrauben und Bremse wurden entfernt. Größe, Breite und Wulstsitz werden an Zoll und Reifenmaße angepasst.",
+   "titel": "car tyre game ready p zero",
+   "autor": "Iftekhar.Tushar",
+   "quelle_url": "https://skfb.ly/oNqAJ",
+   "lizenz": "CC BY 4.0",
+   "lizenz_url": "http://creativecommons.org/licenses/by/4.0/",
+   "aenderungen": "Nur der Reifen aus dem Gesamtmodell herausgelöst (Felge, Radschrauben, Bremsscheibe und Bremssattel entfernt), als GLB neu exportiert; beim Bau an Radius, Breite und Wulstsitz angepasst und gedreht.",
+   "standard_drehung": -90.0,
+   "standard_umdrehen": false,
+   "hinweis_drehung": "P ZERO oben (wie beim Porsche 992), Größe und PIRELLI an der Flanke außen"
+  }
+ ]
+}

@@ -22,6 +22,8 @@ os.makedirs(d)
 for f in os.listdir(os.path.join(REPO, "felge3d")):
     if f.endswith((".py", ".toml")):
         shutil.copy(os.path.join(REPO, "felge3d", f), d)
+if os.path.isdir(os.path.join(REPO, "felge3d", "assets")):                       # mitgelieferte Objekte (assets/) mitkopieren
+    shutil.copytree(os.path.join(REPO, "felge3d", "assets"), os.path.join(d, "assets"))
 bpy.ops.wm.read_factory_settings(use_empty=True)
 addon_utils.enable("felge3d", default_set=True)
 import felge3d  # noqa: E402
@@ -81,10 +83,13 @@ prefs.meshy_key = ns["FAKE_KEY"]
 prefs.meshy_model = "meshy-6"
 p = felge3d.make_provider(s)
 check("Fabrik: Meshy mit Modell aus Preferences", isinstance(p, cloud.MeshyProvider) and p.options["ai_model"] == "meshy-6")
-check("Kostentext", "20 Credits" in felge3d.cost_text(p), felge3d.cost_text(p))
+check("Kostentext (Standard mit Textur) = 30", "30 Credits" in felge3d.cost_text(p), felge3d.cost_text(p))
+s.meshy_texture_mode = "MESH"
+check("Kostentext nur Mesh = 20", "20 Credits" in felge3d.cost_text(felge3d.make_provider(s)), felge3d.cost_text(felge3d.make_provider(s)))
 s.meshy_remesh = True
-check("Kostentext mit Remesh = 25", "25 Credits" in felge3d.cost_text(felge3d.make_provider(s)))
+check("Kostentext nur Mesh mit Remesh = 25", "25 Credits" in felge3d.cost_text(felge3d.make_provider(s)))
 s.meshy_remesh = False
+s.meshy_texture_mode = "TEX"
 prefs.meshy_model = ""
 check("leeres Modell -> latest", felge3d.make_provider(s).options["ai_model"] == "latest")
 

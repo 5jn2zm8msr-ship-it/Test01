@@ -19,6 +19,8 @@ os.makedirs(d)
 for f in os.listdir(os.path.join(REPO, "felge3d")):
     if f.endswith((".py", ".toml")):
         shutil.copy(os.path.join(REPO, "felge3d", f), d)
+if os.path.isdir(os.path.join(REPO, "felge3d", "assets")):                       # mitgelieferte Objekte (assets/) mitkopieren
+    shutil.copytree(os.path.join(REPO, "felge3d", "assets"), os.path.join(d, "assets"))
 bpy.ops.wm.read_factory_settings(use_empty=True)
 addon_utils.enable("felge3d", default_set=True)
 import felge3d  # noqa: E402
@@ -61,6 +63,19 @@ check("Methode SUBD setzt EDIT", s.result_mode == "EDIT")
 check("Felge erstellen (SUBD)", bpy.ops.felge3d.create_rim() == {"FINISHED"})
 check("keine dritte Collection (gleiches Bild, gleiche Methode)", len(paramui.rim_collections()) == 2)
 
+# 3b) Meshy: Auswahl Mit Textur / Nur Mesh mit Credits in Klammern
+tex_items = {i[0]: i[1] for i in felge3d.meshy_texture_items(s, bpy.context)}      # dynamische Auswahl: Items-Funktion der Eigenschaft
+check("Meshy-Auswahl: Mit Textur / Nur Mesh", set(tex_items) == {"TEX", "MESH"}, str(tex_items))
+check("Credits in Klammern (Textur 30, nur Mesh 20)", "(30 Credits)" in tex_items["TEX"] and "(20 Credits)" in tex_items["MESH"], str(tex_items))
+check("Standard = mit Textur", s.meshy_texture_mode == "TEX" and felge3d.make_provider(s, "MESHY").options["texture"] is True)
+s.meshy_texture_mode = "MESH"
+check("Nur Mesh: Option aus, Kosten 20", felge3d.make_provider(s, "MESHY").options["texture"] is False and felge3d.make_provider(s, "MESHY").estimate_credits() == 20)
+s.meshy_remesh = True
+tex_items = {i[0]: i[1] for i in felge3d.meshy_texture_items(s, bpy.context)}      # dynamische Auswahl: Items-Funktion der Eigenschaft
+check("Remesh wird in den Credits berücksichtigt (35 / 25)", "(35 Credits)" in tex_items["TEX"] and "(25 Credits)" in tex_items["MESH"], str(tex_items))
+s.meshy_remesh = False
+s.meshy_texture_mode = "TEX"
+
 # 4) Meshy: Einstellungen, kein Bau beim Bildladen (kostenpflichtig)
 s.method = "MESHY"
 check("Methode MESHY setzt Anbieter Meshy", s.cloud_provider == "MESHY" and s.mesh_source == "CLOUD")
@@ -86,7 +101,7 @@ for o in list(bpy.data.objects):
 col = felge3d.make_meshy_rim(bpy.context, s, glb)
 check("Meshy-Felge: neue Felgen-Collection mit Methode MESHY", col["felge3d_method"] == "MESHY" and col in paramui.rim_collections())
 check("Meshy-Felge: Mesh-Objekt mit Rolle meshy", any(o.get("felge3d_role") == "meshy" and o.type == "MESH" for o in col.objects))
-check("Meshy-Quelle verborgen gespeichert", s.meshy_source is not None and s.meshy_source.hide_viewport)
+check("Meshy-Quelle verborgen (Viewport UND Rendering)", s.meshy_source is not None and s.meshy_source.hide_viewport and s.meshy_source.hide_render)
 bpy.context.view_layer.update()
 mob = next(o for o in col.objects if o.get("felge3d_role") == "meshy")
 v = np.empty(len(mob.data.vertices) * 3)
