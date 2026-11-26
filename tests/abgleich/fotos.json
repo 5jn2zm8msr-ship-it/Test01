@@ -20,7 +20,8 @@
    0.2854
   ],
   "gruppe": "porsche_992_turbo_s_zentralverschluss",
-  "meshy_aus": "porsche_gold_IMG_2695"
+  "meshy_aus": "porsche_gold_IMG_2695",
+  "maske_aus_meshy": false
  },
  "porsche_gold_IMG_2695": {
   "foto": "../diamond_cut/neue_felgen/porsche_gold_IMG_2695.jpg",
@@ -40,7 +41,8 @@
    }
   },
   "gruppe": "porsche_992_turbo_s_zentralverschluss",
-  "meshy_aus": "porsche_gold_IMG_2695"
+  "meshy_aus": "porsche_gold_IMG_2695",
+  "maske_aus_meshy": false
  },
  "porsche_silber_IMG_2700": {
   "foto": "../diamond_cut/neue_felgen/porsche_silber_IMG_2700.png",

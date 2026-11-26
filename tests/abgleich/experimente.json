@@ -1,0 +1,75 @@
+{
+ "A1_meshy_maske": {
+  "datum": "2026-11-25",
+  "beschreibung": "Meshy-Silhouette (Referenz gold) als mask_image; Kanten ±3 px, Hilfswerte (Präzision/Recall/F1 in %)",
+  "ausrichtung": {
+   "gold": {
+    "skala": 1.005,
+    "dx": 3,
+    "dy": 16,
+    "treffer_vorher": 0.339,
+    "treffer_nachher": 0.81
+   },
+   "graphit": {
+    "skala": 1.0,
+    "dx": 0,
+    "dy": 0,
+    "treffer_vorher": 0.634,
+    "treffer_nachher": 0.634
+   }
+  },
+  "ergebnisse": [
+   {
+    "foto": "gold",
+    "bau": "normal, N=10 (Automatik)",
+    "praez": 36,
+    "recall": 24,
+    "f1": 29,
+    "speichen": 10
+   },
+   {
+    "foto": "gold",
+    "bau": "mit Meshy-Maske (Bau nimmt N=10)",
+    "praez": 33,
+    "recall": 22,
+    "f1": 26,
+    "speichen": 10
+   },
+   {
+    "foto": "gold",
+    "bau": "normal, N=5 erzwungen",
+    "praez": 38,
+    "recall": 44,
+    "f1": 41,
+    "speichen": 5,
+    "zuordnung_sicher": 85,
+    "poliert": 57
+   },
+   {
+    "foto": "gold",
+    "bau": "mit Meshy-Maske, N=5 erzwungen (greift nicht: Bau nimmt N=10)",
+    "praez": 32,
+    "recall": 22,
+    "f1": 26,
+    "speichen": 10
+   },
+   {
+    "foto": "graphit",
+    "bau": "normal, N=5 (Automatik)",
+    "praez": 41,
+    "recall": 80,
+    "f1": 54,
+    "speichen": 5
+   },
+   {
+    "foto": "graphit",
+    "bau": "mit Meshy-Maske (Bau nimmt N=10)",
+    "praez": 50,
+    "recall": 25,
+    "f1": 33,
+    "speichen": 10
+   }
+  ],
+  "fazit": "Bei gleichem N (gold, beide N=10) nur 3 Punkte schlechter (F1 29 -> 26); bei graphit ist der Vergleich mit N=5 gegen N=10 vermischt. Kein Gewinn -> verworfen."
+ }
+}

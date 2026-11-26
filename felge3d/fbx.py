@@ -200,3 +200,60 @@ def back_profile(parts, x_lip, width_s, bin_mm=3.0):
     def f(radius):
         return float(np.interp(radius, rr, xx))
     return f
+
+
+# ---------------------------------------------------------------- eigener Reifen
+def tire_fit(objs, flip=False):
+    """
+    Achse, Mitte, Innen-/Außenradius und Breite eines Reifen-Meshs. Rückgabe: dict(R, center, t_mid, width, r_out, r_in).
+    R = 3x3 (Welt -> Rad, Zeilen: Achse, Y, oben), t_mid = Mitte der Lauffläche entlang der Achse.
+    """
+    info = analyze(objs, flip)
+    P = collect_points(objs)
+    Q = (P - info["center"]) @ info["R"].T
+    t = Q[:, 0]
+    rho = np.hypot(Q[:, 1], Q[:, 2])
+    lo, hi = float(np.percentile(t, 0.05)), float(np.percentile(t, 99.95))
+    return dict(R=info["R"], center=info["center"], t_mid=0.5 * (lo + hi), width=hi - lo,
+                r_out=float(np.percentile(rho, 99.95)), r_in=float(np.percentile(rho, 0.05)), n_points=int(len(P)))
+
+
+def bake_tire(objs, tf, r_rim, R_out, width, sgn, name, rot_deg=0.0):
+    """
+    Reifen in Radkoordinaten backen und an die Zielgröße anpassen: der Radius wird linear zwischen Wulstsitz (r_in -> r_rim, Felgenradius)
+    und Lauffläche (r_out -> R_out) abgebildet, die Breite auf `width`. sgn = -1: Rad um die Hochachse gedreht (Außenseite nach -X).
+    Gibt Liste (label, mesh) zurück.
+    """
+    T = np.eye(4)
+    T[:3, :3] = tf["R"]
+    T[:3, 3] = -tf["R"] @ tf["center"] - np.array([tf["t_mid"], 0.0, 0.0])
+    k = (R_out - r_rim) / max(tf["r_out"] - tf["r_in"], 1e-9)
+    sx = width / max(tf["width"], 1e-9)
+    th = np.radians(rot_deg)
+    c_, s_ = np.cos(th), np.sin(th)
+    out = []
+    for i, o in enumerate(objs):
+        me = o.data.copy()
+        M = Matrix(T.tolist()) @ o.matrix_world
+        me.transform(M)
+        if M.determinant() < 0:
+            me.flip_normals()
+        n = len(me.vertices)
+        co = np.empty(n * 3, np.float64)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        x, y, z = co[:, 0].copy(), co[:, 1].copy(), co[:, 2].copy()
+        rho = np.hypot(y, z)
+        new = r_rim + (rho - tf["r_in"]) * k
+        f = np.where(rho > 1e-9, new / np.maximum(rho, 1e-9), 1.0)
+        y, z = y * f, z * f
+        y, z = y * c_ - z * s_, y * s_ + z * c_
+        x = x * sx
+        if sgn < 0:
+            x, y = -x, -y
+        co = np.stack([x, y, z], axis=1)
+        me.vertices.foreach_set("co", co.ravel())
+        me.name = "%s %d" % (name, i)
+        me.update()
+        out.append((o.name, me))
+    return out

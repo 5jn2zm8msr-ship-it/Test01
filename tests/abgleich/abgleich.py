@@ -7,7 +7,7 @@ Umgebung: SAMPLES (48), MAXPX (1100), LABEL (Versionsbezeichnung in der Matrix),
 Achtung: überschreibt das Add-on „felge3d“ im Blender-Benutzerordner dieser Blender-Installation (nur Testumgebung verwenden).
 
 Ausgabe je Foto (OUT = tests/abgleich/out/):  <key>_vergleich.png
-  Zeile 1: 1 Foto | 2 Mesh lokal (KI-Mesh) | 3 SubD lokal | 4 Meshy (nur Mesh, out/meshy/<key>.glb, falls vorhanden)
+  Zeile 1: 1 Foto | 2 Mesh lokal (KI-Mesh) | 3 SubD lokal | 4 Meshy (nur Mesh, Referenz der Gruppe) | 5 SubD mit Meshy-Maske (cfg "maske_aus_meshy")
   Zeile 2: Überlagerung SubD/Foto | Kanten (rot Foto, cyan Nachbau, gelb deckungsgleich) | Nabe 3x (oben Foto, unten SubD)
 und ein Eintrag mit Automesswerten in bewertung.json. Die Messwerte sind Hilfen, KEINE Note: Noten vergeben Reviewer und Nutzer am Bild.
 
@@ -321,6 +321,48 @@ def import_meshy(sc, glb, R_target, lipz, piv, rim_ratio):
     return col, dict(r_out=float(r_out), ausdehnung_y=float(P[:, 1].max() - P[:, 1].min()), punkte=int(len(P)))
 
 
+def align_meshy_mask(m0, photo, cx, cy, rx):
+    """
+    Silhouette des Meshy-Meshs (Rendering m0) auf das Foto legen: Maßstab und Verschiebung so, dass die Umrisse (Rand, Fenster, Nabe)
+    auf Foto-Kanten liegen. Grobsuche (Gitter) + Feinsuche, bewertet nur an den Umrisspunkten (schnell).
+    Gibt (Maske als bool-Array im Bildraster, dict mit Maßstab/Verschiebung/Trefferquote) zurück.
+    """
+    h, w = m0.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    rr = np.hypot(xx - cx, yy - cy)
+    sp = to_srgb(lum(photo))
+    ge = dilate(edge_mask(sp, 0.08, (rr > 0.12 * rx) & (rr < 1.03 * rx)), 2)
+    oy, ox = np.nonzero(outline(m0) & (rr > 0.12 * rx) & (rr < 1.15 * rx))
+    if len(ox) < 50:
+        return m0, dict(skala=1.0, dx=0, dy=0, treffer=0.0, treffer_vorher=0.0)
+
+    def score(sc, dx, dy):
+        x = np.round(cx + sc * (ox - cx) + dx).astype(int)
+        y = np.round(cy + sc * (oy - cy) + dy).astype(int)
+        ok = (x >= 0) & (x < w) & (y >= 0) & (y < h)
+        return float(ge[y[ok], x[ok]].mean()) if ok.any() else 0.0
+    base = score(1.0, 0, 0)
+    best = (base, 1.0, 0, 0)
+    for sc in np.arange(0.90, 1.101, 0.02):
+        for dx in range(-16, 17, 4):
+            for dy in range(-16, 17, 4):
+                v = score(sc, dx, dy)
+                if v > best[0]:
+                    best = (v, sc, dx, dy)
+    v0, sc0, dx0, dy0 = best
+    for sc in np.arange(sc0 - 0.02, sc0 + 0.0201, 0.005):
+        for dx in range(dx0 - 4, dx0 + 5, 1):
+            for dy in range(dy0 - 4, dy0 + 5, 1):
+                v = score(sc, dx, dy)
+                if v > best[0]:
+                    best = (v, sc, dx, dy)
+    v, sc, dx, dy = best
+    sx = np.clip(np.round(cx + (xx - cx - dx) / sc).astype(int), 0, w - 1)
+    sy = np.clip(np.round(cy + (yy - cy - dy) / sc).astype(int), 0, h - 1)
+    m = m0[sy, sx]
+    return m, dict(skala=float(sc), dx=int(dx), dy=int(dy), treffer=float(v), treffer_vorher=float(base))
+
+
 # ------------------------------------------------------------------ Messwerte
 def radial_profile(g, cx, cy, r_max, step=1.0):
     h, w = g.shape
@@ -457,6 +499,8 @@ def run(key, cfg):
         build_path = os.path.join(OUT, key + "_entzerrt.png")
         save_png(to_srgb(dewarp(full, ecx, ecy, ea / eb, half)), build_path)
         cfg = dict(cfg, kreis=[0.5, 0.5, eb / (2.0 * half)])
+    if cfg.get("symmetrie"):                                  # Symmetrieordnung von Hand (z. B. 5 bei Y-Speichen mit zwei Fenstersorten)
+        s.sym_mode, s.sym_n = "MANUAL", int(cfg["symmetrie"])
     if cfg.get("kreis"):
         s.auto_detect = False
         s.center_x, s.center_y, s.radius, s.aspect = cfg["kreis"][0], cfg["kreis"][1], cfg["kreis"][2], 1.0
@@ -550,6 +594,7 @@ def run(key, cfg):
 
     # --- Spalte 4: Meshy
     mz_srgb = np.zeros((h, w, 3), np.float32)
+    mz_alpha = None
     meshy_info = None
     glb = os.path.join(HERE, "out", "meshy", cfg.get("meshy_aus", key) + ".glb")      # gleiche Felge = EIN Meshy-Mesh (Gruppe)
     if os.path.isfile(glb):
@@ -559,12 +604,47 @@ def run(key, cfg):
             show_only(all_cols, col_mz)
             bpy.context.view_layer.update()
             arr = render_to_array(sc, os.path.join(OUT, key + "_render_meshy.png"))
+            mz_alpha = np.clip(arr[..., 3], 0, 1)
             mz_srgb = to_srgb(arr[..., :3] * np.clip(arr[..., 3:4], 0, 1))
             log("Render Meshy ok", meshy_info)
         except Exception as e:  # noqa: BLE001
             log("Meshy-Render fehlgeschlagen:", e)
     else:
         log("kein Meshy-Mesh vorhanden:", glb)
+
+    # --- Spalte 5 (A1): SubD mit der an das Foto angelegten Meshy-Silhouette als Maske (nur Frontalfotos)
+    mm_srgb = np.zeros((h, w, 3), np.float32)
+    mm_m = None
+    mm_fit = None
+    if cfg.get("maske_aus_meshy") and mz_alpha is not None and not sch:
+        try:
+            mask_b, mm_fit = align_meshy_mask(mz_alpha > 0.5, photo, cx, cy, rx)
+            log("Meshy-Maske angelegt:", mm_fit)
+            mpath = os.path.join(OUT, key + "_meshy_maske.png")
+            save_png(np.repeat(mask_b[..., None].astype(np.float32), 3, axis=2), mpath)
+            s.mask_image = bpy.data.images.load(mpath, check_existing=True)
+            s.result_mode, s.use_param = "EDIT", True
+            col_mm, _ = felge3d.build_wheel(bpy.context, s, new_collection=True)
+            info_mm = col_mm.get("felge3d_detect_info", "")
+            log("Bau SubD mit Meshy-Maske:", info_mm)
+            root_mm = next(o for o in col_mm.objects if o.get("felge3d_role") == "root")
+            root_mm.parent = piv
+            all_cols.append(col_mm)
+            rim_mm = paramui.Rim(col_mm)
+            mb2, mf2 = set_zone_colors(rim_mm, body_rgb, front_rgb, cfg.get("oberflaeche", {}))
+            show_only(all_cols, col_mm)
+            bpy.context.view_layer.update()
+            alpha2, red2, blue2 = id_pass(sc, mb2, mf2, os.path.join(OUT, key + "_id_mm.png"))
+            arr = render_to_array(sc, os.path.join(OUT, key + "_render_mm.png"))
+            mm_lin = arr[..., :3] * np.clip(arr[..., 3:4], 0, 1)
+            mm_srgb = to_srgb(mm_lin)
+            det_mm = json.loads(col_mm.get("felge3d_detect", "{}"))
+            mm_m = measure(photo, mm_srgb, mm_lin, alpha2, red2, blue2, cx, cy, rx, det_mm.get("n"), cfg.get("speichen"), mm_per_px)
+            mm_fit["info"] = info_mm
+        except Exception as e:  # noqa: BLE001
+            log("SubD mit Meshy-Maske fehlgeschlagen:", e)
+        finally:
+            s.mask_image = None
 
     if sch:                                                   # Schrägbild: Messwerte nicht belastbar (Tiefe, Perspektive) -> n/a, nur Sichtprüfung
         m = {}
@@ -600,7 +680,7 @@ def run(key, cfg):
     else:
         hub = np.concatenate([zoom(ps), zoom(subd_srgb)], axis=0)
     hub = resample(hub, h, int(hub.shape[1] * h / hub.shape[0]))
-    row1 = np.concatenate([ps, ki_srgb, subd_srgb, mz_srgb], axis=1)
+    row1 = np.concatenate([ps, ki_srgb, subd_srgb, mz_srgb] + ([mm_srgb] if mm_m is not None else []), axis=1)
     row2 = np.concatenate([blend, edges, hub], axis=1)
     W = max(row1.shape[1], row2.shape[1])
     pad = lambda r_: np.pad(r_, ((0, 0), (0, W - r_.shape[1]), (0, 0)))   # noqa: E731
@@ -617,6 +697,8 @@ def run(key, cfg):
     old = rows.get(ek, {}).get("bewertung") if os.environ.get("KEEP_RATINGS") == "1" else None
     rows[ek] = dict(version=label, bild=os.path.relpath(png, HERE).replace(os.sep, "/"), info=info, auto=auto,
                     messung=json.loads(json.dumps(m, default=float)), meshy=meshy_info,
+                    meshy_maske=dict(fit=mm_fit, messung=json.loads(json.dumps(mm_m, default=float)) if mm_m else None,
+                                     auto=fmt_auto(mm_m) if mm_m else None),
                     bewertung=old or {k_["id"]: dict(reviewer=None, nutzer=None, kommentar="") for k_ in krit},
                     kamera=dict(brennweite_mm=cfg.get("brennweite_mm", 135.0), abstand_m=dist, kreis_px=[cx, cy, rx], bild_px=[w, h],
                                 yaw_deg=sch["yaw_deg"] if sch else 0.0))

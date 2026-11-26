@@ -6,7 +6,8 @@ Geometrie (Reifenprofil, Bremsscheibe, Monobloc-Sattel, Decals) stammt aus dem S
 "Automotive Wheel & Brake Studio" (v3.1). Die Felge selbst kommt aus dem Felgenfoto (Schritt 1).
 
 Lokales Radsystem: Ursprung = Radmitte, Achse = X. s = +1/-1: Außenseite zeigt nach +X/-X.
-Winkel beta wird von +Z Richtung +Y gemessen. Front des Fahrzeugs zeigt nach -Y.
+Winkel beta wird von +Z Richtung +Y gemessen. Front des Fahrzeugs zeigt im lokalen Radsystem nach -Y.
+Im Paket stehen die Räder um 90° um Z gedreht an einem Anker-Empty: Achse = Welt-Y, Radstand = Welt-X (Front = +X, links = +Y).
 """
 import math
 
@@ -187,13 +188,43 @@ def _photo_nodes(m, img, bump, bump_dist):
     return bsdf, tex, bw
 
 
-def brake_photo_mat(name, img):
-    """Sattel: Klarlack (Coat) auf Farbe aus dem Foto; Schrift/Kratzer als leichter Bump."""
+def brake_photo_mat(name, img, tint=None):
+    """
+    Sattel: Klarlack (Coat); Schrift/Kratzer als leichter Bump. Ohne tint kommt die Farbe aus dem Foto, mit tint (sRGB-Werte 0..1,
+    z. B. Weiß) bestimmt der Nutzer die Farbe: das Foto liefert nur noch die Helligkeitsstruktur (Schrift, Kanten, Schatten).
+    """
     m = get_mat(name, (.4, .4, .4), .38, 0.0)
+    for n in [n for n in m.node_tree.nodes if n.type in ('MATH', 'COMBINE_COLOR')]:       # Farbknoten eines früheren Baus entfernen
+        m.node_tree.nodes.remove(n)
     bsdf, tex, bw = _photo_nodes(m, img, 0.35, 0.0015)
     if bsdf:
         _set_input(bsdf, ("Coat Weight", "Clearcoat"), 0.75)
         _set_input(bsdf, ("Coat Roughness", "Clearcoat Roughness"), 0.07)
+        if tint is not None:
+            lin = tuple(max(0.0, float(v)) ** 2.2 for v in tint)
+            m.diffuse_color = (*lin, 1.0)
+            nt = m.node_tree
+            for l in list(bsdf.inputs["Base Color"].links):
+                nt.links.remove(l)
+            bsdf.inputs["Base Color"].default_value = (*lin, 1.0)
+            if bw is not None:                              # Helligkeit des Fotos (0.35..1) moduliert die gewählte Farbe
+                x0, y0 = bsdf.location.x, bsdf.location.y
+                mr = nt.nodes.new('ShaderNodeMapRange')
+                mr.inputs["From Min"].default_value, mr.inputs["From Max"].default_value = 0.0, 0.7
+                mr.inputs["To Min"].default_value, mr.inputs["To Max"].default_value = 0.35, 1.0
+                mr.clamp = True
+                mr.location = (x0 - 460, y0 + 60)
+                nt.links.new(bw.outputs["Val"], mr.inputs["Value"])
+                comb = nt.nodes.new('ShaderNodeCombineColor')
+                comb.location = (x0 - 240, y0 + 60)
+                for i, ch in enumerate(("Red", "Green", "Blue")):
+                    mul = nt.nodes.new('ShaderNodeMath')
+                    mul.operation = 'MULTIPLY'
+                    mul.location = (x0 - 330, y0 + 260 - 70 * i)
+                    nt.links.new(mr.outputs["Result"], mul.inputs[0])
+                    mul.inputs[1].default_value = lin[i]
+                    nt.links.new(mul.outputs[0], comb.inputs[ch])
+                nt.links.new(comb.outputs[0], bsdf.inputs["Base Color"])
     return m
 
 
@@ -220,6 +251,7 @@ def brake_disc_mat(name, img):
 
 
 def build_materials(c, tire_img=None, tread_img=None, tread_h=None, brake_imgs=None, cal_color=None):
+    """cal_color: sRGB-Werte der Sattelfarbe (Einstellung „Sattelfarbe“); None = Farbe aus dem Foto."""
     """Materialliste in der Reihenfolge der Indizes RUB ... BRM, BRD, BRDM, PAD (siehe oben)."""
     top, top_img = decal_mat(PREFIX + "Decal Flanke oben", c.decal_sidewall_top, (.8, .8, .8), .55, 0)
     bot, bot_img = decal_mat(PREFIX + "Decal Flanke unten", c.decal_sidewall_bottom, (.8, .8, .8), .55, 0)
@@ -238,8 +270,8 @@ def build_materials(c, tire_img=None, tread_img=None, tread_h=None, brake_imgs=N
         top, bot, cal,
         tire_photo_mat(tire_img),
         tread_mat(tread_img, tread_h),
-        brake_photo_mat(PREFIX + 'Bremse links', (brake_imgs or (None, None))[0]),
-        brake_photo_mat(PREFIX + 'Bremse rechts', (brake_imgs or (None, None))[1]),
+        brake_photo_mat(PREFIX + 'Bremse links', (brake_imgs or (None, None))[0], cal_color),
+        brake_photo_mat(PREFIX + 'Bremse rechts', (brake_imgs or (None, None))[1], cal_color),
         brake_disc_mat(PREFIX + 'Bremsscheibe links', (brake_imgs or (None, None))[0]),
         brake_disc_mat(PREFIX + 'Bremsscheibe rechts', (brake_imgs or (None, None))[1]),
         get_mat(PREFIX + 'Bremsbelag', (.025, .025, .027), .92, 0.05),
@@ -868,10 +900,14 @@ def build_brake(c, d, s, mats, name, x_m, back_fn, r_well, bmeta):
     return me_d, me_c, x_d
 
 
-def clear_old():
+def clear_old(keep=()):
+    """Altes Paket entfernen; Objekte in `keep` (z. B. der Anker-Empty mit der vom Nutzer eingestellten Lage) bleiben erhalten."""
     old = bpy.data.collections.get(COLL_NAME)
     if not old:
         return
+    for o in keep:
+        if o is not None and o.name in old.objects:
+            old.objects.unlink(o)
     meshes = {o.data for o in old.all_objects if o.type == 'MESH'}
     for o in list(old.all_objects):
         bpy.data.objects.remove(o, do_unlink=True)

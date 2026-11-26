@@ -47,3 +47,21 @@ Quelle: dieses Repository, Ordner `felge3d/` (Modulname bleibt `felge3d`).
 - `testfelgen/` – 20 Testfotos; `assets/` – Quellbilder (Reifen, Profil, Bremse)
 
 Siehe **ROADMAP.md** für den Stand und die nächsten Schritte.
+
+
+## Fahrzeug-Paket (4 Räder) – Anker-Empty, Achse Y, Radstand X, eigener Reifen (ab 0.44.0)
+- **Ausrichtung:** Radstand immer in **X** (Front = +X), Achsen immer in **Y** (links = +Y), Boden bei Z = 0.
+- **Fahrzeug-Empty:** Reiter *Package* → „Fahrzeug-Empty (Mitte Vorderachse)“. Der Picker wählt einen beliebigen Empty (leer lassen = es wird einer angelegt, Radmitte auf Höhe des Vorderreifenradius). Seine **X- und Z-Lage** bestimmt die Vorderachse; die Felder X/Z stehen direkt im Panel. Alle vier Räder hängen am Empty: **Verschieben bewegt das ganze Paket**.
+- **Eigener Reifen:** Box „Reifen“ → *Eigener Reifen*: Collection wählen oder *3D-Reifen importieren…* (FBX/OBJ/glTF). Achse, Mitte, Außen- und Wulstradius und Breite werden erkannt; beim Bau wird der Reifen an Zoll, Reifenbreite und Querschnitt angepasst (Wulst sitzt auf dem Felgenradius). *Reifen umdrehen* und *Reifen drehen (Grad)* für Beschriftung/Ventil.
+- **Aktualisieren:** Ändert man Zoll, Reifen, Spur, Quellen u. Ä., erscheint „Parameter geändert – bitte aktualisieren“; **Aktualisieren** baut das Paket neu, **die Lage des Empties bleibt erhalten**.
+- Test: `/tmp/venv53/bin/python tests/car/test_car_layout.py` (Blender 5.3), Sichtprüfung: `tests/car/render_car.py`.
+
+## Drei Methoden, eine Auswahl (ab 0.45.0)
+Reiter *2D to 3D Rim*: **1 Bild** laden, **2 Methode** wählen, **Felge erstellen**.
+- **Lokale KI:** KI-Mesh mit Foto-Textur, lokal und kostenlos (gut als Vorlage, schlecht bearbeitbar).
+- **Geometry Nodes:** erkennt Formen und Materialien (blank/schwarz, Diamond Cut) und baut eine bearbeitbare SubD-Felge (Blender 5.3).
+- **Meshy:** Mesh von Meshy (Cloud). Vor jedem Aufruf zeigt der Dialog Kosten und verlangt eine Bestätigung; dasselbe Bild mit gleichen Einstellungen kommt aus dem Cache (keine Credits). Ergebnis: sichtbare Felgen-Collection in Rad-Größe (neutrales Metall, noch ohne Farbe/Textur) und Quelle für die vier Räder.
+Jede Methode legt eine eigene Collection an (`Felge_01 …`); zwischen ihnen schaltet der Felgen-Umschalter um. Das Paket (Reiter *Package*) nutzt die Felge der gewählten Methode.
+
+**Sattelfarbe:** Reiter *Package* → Optionen → *Sattelfarbe* (Standard Weiß statt Grün); Schrift und Kanten aus dem Foto bleiben als Helligkeitsstruktur sichtbar. Zum Anwenden *Aktualisieren*.
+Tests: `tests/methods/test_methods.py`, `tests/car/test_car_layout.py` (Blender 5.3).
