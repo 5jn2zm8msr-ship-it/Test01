@@ -54,6 +54,7 @@ check("Anker-Empty gesetzt, Typ EMPTY", anchor is not None and anchor.type == "E
 check("Anker im Paket", anchor.name in col.objects)
 dims_f = carmod.wheel_dims(c, True)
 check("Anker Z = Vorderreifenradius (Boden bei 0)", abs(anchor.location.z - dims_f["R"]) < 1e-6, "%.4f" % anchor.location.z)
+check("Standard-Spurweite: vorn 2,00 m, hinten 2,10 m", c.front_track == 2000 and c.rear_track == 2100, "%s / %s" % (c.front_track, c.rear_track))
 names = {"Vorne links": (0.0, 1), "Vorne rechts": (0.0, -1), "Hinten links": (-c.wheelbase / 1000.0, 1), "Hinten rechts": (-c.wheelbase / 1000.0, -1)}
 bpy.context.view_layer.update()
 for n, (dx, sg) in names.items():
@@ -64,6 +65,10 @@ for n, (dx, sg) in names.items():
     check("Rad %s: X = Radstand, Y = Spur" % n, abs(w.x - (anchor.location.x + dx)) < 1e-4 and abs(w.y - sg * half) < 1e-4, "(%.3f %.3f %.3f)" % tuple(w))
     ax = ob.matrix_world.to_3x3() @ __import__("mathutils").Vector((1, 0, 0))
     check("Rad %s: Achse = Y" % n, abs(ax.y) > 0.999 and abs(ax.x) < 0.05, "(%.3f %.3f %.3f)" % tuple(ax))
+bpy.context.view_layer.update()
+check("Abstand der Radmitten in Y: vorn 2,000 m, hinten 2,100 m",
+      abs((bpy.data.objects["Rad Vorne links"].matrix_world.translation.y - bpy.data.objects["Rad Vorne rechts"].matrix_world.translation.y) - 2.0) < 1e-4
+      and abs((bpy.data.objects["Rad Hinten links"].matrix_world.translation.y - bpy.data.objects["Rad Hinten rechts"].matrix_world.translation.y) - 2.1) < 1e-4)
 check("Radstand vorn/hinten in X",
       abs((bpy.data.objects["Rad Vorne links"].matrix_world.translation.x - bpy.data.objects["Rad Hinten links"].matrix_world.translation.x) - c.wheelbase / 1000.0) < 1e-4)
 check("links = +Y, rechts = -Y", bpy.data.objects["Rad Vorne links"].matrix_world.translation.y > 0 > bpy.data.objects["Rad Vorne rechts"].matrix_world.translation.y)

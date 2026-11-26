@@ -83,3 +83,6 @@ Methode *Meshy*: Das oben geladene Bild ist das Hauptbild (Vorderansicht). Mit d
 
 ## Felge steckt nie im Reifen (ab 0.50.0)
 Reiter *Package → Optionen → Felge automatisch frei vom Reifen* (Standard an). Nach jedem Bau und jedem *Aktualisieren* misst das Add-on je Rad, ob die Felge im Randbereich (Felgenradius −4 mm bis +40 mm, in 2-mm-Ringen) in die Reifenflanke ragt, und schiebt sie dann genau so weit nach außen (plus 1 mm Luft), dass sie ganz sichtbar ist. Es gilt für jede Felge (Foto/KI, Geometry Nodes, Meshy, eigene 3D-Felge) und jeden Reifen (generiert, mitgeliefert, eigen). Der Wert steht am Rad-Empty („Felge automatisch nach außen (mm)“) und in der Meldung. Der feste Versatz *Felge nach außen (mm)* (Standard 5 mm) bleibt als Grundwert davor.
+
+## Standard-Spurweite (ab 0.51.0)
+Standard: **vorn 2,00 m, hinten 2,10 m** (Abstand der Radmitten links/rechts, Einstellung *Spurweite vorn/hinten (mm)* im Package-Reiter, 1200–2200 mm). Der Radstand bleibt 2457 mm.

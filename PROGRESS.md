@@ -63,6 +63,9 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Standard-Spurweite 2,00 m / 2,10 m (27.11., Version 0.51.0)
+- Vorgabe des Nutzers: „Standardbreite immer 2 Meter, hinten 2,10 Meter“. Gedeutet als Spurweite (Abstand der Radmitten links/rechts): `front_track` 2000 mm, `rear_track` 2100 mm (vorher 1630/1582 mm). Felgen- und Reifenbreiten bleiben unverändert. Test in `tests/car/test_car_layout.py`.
+
 ## Felge/Reifen: automatisch frei (27.11., Version 0.50.0)
 - Problem (Nutzer): Die Meshy-Felge schnitt den Reifen und war nicht ganz zu sehen; es soll immer funktionieren, nicht nur mit festen 5 mm.
 - Messung: Mit der echten 992-Meshy-Felge und dem Pirelli-Reifen überlappte die Felge trotz 5 mm Versatz vorn 5,95 mm, hinten 3,71 mm; auch Foto-Felge + generierter Reifen lag im Standard etwas zu tief (die Automatik schob dort ca. 4,6 mm nach).

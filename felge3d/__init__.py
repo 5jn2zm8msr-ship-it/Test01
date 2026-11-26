@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 50, 0),
+    "version": (0, 51, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1674,10 +1674,10 @@ class FELGE3D_PT_advanced(Panel):
 
 # ============================================================ Schritt 2: Fahrzeug-Paket (4 Räder)
 class Felge3DCar(PropertyGroup):
-    """Maße vom Porsche 911 GT3 RS (992), Datenblatt MY P 08/2022 – alle Werte änderbar."""
+    """Maße vom Porsche 911 GT3 RS (992), Datenblatt MY P 08/2022 – alle Werte änderbar. Standard-Spurweite (Nutzervorgabe): vorn 2,00 m, hinten 2,10 m."""
     wheelbase: FloatProperty(name="Radstand (mm)", default=2457, min=1500, max=4000)
-    front_track: FloatProperty(name="Spurweite vorn (mm)", default=1630, min=1200, max=2200)
-    rear_track: FloatProperty(name="Spurweite hinten (mm)", default=1582, min=1200, max=2200)
+    front_track: FloatProperty(name="Spurweite vorn (mm)", default=2000, min=1200, max=2200)
+    rear_track: FloatProperty(name="Spurweite hinten (mm)", default=2100, min=1200, max=2200)
     front_rim: IntProperty(name="Zoll vorn", default=20, min=16, max=24, description="Felgengröße vorn in Zoll")
     rear_rim: IntProperty(name="Zoll hinten", default=21, min=16, max=24, description="Felgengröße hinten in Zoll")
     front_rim_width: FloatProperty(name="Felgenbreite vorn (J)", default=10.0, min=5, max=14)
