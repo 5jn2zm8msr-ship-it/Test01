@@ -122,5 +122,30 @@
   "meshy_extra": [
    "../diamond_cut/neue_felgen/porsche_992_perspektive_ausschnitt_IMG_2714.jpg"
   ]
+ },
+ "porsche_993_einzeln": {
+  "foto": "../diamond_cut/neue_felgen/porsche_993_einzeln.jpg",
+  "ansicht": "frontal",
+  "speichen": 5,
+  "zentrum": "5 Radschrauben, Mittelloch (Wappen-Kappe im zweiten Bild)",
+  "farbe": "Silber lackiert, hochglänzend, Speichen gedreht (Turbo-Twist)",
+  "hinweis": "Porsche 993 Turbo-Twist, 5-Loch; zweites Bild zeigt dieselbe Felge in Perspektive (vier Räder)",
+  "gruppe": "porsche_993_test",
+  "brennweite_mm": 135,
+  "kreis": [
+   0.5,
+   0.497,
+   0.478
+  ],
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.85,
+    "Roughness": 0.22
+   },
+   "blank": {}
+  },
+  "meshy_extra": [
+   "../diamond_cut/neue_felgen/porsche_993_perspektive_ausschnitt.jpg"
+  ]
  }
 }

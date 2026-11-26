@@ -1271,5 +1271,121 @@
    ],
    "yaw_deg": 20.0
   }
+ },
+ "porsche_993_einzeln [Test 993]": {
+  "version": "Test 993",
+  "bild": "out/porsche_993_einzeln_vergleich.png",
+  "info": "5 Speichen · Drehlage 21° · Käfig 331 Punkte/Sektor (Subdivision) · poliert 100 % · 3 Spiegelung(en) als Material gewertet",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 18 %, Recall 15 % (F1 17 %) · Speichen 5 (Soll 5)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 15 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "blank ΔE 13 (Glanzlicht 95 %: Foto 0.95 / Modell 1.00, Flächenanteil 99 %)",
+   "zentrum": "Profil-Korrelation 0.65 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius (grober Hilfswert, ±30 %) Foto 34 mm, Modell 41 mm (×1.21)",
+   "wappen": "Wappenfarben Foto: 0 Pixel (Ø – px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.18230298242148923,
+    "recall": 0.15223850632403133,
+    "f1": 0.16591983162587795,
+    "speichen_modell": 5,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {
+    "blank": {
+     "de": 13.412093753105772,
+     "foto": [
+      0.6431372761726379,
+      0.6078431606292725,
+      0.5568627119064331
+     ],
+     "modell": [
+      0.49803924560546875,
+      0.4745098352432251,
+      0.4313725531101227
+     ],
+     "hell95_foto": 0.9487352967262268,
+     "hell95_modell": 0.9999999403953552,
+     "anteil": 0.9928569960520096
+    }
+   },
+   "zentrum": {
+    "profil_korrelation": 0.6530511795505815,
+    "kappe_foto_mm": 34.01673745362715,
+    "kappe_modell_mm": 41.23240903469957,
+    "verhaeltnis": 1.2121212121212122
+   },
+   "wappen": {
+    "foto": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 0.9513736590404205,
+   "ausdehnung_y": 0.9267437559267413,
+   "punkte": 300000
+  },
+  "meshy_maske": {
+   "fit": null,
+   "messung": null,
+   "auto": null
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.126046090851697,
+   "kreis_px": [
+    550.0,
+    546.7000097036362,
+    525.7999837398529
+   ],
+   "bild_px": [
+    1100,
+    1100
+   ],
+   "yaw_deg": 0.0
+  }
  }
 }

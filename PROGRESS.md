@@ -63,6 +63,12 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Testfelge Porsche 993 (Turbo-Twist, 5-Loch) mit Meshy (27.11.)
+- Bilder (Nutzer): Einzelfoto frontal + vier Räder in Perspektive (daraus eine Felge ausgeschnitten): `tests/diamond_cut/neue_felgen/porsche_993_*.jpg`; Eintrag `porsche_993_einzeln` in `fotos.json` (5 Speichen, Kreis von Hand, `meshy_extra` = Ausschnitt).
+- Meshy: **1 Aufruf** Multi-Image mit Textur, **30 Credits, Guthaben 1010 → 980**; GLB lokal (`out/meshy/porsche_993_einzeln.glb`, 17 MB, gitignored).
+- Vergleich (`out/porsche_993_einzeln_vergleich.png`): Meshy trifft Speichendrehung, fünf Schraubenlöcher und Mittelbohrung am besten; lokale KI brauchbar (Foto-Textur, Ränder wellig); Geometry Nodes liefert nur eine einfache Scheibe mit fünf Fenstern (Messwerte: Kanten-F1 17 %, nur Hilfswerte).
+- Paket mit der Meshy-Felge (Standardmaße 20/21 Zoll, Spur 2,00/2,10 m, mitgelieferter Reifen): Felge frei vom Reifen. **Befund:** Die Meshy-Textur ist beige/warm statt silber und wirkt matt (kein Metall); Abhilfe wäre Schritt B (Einfärben/Material aus dem Foto) – noch offen.
+
 ## Standard-Spurweite 2,00 m / 2,10 m (27.11., Version 0.51.0)
 - Vorgabe des Nutzers: „Standardbreite immer 2 Meter, hinten 2,10 Meter“. Gedeutet als Spurweite (Abstand der Radmitten links/rechts): `front_track` 2000 mm, `rear_track` 2100 mm (vorher 1630/1582 mm). Felgen- und Reifenbreiten bleiben unverändert. Test in `tests/car/test_car_layout.py`.
 
