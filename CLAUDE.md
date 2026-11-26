@@ -18,6 +18,11 @@ Quelle dieser Regeln: Vorgaben des Nutzers aus dem bisherigen Verlauf (Entwurf, 
 - **Pushen:** Fertige Änderungen ohne Rückfrage auf `dev` committen und pushen (nie `main`); kein Reviewer-Gate mehr. Meshy-Aufrufe bleiben freigabepflichtig (siehe unten).
 - Bilder (Renderings, Abgleich) mit schwarzer Backplate; nicht beschnittene Speichen zeigen.
 
+## Standardweg = Meshy (Vorgabe des Nutzers, 27.11.2026)
+- **Lokale KI (KI-Mesh) und Geometry Nodes (SubD) nicht mehr automatisch laufen lassen** (kein Vergleichsblatt, keine Tests an neuen Felgen damit): Sie können laut Nutzer im Vergleich zu Meshy zu wenig. Nur auf ausdrücklichen Wunsch (`LOKAL=1` bei `tests/abgleich/abgleich.py`, Methode im Add-on wählen).
+- Add-on: Standardmethode ist **Meshy** (Bild laden baut nichts). Vergleichsläufe zeigen nur Foto + Meshy-Rendering (`run_meshy`).
+- Tests an der Pipeline selbst (Paket, Methoden-Umschalter, Diamond-Cut-Regression) bleiben und wählen die lokale Methode ausdrücklich.
+
 ## Meshy-Credits (Vorgabe des Nutzers, 25.11.2026)
 - Sparsam nutzen: mehrere Fotos derselben Felge brauchen nur EIN Meshy-Mesh (Gruppe in `tests/abgleich/fotos.json`, `meshy_aus` = Referenzfoto).
 - Vor JEDEM Meshy-Aufruf den Nutzer fragen (Anzahl Aufrufe, geschätzte Credits, Guthaben nennen); ohne ausdrückliche Zusage nichts senden. Das Skript `tests/abgleich/meshy_erzeugen.py` läuft ohne `MESHY_FREIGABE` nur als Trockenlauf.

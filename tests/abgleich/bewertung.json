@@ -1387,5 +1387,98 @@
    ],
    "yaw_deg": 0.0
   }
+ },
+ "porsche_993_einzeln [993 nur Meshy]": {
+  "version": "993 nur Meshy",
+  "bild": "out/porsche_993_einzeln_vergleich_meshy.png",
+  "info": "Meshy-Mesh {'r_out': 0.9513736590404205, 'ausdehnung_y': 0.9267437559267413, 'punkte': 300000}",
+  "auto": {
+   "genauigkeit": "Kanten ±3 px: Präzision 31 %, Recall 7 % (F1 12 %) · Speichen None (Soll 5)",
+   "speichenform": "Recall der Foto-Kanten im Rad: 7 % (Anteil der Speichen-/Fensterkanten, die der Nachbau trifft)",
+   "speichenfarbe": "–",
+   "zentrum": "Profil-Korrelation 0.78 (Helligkeit über dem Radius, r < 0,3 R)",
+   "verschluss": "Kappen-/Verschlussradius (grober Hilfswert, ±30 %) Foto 34 mm, Modell 44 mm (×1.30)",
+   "wappen": "Wappenfarben Foto: 0 Pixel (Ø – px) · Modell: 0 Pixel (kein Wappen im Modell)"
+  },
+  "messung": {
+   "genauigkeit": {
+    "praezision": 0.3109394647027124,
+    "recall": 0.072234491066051,
+    "f1": 0.11723424124736276,
+    "speichen_modell": null,
+    "speichen_soll": 5
+   },
+   "speichenfarbe": {},
+   "zentrum": {
+    "profil_korrelation": 0.7824710300649632,
+    "kappe_foto_mm": 34.01673745362715,
+    "kappe_modell_mm": 44.324839712302044,
+    "verhaeltnis": 1.303030303030303
+   },
+   "wappen": {
+    "foto": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    },
+    "modell": {
+     "n": 0,
+     "cx": null,
+     "cy": null,
+     "ausdehnung": null
+    }
+   }
+  },
+  "meshy": {
+   "r_out": 0.9513736590404205,
+   "ausdehnung_y": 0.9267437559267413,
+   "punkte": 300000
+  },
+  "bewertung": {
+   "genauigkeit": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenform": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "speichenfarbe": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "zentrum": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "wappen": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   },
+   "verschluss": {
+    "reviewer": null,
+    "nutzer": null,
+    "kommentar": ""
+   }
+  },
+  "kamera": {
+   "brennweite_mm": 135,
+   "abstand_m": 2.126046090851697,
+   "kreis_px": [
+    550.0,
+    546.7000097036362,
+    525.7999837398529
+   ],
+   "bild_px": [
+    1100,
+    1100
+   ]
+  }
  }
 }

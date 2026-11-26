@@ -3,6 +3,8 @@
 Bildabgleich (Version 2): Foto <-> Nachbauten, mit Kamera in der Perspektive des Fotos.
 
 Aufruf (Blender 5.3):  /tmp/venv53/bin/python tests/abgleich/abgleich.py <foto-schluessel> [...]
+STANDARD (Nutzerwunsch 27.11.2026): nur Foto + Meshy (run_meshy). Die lokalen Methoden (Lokale KI, Geometry Nodes) laufen NICHT mehr
+mit; nur auf ausdrücklichen Wunsch: LOKAL=1 (run(): Vier-Spalten-Blatt Foto | KI-Mesh | SubD | Meshy).
 Umgebung: SAMPLES (48), MAXPX (1100), LABEL (Versionsbezeichnung in der Matrix), OUT (Ausgabeordner), KEEP_RATINGS=1 (Noten übernehmen).
 Achtung: überschreibt das Add-on „felge3d“ im Blender-Benutzerordner dieser Blender-Installation (nur Testumgebung verwenden).
 
@@ -712,7 +714,121 @@ def run(key, cfg):
     log("fertig %s in %.0f s" % (key, time.time() - t0))
 
 
+
+def run_meshy(key, cfg):
+    """
+    Standardlauf (nur Meshy): Foto | Meshy-Rendering (Kamera in der Perspektive des Fotos) | Überlagerung | Kanten | Nabe 3x.
+    Es wird NICHTS lokal gebaut (weder KI-Mesh noch Geometry Nodes); das Meshy-Mesh muss unter out/meshy/ liegen
+    (erzeugen mit meshy_erzeugen.py, nur nach Freigabe). Lokale Methoden: LOKAL=1 (siehe run()).
+    """
+    t0 = time.time()
+    photo_path = os.path.normpath(os.path.join(HERE, cfg["foto"]))
+    install_addon()
+    import felge3d
+    from felge3d import core
+    sc = bpy.context.scene
+    s = sc.felge3d
+    os.makedirs(OUT, exist_ok=True)
+    if cfg.get("zuschnitt"):
+        src = load_photo(photo_path)
+        H0, W0 = src.shape[:2]
+        x0, y0, x1, y1 = cfg["zuschnitt"]
+        photo_path = os.path.join(OUT, key + "_zuschnitt.png")
+        save_png(to_srgb(src[int(y0 * H0):int(y1 * H0), int(x0 * W0):int(x1 * W0)]), photo_path)
+    glb = os.path.join(HERE, "out", "meshy", cfg.get("meshy_aus", key) + ".glb")
+    if not os.path.isfile(glb):
+        raise SystemExit("Kein Meshy-Mesh für %s (%s): zuerst meshy_erzeugen.py (mit Freigabe) – es wird nichts lokal gebaut." % (key, glb))
+    s.image = bpy.data.images.load(photo_path)
+    sch = cfg.get("schraeg")
+    if cfg.get("kreis"):
+        s.center_x, s.center_y, s.radius, s.aspect = cfg["kreis"][0], cfg["kreis"][1], cfg["kreis"][2], 1.0
+    elif not sch:
+        bpy.ops.felge3d.detect()                              # nur die Kreiserkennung, kein Bau
+    photo_full = load_photo(photo_path)
+    H0, W0 = photo_full.shape[:2]
+    k = min(1.0, MAXPX / max(H0, W0))
+    h, w = int(round(H0 * k)), int(round(W0 * k))
+    photo = resample(photo_full, h, w)
+    cx, cy, rx = s.center_x * w, s.center_y * h, s.radius * w
+    asp = 1.0
+    if sch:
+        cx, cy, rx, asp = sch["ellipse"][0] * k, sch["ellipse"][1] * k, sch["ellipse"][3] * k, sch["ellipse"][2] / sch["ellipse"][3]
+    R, Wd, flange, wall, R_out, r_face, dish = core.dimensions(felge3d.make_params(s))
+    mm_per_px = R_out * 1000.0 / rx
+    lipz = Wd / 2.0
+    setup_world(sc)
+    piv = bpy.data.objects.new("Foto-Drehung", None)
+    sc.collection.objects.link(piv)
+    piv.rotation_euler = (math.radians(sch.get("pitch_deg", 0.0)) if sch else 0.0, 0.0, math.radians(sch["yaw_deg"]) if sch else 0.0)
+    bpy.context.view_layer.update()
+    anchor = piv.matrix_world @ Vector((0.0, -lipz, 0.0))
+    cam, dist = make_camera(sc, cfg, w, h, cx, cy, rx, R_out, anchor)
+    sc.render.engine = "CYCLES"
+    sc.cycles.device = "CPU"
+    sc.cycles.samples = SAMPLES
+    sc.cycles.use_adaptive_sampling = True
+    try:
+        sc.cycles.use_denoising = True
+        sc.cycles.denoiser = "OPENIMAGEDENOISE"
+    except Exception:  # noqa: BLE001
+        pass
+    sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage = w, h, 100
+    sc.render.image_settings.file_format = "PNG"
+    sc.render.image_settings.color_mode = "RGBA"
+    sc.render.film_transparent = True
+    sc.view_settings.view_transform = "Standard"
+    col_mz, minfo = import_meshy(sc, glb, R_out, lipz, piv, float(cfg.get("meshy_felge_zu_modell", 1.0)))
+    arr = render_to_array(sc, os.path.join(OUT, key + "_render_meshy.png"))
+    a = np.clip(arr[..., 3:4], 0, 1)
+    mz_lin = arr[..., :3] * a
+    mz_srgb = to_srgb(mz_lin)
+    alpha = a[..., 0] > 0.5
+    zero = np.zeros_like(alpha)
+    if sch:
+        m, auto = {}, {kr["id"]: "n/a (Schrägbild)" for kr in json.load(open(os.path.join(HERE, "kriterien.json")))["kriterien"]}
+    else:
+        m = measure(photo, mz_srgb, mz_lin, alpha, zero, zero, cx, cy, rx, None, cfg.get("speichen"), mm_per_px)
+        auto = fmt_auto(m)
+    ps = to_srgb(photo)
+    blend = 0.5 * ps + 0.5 * mz_srgb
+    yy, xx = np.mgrid[0:h, 0:w]
+    rr = np.hypot((xx - cx) / asp, yy - cy)
+    ge = edge_mask(to_srgb(lum(photo)), 0.06, (rr < 1.03 * rx) & (rr > 0.12 * rx))
+    edges = np.zeros((h, w, 3), np.float32)
+    edges[ge] = (1.0, 0.25, 0.25)
+    ol_ = dilate(outline(alpha), 1)
+    edges[ol_] = (0.0, 1.0, 1.0)
+    edges[ol_ & dilate(ge, 1)] = (1.0, 1.0, 0.2)
+    rad = int(0.26 * rx)
+    x0, x1, y0, y1 = int(cx) - rad, int(cx) + rad, int(cy) - rad, int(cy) + rad
+
+    def zoom(img):
+        c_ = img[max(y0, 0):min(y1, h), max(x0, 0):min(x1, w)]
+        return resample(c_, h // 2, h // 2) if c_.shape[0] and c_.shape[1] else np.zeros((h // 2, h // 2, 3), np.float32)
+    hub = np.concatenate([zoom(ps), zoom(mz_srgb)], axis=0)
+    hub = resample(hub, h, int(hub.shape[1] * h / hub.shape[0]))
+    sheet = np.concatenate([ps, mz_srgb, blend, edges, hub], axis=1)
+    png = os.path.join(OUT, key + "_vergleich_meshy.png")
+    save_png(sheet, png)
+    log("Blatt (nur Meshy):", png, sheet.shape)
+    label = os.environ.get("LABEL") or "meshy"
+    bj = os.path.join(HERE, "bewertung.json")
+    rows = json.load(open(bj, encoding="utf-8")) if os.path.isfile(bj) else {}
+    krit = json.load(open(os.path.join(HERE, "kriterien.json")))["kriterien"]
+    ek = "%s [%s]" % (key, label)
+    rows[ek] = dict(version=label, bild=os.path.relpath(png, HERE).replace(os.sep, "/"), info="Meshy-Mesh %s" % minfo, auto=auto,
+                    messung=json.loads(json.dumps(m, default=float)), meshy=minfo,
+                    bewertung={k_["id"]: dict(reviewer=None, nutzer=None, kommentar="") for k_ in krit},
+                    kamera=dict(brennweite_mm=cfg.get("brennweite_mm", 135.0), abstand_m=dist, kreis_px=[cx, cy, rx], bild_px=[w, h]))
+    json.dump(rows, open(bj, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    for k_, v_ in auto.items():
+        log("  %-14s %s" % (k_, v_))
+    log("fertig %s (nur Meshy) in %.0f s" % (key, time.time() - t0))
+
 if __name__ == "__main__":
     fotos = json.load(open(os.path.join(HERE, "fotos.json"), encoding="utf-8"))
     for kk in (sys.argv[1:] or list(fotos)):
-        run(kk, fotos[kk])
+        if os.environ.get("LOKAL") == "1":                       # Lokale KI und Geometry Nodes NUR auf ausdrücklichen Wunsch
+            run(kk, fotos[kk])
+        else:
+            run_meshy(kk, fotos[kk])

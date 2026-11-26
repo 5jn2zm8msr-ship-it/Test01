@@ -86,3 +86,6 @@ Reiter *Package → Optionen → Felge automatisch frei vom Reifen* (Standard an
 
 ## Standard-Spurweite (ab 0.51.0)
 Standard: **vorn 2,00 m, hinten 2,10 m** (Abstand der Radmitten links/rechts, Einstellung *Spurweite vorn/hinten (mm)* im Package-Reiter, 1200–2200 mm). Der Radstand bleibt 2457 mm.
+
+## Standardmethode Meshy (ab 0.52.0)
+Die Standardmethode im Reiter *2D to 3D Rim* ist jetzt **Meshy**: Bild laden baut nichts, erst *Felge erstellen* (mit Kostenhinweis und Bestätigung) startet den Aufruf. *Lokale KI* und *Geometry Nodes* bleiben wählbar, laufen aber nur, wenn man sie ausdrücklich auswählt. Vergleichsläufe (`tests/abgleich/abgleich.py`) zeigen standardmäßig nur Foto + Meshy; mit `LOKAL=1` kommen die lokalen Spalten dazu.

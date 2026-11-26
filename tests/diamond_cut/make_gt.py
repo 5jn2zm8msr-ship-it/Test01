@@ -33,6 +33,7 @@ def main(name):
     cfg = CASES[name]
     ev.install()
     import felge3d
+    bpy.context.scene.felge3d.method = "SUBD"
     bpy.ops.felge3d.import_image(filepath=os.path.join(ev.HERE, cfg["photo"]))
     s = bpy.context.scene.felge3d
     gray, cx, cy, rx, ry = felge3d.prepare(s)

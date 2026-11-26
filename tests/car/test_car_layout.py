@@ -45,6 +45,7 @@ def tire_dims(obj_name):
 
 sc = bpy.context.scene
 s, c = sc.felge3d, sc.felge3d_car
+s.method = "SUBD"                                            # lokale Methode nur hier, ausdrücklich gewählt
 bpy.ops.felge3d.import_image(filepath=os.path.join(REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg"))
 r = bpy.ops.felge3d.car_generate()
 check("Paket erzeugt", r == {"FINISHED"})

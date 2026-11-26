@@ -78,6 +78,7 @@ def raster(cage, cx, cy, rx, ry, R_out, H, W):
 def evaluate(case):
     import felge3d
     from felge3d import core, paramui
+    bpy.context.scene.felge3d.method = "SUBD"                  # lokale Methode ausdrücklich (Standard ist Meshy)
     bpy.ops.felge3d.import_image(filepath=os.path.join(HERE, case["photo"]))
     s = bpy.context.scene.felge3d
     col = s.collection

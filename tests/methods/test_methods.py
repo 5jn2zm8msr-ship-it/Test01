@@ -38,11 +38,12 @@ def check(name, cond, info=""):
 sc = bpy.context.scene
 s, c = sc.felge3d, sc.felge3d_car
 photo = os.path.join(REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg")
-check("Standard-Methode = Geometry Nodes", s.method == "SUBD" and s.result_mode == "EDIT")
+check("Standard-Methode = Meshy (lokale Methoden nur auf ausdrücklichen Wunsch)", s.method == "MESHY" and s.cloud_provider == "MESHY" and s.mesh_source == "CLOUD")
 items = [i.identifier for i in s.bl_rna.properties["method"].enum_items]
 check("drei Methoden zur Auswahl", items == ["AI", "SUBD", "MESHY"], str(items))
 
-# 1) Geometry Nodes (Standard)
+# 1) Geometry Nodes (ausdrücklich gewählt)
+s.method = "SUBD"
 bpy.ops.felge3d.import_image(filepath=photo)
 rims = paramui.rim_collections()
 check("Geometry Nodes: Collection mit Methode SUBD", len(rims) == 1 and rims[0]["felge3d_method"] == "SUBD" and paramui.param_object_of(rims[0]) is not None)

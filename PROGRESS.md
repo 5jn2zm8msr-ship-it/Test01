@@ -63,6 +63,11 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Meshy als Standard, lokale Methoden nur auf Wunsch (27.11., Version 0.52.0)
+- Vorgabe des Nutzers: das eingebaute KI-Tool und Geometry Nodes nicht immer laufen lassen (können im Vergleich zu Meshy wenig).
+- Umsetzung: Add-on-Standard `method` = Meshy (`cloud_provider` Meshy, `mesh_source` Cloud); `tests/abgleich/abgleich.py` läuft standardmäßig nur Foto + Meshy (`run_meshy`, ca. 21 s statt 90 s, kein lokaler Bau; ohne vorhandenes Meshy-Mesh bricht er ab); lokale Spalten nur mit `LOKAL=1`; Tests wählen die lokale Methode ausdrücklich; Regel in `CLAUDE.md`.
+- Tests grün (Blender 5.3): methods, car, cloud (Mock + Blender); Diamond-Cut Volvo unverändert 98,0 % / 88,0 % / 80,0 %.
+
 ## Testfelge Porsche 993 (Turbo-Twist, 5-Loch) mit Meshy (27.11.)
 - Bilder (Nutzer): Einzelfoto frontal + vier Räder in Perspektive (daraus eine Felge ausgeschnitten): `tests/diamond_cut/neue_felgen/porsche_993_*.jpg`; Eintrag `porsche_993_einzeln` in `fotos.json` (5 Speichen, Kreis von Hand, `meshy_extra` = Ausschnitt).
 - Meshy: **1 Aufruf** Multi-Image mit Textur, **30 Credits, Guthaben 1010 → 980**; GLB lokal (`out/meshy/porsche_993_einzeln.glb`, 17 MB, gitignored).

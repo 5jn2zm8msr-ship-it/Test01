@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 51, 0),
+    "version": (0, 52, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -115,7 +115,7 @@ def method_of_collection(col):
 
 
 class Felge3DSettings(PropertyGroup):
-    method: EnumProperty(name="Methode", default="SUBD", update=_method_changed, items=[
+    method: EnumProperty(name="Methode", default="MESHY", update=_method_changed, items=[
         ("AI", "Lokale KI", "Foto -> KI-Mesh mit Foto-Textur auf diesem Rechner (kostenlos); gut als Vorlage, schlecht bearbeitbar"),
         ("SUBD", "Geometry Nodes", "Erkennt Formen, blank/schwarz (Diamond Cut) und Materialien und baut eine bearbeitbare SubD-Felge (Blender 5.3)"),
         ("MESHY", "Meshy", "Mesh von Meshy (Cloud, verbraucht Credits; vor jedem Aufruf Kosten und Bestätigung)")],
@@ -131,10 +131,10 @@ class Felge3DSettings(PropertyGroup):
         ("EDIT", "Bearbeitbare Geometrie (SubD)", "Grober Käfig + Subdivision Surface + Creases, direkt aus dem Foto (nur Blender 5.3)"),
         ("KI", "KI-Mesh (Textur)", "Hochaufgelöstes Mesh mit Foto-Textur, nicht gut bearbeitbar")],
         description="Entweder ein KI-Mesh mit Textur oder eine saubere, bearbeitbare Geometrie – ohne Zwischenschritt über das KI-Mesh")
-    mesh_source: EnumProperty(name="Mesh-Quelle", default="LOCAL", items=[
+    mesh_source: EnumProperty(name="Mesh-Quelle", default="CLOUD", items=[
         ("LOCAL", "Lokal (Standard)", "Foto -> KI-Mesh auf diesem Rechner, kostenlos"),
         ("CLOUD", "Cloud-API", "Mesh bei einem Anbieter erzeugen lassen (kostenpflichtig, Key in den Preferences)")])
-    cloud_provider: EnumProperty(name="Anbieter", default="TRIPO", items=[
+    cloud_provider: EnumProperty(name="Anbieter", default="MESHY", items=[
         ("TRIPO", "Tripo", "Tripo API"), ("MESHY", "Meshy", "Meshy API (Image to 3D, nur Mesh ohne Textur)")])
     meshy_texture_mode: EnumProperty(name="Meshy-Ausgabe", items=meshy_texture_items,
                                      description="Mit oder ohne Textur; die Credits stehen in Klammern (Textur kostet laut Preisliste 10 Credits mehr)")
