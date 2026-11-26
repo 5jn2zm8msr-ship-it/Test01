@@ -166,6 +166,11 @@ check("Paket aus Meshy-Felge erzeugt", r == {"FINISHED"})
 wheels = [o for o in bpy.data.objects if o.name.startswith("Rad ") and o.type == "EMPTY"]
 rim_children = {w.name: [k.name for k in w.children if k.type == "MESH" and not k.name.startswith(("Reifen", "Bremse"))] for w in wheels}
 check("4 Räder, an jedem eine Felge aus dem Meshy-Mesh", len(wheels) == 4 and all(len(v) >= 1 for v in rim_children.values()), str(rim_children))
+def _ov(front, sg, nm):
+    return 1000 * felge3d.rim_tyre_overlap(bpy.context, bpy.data.objects[nm], sg, felge3d.car.wheel_dims(c, front)["r_rim"])
+bpy.context.view_layer.update()
+ovm = [_ov(f_, sg_, "Rad %s %s" % ("Vorne" if f_ else "Hinten", sd_)) for f_ in (True, False) for sg_, sd_ in ((1, "links"), (-1, "rechts"))]
+check("Meshy-Felge steckt nicht im Reifen (alle vier Räder)", max(ovm) < 0.2, str([round(x, 2) for x in ovm]))
 check("Methodenwechsel -> Update-Hinweis", (setattr(s, "method", "SUBD") or True) and felge3d.car_is_stale(s, c))
 print("\nFehlgeschlagen:", bad)
 sys.exit(1 if bad else 0)

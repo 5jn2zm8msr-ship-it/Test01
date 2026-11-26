@@ -80,3 +80,6 @@ Reiter *Package → Optionen → Bremse wächst mit der Felge* (Standard an): Sc
 
 ## Meshy mit 1 bis 3 Bildern (ab 0.49.0)
 Methode *Meshy*: Das oben geladene Bild ist das Hauptbild (Vorderansicht). Mit dem kleinen **+** neben „Bilder für Meshy“ öffnet sich ein zweites Bildfeld, mit nochmal **+** ein drittes (insgesamt höchstens 3); das **−** schließt das letzte Feld wieder. Mit nur einem Bild funktioniert alles wie bisher (Image to 3D); mit 2–3 Bildern nutzt das Add-on Multi-Image to 3D – ein Aufruf, gleicher Preis (mit Textur 30 Credits). Bilder müssen als Datei vorliegen; der Bestätigungsdialog nennt die Bildanzahl.
+
+## Felge steckt nie im Reifen (ab 0.50.0)
+Reiter *Package → Optionen → Felge automatisch frei vom Reifen* (Standard an). Nach jedem Bau und jedem *Aktualisieren* misst das Add-on je Rad, ob die Felge im Randbereich (Felgenradius −4 mm bis +40 mm, in 2-mm-Ringen) in die Reifenflanke ragt, und schiebt sie dann genau so weit nach außen (plus 1 mm Luft), dass sie ganz sichtbar ist. Es gilt für jede Felge (Foto/KI, Geometry Nodes, Meshy, eigene 3D-Felge) und jeden Reifen (generiert, mitgeliefert, eigen). Der Wert steht am Rad-Empty („Felge automatisch nach außen (mm)“) und in der Meldung. Der feste Versatz *Felge nach außen (mm)* (Standard 5 mm) bleibt als Grundwert davor.

@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 49, 0),
+    "version": (0, 50, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1727,6 +1727,10 @@ class Felge3DCar(PropertyGroup):
         name="Sattel hinten (Grad)", default=-90, min=-180, max=180,
         description="Sattel der Hinterachse um die Achse gedreht: 0 = oben, 90 = Richtung Heck, -90 = Richtung Front (9 Uhr, von der linken "
                     "Fahrzeugseite gesehen). Standard -90: zur Fahrzeugmitte, wie beim Porsche")
+    rim_auto_clear: BoolProperty(
+        name="Felge automatisch frei vom Reifen", default=True,
+        description="Nach dem Bau wird gemessen, ob die Felge im Randbereich in die Reifenflanke ragt; falls ja, wird sie genau so weit nach außen "
+                    "geschoben (plus 1 mm Luft), dass sie ganz sichtbar ist. Gilt für jede Felge (Foto, Meshy, eigene) und jeden Reifen")
     rim_offset: FloatProperty(
         name="Felge nach außen (mm)", default=5.0, min=-30, max=40,
         description="Verschiebt die Felge in Achsrichtung nach außen (Y), damit sie vollständig sichtbar vor dem Reifen sitzt und nicht vom Reifen "
@@ -1867,6 +1871,50 @@ def car_signature(s, c):
     return repr(vals)
 
 
+def _local_points(dg, ob, inv_parent):
+    """Eckpunkte eines (ausgewerteten) Objekts im lokalen Rad-Koordinatensystem des Parents."""
+    ev = ob.evaluated_get(dg)
+    me = ev.to_mesh()
+    n = len(me.vertices)
+    if n == 0:
+        ev.to_mesh_clear()
+        return np.zeros((0, 3))
+    v = np.empty(n * 3)
+    me.vertices.foreach_get("co", v)
+    v = v.reshape(-1, 3)
+    M = np.array(inv_parent @ ev.matrix_world)
+    out = v @ M[:3, :3].T + M[:3, 3]
+    ev.to_mesh_clear()
+    return out
+
+
+def rim_tyre_overlap(context, parent, sgn, r_rim):
+    """
+    Wie weit (m) muss die Felge nach außen, damit sie im Randbereich nicht in der Reifenflanke steckt? Je 2-mm-Radiusring (Felgenradius
+    -4 mm … +40 mm) wird die äußerste Lage der Felge mit der äußersten Lage des Reifens verglichen (nach außen = sgn · X im Radsystem).
+    Gibt 0 zurück, wenn nichts überlappt oder Felge/Reifen fehlen.
+    """
+    dg = context.evaluated_depsgraph_get()
+    inv = parent.matrix_world.inverted()
+    rim, tyre = [], []
+    for ch in parent.children:
+        part = ch.get("felge3d_part")
+        if ch.type != "MESH" or part not in ("rim", "tyre"):
+            continue
+        (rim if part == "rim" else tyre).append(_local_points(dg, ch, inv))
+    if not rim or not tyre:
+        return 0.0
+    R_, T_ = np.concatenate(rim), np.concatenate(tyre)
+    ur, rr = R_[:, 0] * sgn, np.hypot(R_[:, 1], R_[:, 2])
+    ut, rt = T_[:, 0] * sgn, np.hypot(T_[:, 1], T_[:, 2])
+    need = 0.0
+    for lo in np.arange(r_rim - 0.004, r_rim + 0.040, 0.002):
+        sr, st = (rr >= lo) & (rr < lo + 0.002), (rt >= lo) & (rt < lo + 0.002)
+        if sr.sum() >= 3 and st.sum() >= 3:
+            need = max(need, float(ut[st].max() - ur[sr].max()))
+    return need
+
+
 def car_collection():
     return bpy.data.collections.get(car.COLL_NAME)
 
@@ -1972,6 +2020,7 @@ def build_car(context, s, c):
         context.scene.collection.objects.link(anchor)
     c.car_anchor = anchor
     created = []
+    wheels = {}
     for front in (True, False):
         d, rim_parts, base, back_fn, r_well, x_m = axles[front]
         axle = "Vorne" if front else "Hinten"
@@ -1994,11 +2043,13 @@ def build_car(context, s, c):
             parent["Reifen"] = "%d/%d ZR%s" % (round(d["W"] * 1000), round(d["h"] / d["W"] * 100), ("%g" % d["rim_in"]))
             parent["Sturz Grad"] = math.degrees(camber)
             created.append(parent)
+            wheels[(front, sgn)] = parent
 
             m_rim = base(sgn)
             for item in rim_parts:
                 label, me = item[0], item[1]
                 ob = bpy.data.objects.new("%s %s" % (label, name), me)
+                ob["felge3d_part"] = "rim"
                 ob.matrix_basis = m_rim
                 ob.parent = parent
                 col.objects.link(ob)
@@ -2008,11 +2059,13 @@ def build_car(context, s, c):
             if tire_fit is not None:                                 # eigener Reifen: an Zoll, Breite und Höhe angepasst
                 for label, me_t in fbx.bake_tire(tire_meshes, tire_fit, d["r_rim"], d["R"], d["W"], sgn, "Reifen " + name, c.tire_own_rotation + rot_extra):
                     ob = bpy.data.objects.new("%s %s" % (label, name), me_t)
+                    ob["felge3d_part"] = "tyre"
                     ob.parent = parent
                     col.objects.link(ob)
             else:
                 me_t = car.build_tire(c, d, sgn, mats, imgs, "Reifen " + name, tex, r_well, tread)
                 ob = bpy.data.objects.new("Reifen " + name, me_t)
+                ob["felge3d_part"] = "tyre"
                 ob.parent = parent
                 col.objects.link(ob)
                 car.add_relief(ob, tire_img, c.tire_relief, tread_h, c.tread_relief)
@@ -2021,19 +2074,38 @@ def build_car(context, s, c):
                                                   c.front_caliper_angle if front else c.rear_caliper_angle)
                 for label, me in (("Bremsscheibe", me_d), ("Bremssattel", me_c)):
                     bo = bpy.data.objects.new("%s %s" % (label, name), me)
+                    bo["felge3d_part"] = "brake"
                     bo.parent = parent
                     col.objects.link(bo)
                     if label == "Bremssattel":
                         mod = bo.modifiers.new("Kantenfasen", "BEVEL")
                         mod.width, mod.segments = 0.0035, 3
                         mod.limit_method, mod.angle_limit = "ANGLE", math.radians(50)
+    auto_info = ""
+    if c.rim_auto_clear:                                  # Felge nie im Reifen: messen und genau so weit nach außen schieben, wie nötig
+        context.view_layer.update()
+        notes = []
+        for front in (True, False):
+            r_rim_ = axles[front][0]["r_rim"]
+            need = max(rim_tyre_overlap(context, wheels[(front, sg_)], sg_, r_rim_) for sg_ in (1, -1))
+            if need > 1e-5:
+                shift = need + 0.001                       # 1 mm Luft
+                for sg_ in (1, -1):
+                    par_ = wheels[(front, sg_)]
+                    for ch_ in par_.children:
+                        if ch_.get("felge3d_part") == "rim":
+                            ch_.matrix_basis = Matrix.Translation((sg_ * shift, 0, 0)) @ ch_.matrix_basis
+                    par_["Felge automatisch nach außen (mm)"] = round(shift * 1000.0, 2)
+                notes.append("%s +%.1f mm" % ("vorn" if front else "hinten", shift * 1000.0))
+        if notes:
+            auto_info = " · Felge automatisch nach außen: " + ", ".join(notes)
     col["felge3d_car_sig"] = car_signature(s, c)
     for o in context.view_layer.objects:
         o.select_set(False)
     context.view_layer.objects.active = anchor
     return col, ("4 Räder erzeugt (%s, %s): vorn %g\"/%gJ ET%g, hinten %g\"/%gJ ET%g" % (
         "3D-Felge" if use_fbx else "Foto", "eigener Reifen" if tire_fit is not None else "generierter Reifen",
-        c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et))
+        c.front_rim, c.front_rim_width, c.front_et, c.rear_rim, c.rear_rim_width, c.rear_et) + auto_info)
 
 
 # ============================================================ Cloud-Mesh (optional)
@@ -2874,6 +2946,8 @@ class FELGE3D_PT_pkg_opts(Panel):
         s = context.scene.felge3d
         c = context.scene.felge3d_car
         L = self.layout
+        L.prop(c, "rim_offset")
+        L.prop(c, "rim_auto_clear")
         L.prop(c, "use_brakes")
         if c.use_brakes:
             L.prop(c, "caliper_color")

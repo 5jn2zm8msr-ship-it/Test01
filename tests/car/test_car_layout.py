@@ -87,6 +87,18 @@ def world_pts(ob):
 
 
 FACE5 = {}
+def overlaps():
+    """Überlappung Felge/Reifenflanke (mm) an allen vier Rädern."""
+    bpy.context.view_layer.update()
+    out = {}
+    for n_, sg_ in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("Hinten rechts", -1)):
+        r_rim_ = carmod.wheel_dims(c, n_.startswith("Vorne"))["r_rim"]
+        out[n_] = 1000 * felge3d.rim_tyre_overlap(bpy.context, bpy.data.objects["Rad " + n_], sg_, r_rim_)
+    return out
+
+
+ov = overlaps()
+check("Felge steckt nicht in der Reifenflanke (generierter Reifen, Standard)", max(ov.values()) < 0.2, str({k: round(v, 2) for k, v in ov.items()}))
 for n, sg in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("Hinten rechts", -1)):
     w = bpy.data.objects["Rad " + n]
     rim_ob = next(o for o in w.children if o.name.startswith("Felge") and o.type == "MESH")
@@ -119,6 +131,10 @@ bpy.ops.felge3d.car_update()
 # Felge 5 mm nach außen (Standard)
 # Felge 5 mm nach außen (Standard), Verschiebung wirkt in Achsrichtung nach außen; Sättel Richtung Fahrzeugmitte
 check("Standard: Felge 5 mm nach außen", abs(c.rim_offset - 5.0) < 1e-9)
+c.rim_auto_clear = False                                       # hier den reinen Versatz messen (die Automatik würde zusätzlich schieben)
+bpy.ops.felge3d.car_update()
+FACE5 = {n_: (world_pts(next(o for o in bpy.data.objects["Rad " + n_].children if o.name.startswith("Felge") and o.type == "MESH"))[:, 1] * sg_).max()
+         for n_, sg_ in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("Hinten rechts", -1))}
 c.rim_offset = 0.0
 bpy.ops.felge3d.car_update()
 dg = bpy.context.evaluated_depsgraph_get()
@@ -127,6 +143,7 @@ for n, sg in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("H
     f0 = (world_pts(rim_ob)[:, 1] * sg).max()
     check("Felge liegt mit 5 mm Versatz 5 mm weiter außen (%s)" % n, abs((FACE5[n] - f0) - 0.005) < 0.0006, "%.2f mm" % (1000 * (FACE5[n] - f0)))
 c.rim_offset = 5.0
+c.rim_auto_clear = True
 bpy.ops.felge3d.car_update()
 check("Sattelwinkel Standard: vorn 90°, hinten −90° (Richtung Fahrzeugmitte)", c.front_caliper_angle == 90 and c.rear_caliper_angle == -90)
 for n in ("Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts"):
@@ -170,6 +187,19 @@ check("Standard-Drehung des Reifens (P ZERO oben): -90°", abs(te_["standard_dre
 check("mitgelieferter Reifen: nur ein Import (Collection einmalig)", len([x for x in bpy.data.collections if x.name.startswith(felge3d.assets.PREFIX)]) == 1)
 check("alle vier Räder mit dem mitgelieferten (texturierten) Reifen", all(any(n2.type == "TEX_IMAGE" for n2 in bpy.data.objects["Reifen " + n_].data.materials[0].node_tree.nodes)
       for n_ in ("Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts")))
+ovb = overlaps()
+check("Felge steckt nicht in der Reifenflanke (mitgelieferter Reifen)", max(ovb.values()) < 0.2, str({k: round(v, 2) for k, v in ovb.items()}))
+c.rim_auto_clear = False
+c.rim_offset = -20.0                                           # absichtlich zu weit innen: Überlappung muss messbar sein
+bpy.ops.felge3d.car_update()
+ovn = overlaps()
+check("Messung erkennt Überlappung, wenn die Felge zu weit innen sitzt", max(ovn.values()) > 5.0, str({k: round(v, 1) for k, v in ovn.items()}))
+c.rim_auto_clear = True
+bpy.ops.felge3d.car_update()
+ova = overlaps()
+check("Automatik schiebt die Felge frei, auch bei −20 mm Versatz", max(ova.values()) < 0.2, str({k: round(v, 2) for k, v in ova.items()}))
+check("Automatischer Versatz steht am Rad-Empty", "Felge automatisch nach außen (mm)" in bpy.data.objects["Rad Vorne links"].keys())
+c.rim_offset = 5.0
 c.tire_source = "GENERATED"
 bpy.ops.felge3d.car_update()
 

@@ -63,6 +63,13 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Felge/Reifen: automatisch frei (27.11., Version 0.50.0)
+- Problem (Nutzer): Die Meshy-Felge schnitt den Reifen und war nicht ganz zu sehen; es soll immer funktionieren, nicht nur mit festen 5 mm.
+- Messung: Mit der echten 992-Meshy-Felge und dem Pirelli-Reifen überlappte die Felge trotz 5 mm Versatz vorn 5,95 mm, hinten 3,71 mm; auch Foto-Felge + generierter Reifen lag im Standard etwas zu tief (die Automatik schob dort ca. 4,6 mm nach).
+- Umsetzung: `rim_tyre_overlap` (Vergleich der äußersten Lage von Felge und Reifenflanke je 2-mm-Radiusring am Felgenrand, im Radsystem, Teile über `felge3d_part` markiert) und automatische Verschiebung der Felge nach außen (+1 mm Luft), je Achse; `rim_auto_clear` (Standard an); Wert am Rad-Empty und in der Meldung. 992-Beispiel: vorn +6,9 mm, hinten +4,7 mm, danach Überlappung 0 mm.
+- Tests: `tests/car/test_car_layout.py` (Standard, mitgelieferter Reifen, absichtlich zu weit innen −20 mm wird erkannt und behoben, Versatz am Empty) und `tests/methods/test_methods.py` (Meshy-Felge, alle vier Räder); Diamond-Cut Volvo unverändert 98,0 % / 88,0 % / 80,0 %.
+- Grenze: gemessen wird nur der Randbereich (Lippe); innen liegende Teile der Felge (Fass, Speichenfüße) werden nicht geprüft. Die Bedienfelder wurden nicht im GUI geklickt.
+
 ## Meshy mit 1–3 Bildern (27.11., Version 0.49.0)
 - Auftrag: im Felgen-Tool bis zu 3 Bilder für Meshy (Multi-Image), es soll aber auch mit einem funktionieren; statt zweier fester Felder ein kleines „+“, das das nächste Feld öffnet.
 - Umsetzung: `meshy_views` (sichtbare Felder), Operatoren `felge3d.meshy_view_add` (+) / `meshy_view_remove` (−), Felder `meshy_image2`/`meshy_image3` (ersetzen `meshy_multi`), `meshy_extra_images`/`meshy_extra_problem` (Datei-Prüfung), Dialog nennt Bildanzahl und Ausgabe. 1 Bild = Image to 3D, 2–3 Bilder = Multi-Image to 3D (1 Aufruf).
