@@ -22,6 +22,10 @@ if GLB:
     felge3d.make_meshy_rim(bpy.context, sc.felge3d, GLB)
 else:
     bpy.ops.felge3d.import_image(filepath=os.path.join(ab.REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg"))
+if os.environ.get("FRONT_RIM"):
+    sc.felge3d_car.front_rim = int(os.environ["FRONT_RIM"])
+if os.environ.get("REAR_RIM"):
+    sc.felge3d_car.rear_rim = int(os.environ["REAR_RIM"])
 if os.environ.get("TIRE"):                                  # z. B. TIRE=BUNDLED: mitgelieferter Reifen
     sc.felge3d_car.tire_source = os.environ["TIRE"]
 bpy.ops.felge3d.car_generate()

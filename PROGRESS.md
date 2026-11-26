@@ -63,6 +63,12 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Porsche-992-Test: Meshy mit Textur, 21 Zoll vorn / 22 Zoll hinten (27.11., Version 0.48.0)
+- Auftrag: Beide Testbilder (Sideview IMG_2715 + Perspektive IMG_2714, dieselbe Felge) zu Meshy, mit Textur, als Felge 21 Zoll vorn / 22 Zoll hinten; Bremsen proportional.
+- Meshy: **1 Aufruf** Multi-Image to 3D (Sideview als Vorderansicht + Ausschnitt der rechten Felge aus dem Vier-Räder-Foto `porsche_992_perspektive_ausschnitt_IMG_2714.jpg`), `latest` (Meshy 7.1), mit Textur: **30 Credits, Guthaben 1040 → 1010**. Ergebnis `tests/abgleich/out/meshy/porsche_992_einzeln_IMG_2715.glb` (25 MB, nur lokal, gitignored; im Meshy-Cache `out/meshy_cache`).
+- Paket: texturierte Meshy-Felge (mattschwarz, blanke Speichenflächen, Wappen und Zentralverschluss als Textur) + mitgelieferter Reifen, vorn 21 Zoll, hinten 22 Zoll; Bremse skaliert proportional (`brake_scale`, Scheibe vorn 428 mm, hinten 398 mm, Dicke und Sattel folgen); Test `tests/car/test_car_layout.py`; Bilder per `FRONT_RIM=21 REAR_RIM=22 TIRE=BUNDLED MESHY_GLB=… tests/car/render_car.py`.
+- Grenzen: Die Meshy-Felge ist ein einzelnes verschmolzenes Mesh (nicht parametrisch/editierbar); das GLB (25 MB) liegt nicht auf GitHub (Größe), bei Bedarf reduzierte Fassung ablegen.
+
 ## Felge/Reifen-Versatz, Sattelstellung (27.11., Version 0.47.0)
 - Vorgabe des Nutzers: Felge in Y ca. 5 mm nach außen (wird sonst vom Reifen abgeschnitten); Sättel vorn auf 3 Uhr, hinten auf 9 Uhr, immer Richtung Fahrzeugmitte wie beim Porsche.
 - Umsetzung: `rim_offset` (Standard 5 mm, alle Felgenwege: Foto-/KI-Felge, parametrisch, eigene/Meshy-Felge; Rückseitenprofil für die Bremse verschiebt mit); `front_caliper_angle` = 90°, `rear_caliper_angle` = −90° (ersetzen `caliper_angle`); `build_brake(..., caliper_deg)`.

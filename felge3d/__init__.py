@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 47, 0),
+    "version": (0, 48, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1696,6 +1696,10 @@ class Felge3DCar(PropertyGroup):
         name="Sattelfarbe", subtype="COLOR_GAMMA", size=3, default=(1.0, 1.0, 1.0), min=0.0, max=1.0,
         description="Farbe der Bremssättel (Standard Weiß). Schrift und Kanten aus dem Foto bleiben als Relief/Schattierung sichtbar. "
                     "Zum Anwenden im Paket-Reiter ‚Aktualisieren‘")
+    brake_scale: BoolProperty(
+        name="Bremse wächst mit der Felge", default=True,
+        description="Bremsscheibe, Topf und Sattel werden proportional zur Felgengröße skaliert (Bezug: 20 Zoll vorn / 21 Zoll hinten = die "
+                    "eingestellten Scheibenmaße). Aus: Scheibengröße genau wie eingestellt")
     front_caliper_angle: FloatProperty(
         name="Sattel vorn (Grad)", default=90, min=-180, max=180,
         description="Sattel der Vorderachse um die Achse gedreht: 0 = oben, 90 = Richtung Heck (3 Uhr, von der linken Fahrzeugseite gesehen), "
@@ -2804,6 +2808,7 @@ class FELGE3D_PT_pkg_opts(Panel):
         L.prop(c, "use_brakes")
         if c.use_brakes:
             L.prop(c, "caliper_color")
+            L.prop(c, "brake_scale")
             L.prop(c, "front_caliper_angle", slider=True)
             L.prop(c, "rear_caliper_angle", slider=True)
         if s.source == "COLLECTION":

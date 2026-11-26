@@ -102,5 +102,25 @@
     272
    ]
   }
+ },
+ "porsche_992_einzeln_IMG_2715": {
+  "foto": "../diamond_cut/neue_felgen/porsche_992_einzeln_IMG_2715.jpg",
+  "ansicht": "frontal (Sideview)",
+  "speichen": 5,
+  "zentrum": "Zentralverschluss mit Wappen",
+  "farbe": "mattschwarz/graphit mit diamantgedrehten (blanken) Speichenflächen und Rand",
+  "hinweis": "Porsche 992 Testfelge; zweites Bild zeigt dieselbe Felge in Perspektive (vier Räder)",
+  "gruppe": "porsche_992_test",
+  "brennweite_mm": 135,
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.55,
+    "Roughness": 0.45
+   },
+   "blank": {}
+  },
+  "meshy_extra": [
+   "../diamond_cut/neue_felgen/porsche_992_perspektive_ausschnitt_IMG_2714.jpg"
+  ]
  }
 }

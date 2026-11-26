@@ -35,7 +35,11 @@ def main(keys):
         ref = fotos[k].get("meshy_aus", k)
         if ref not in plan and not os.path.isfile(os.path.join(outdir, ref + ".glb")) and not os.path.isfile(os.path.join(outdir, ref + ".task.txt")):
             plan.append(ref)
-    cost = len(plan) * (prov.estimate_credits() or 0)
+    cost = 0
+    for ref in plan:                                                    # Kosten je Aufruf (Multi-Image und Textur berücksichtigt)
+        prov.options["extra_images"] = [x for x in fotos[ref].get("meshy_extra", [])]
+        cost += prov.estimate_credits() or 0
+    prov.options["extra_images"] = []
     print("Geplant: %d Meshy-Aufruf(e) %s, ca. %d Credits (Fotos derselben Gruppe teilen sich ein Mesh)" % (len(plan), plan, cost))
     print("Guthaben:", prov.balance())
     if not os.environ.get("MESHY_FREIGABE"):
@@ -62,6 +66,8 @@ def main(keys):
             if text != last[0]:
                 print("  %s %3d %% %s (%.0f s)" % (k, p * 100, text, time.time() - t0), flush=True)
                 last[0] = text
+        extra = [os.path.normpath(os.path.join(HERE, x)) for x in cfg.get("meshy_extra", [])]      # Multi-Image: weitere Ansichten derselben Felge
+        prov.options["extra_images"] = extra
         try:
             glb = prov.generate(img, outdir, prog, threading.Event())
         except cloud.CloudError as e:

@@ -458,9 +458,12 @@ def wheel_dims(c, front):
     b = min(j_in * 0.0254 / 2.0, W / 2.0 - ft - 0.006)
     k = min(0.3 * h, 0.09 * W)
     rim_out = b + ft * 0.5                       # Vorderkante des Felgenhorns (axial)
+    # Bremse wächst proportional mit der Felgengröße (Bezug: die Datenblattwerte des GT3 RS, 20 Zoll vorn / 21 Zoll hinten);
+    # Sattel und Topf folgen dem Scheibenradius automatisch
+    kb = rim_in / (20.0 if front else 21.0) if getattr(c, "brake_scale", True) else 1.0
     return dict(rim_in=rim_in, j_in=j_in, et=pick(c, front, "et") / 1000.0, W=W, h=h, R=R, r_rim=r_rim,
                 ft=ft, fh=fh, b=b, k=k, rim_out=rim_out, rim_width_in=2.0 * rim_out / 0.0254,
-                disc_d=pick(c, front, "disc") / 1000.0, disc_t=pick(c, front, "disc_thickness") / 1000.0)
+                disc_d=pick(c, front, "disc") / 1000.0 * kb, disc_t=pick(c, front, "disc_thickness") / 1000.0 * kb, brake_k=kb)
 
 
 def back_profile(star_verts, half_width, n_front=None):

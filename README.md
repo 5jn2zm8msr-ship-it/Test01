@@ -74,3 +74,6 @@ Neue Reifen: GLB nach `felge3d/assets/reifen/` legen und in `reifen.json` eintra
 ## Felge/Reifen-Versatz und Sattelstellung (ab 0.47.0)
 - **Felge nach außen (mm):** Reiter *Package → Optionen*, Standard **5 mm**: Die Felge sitzt in Achsrichtung (Y) so weit außen, dass der Reifen sie nicht abschneidet; die Bremse berücksichtigt den Versatz.
 - **Sattel vorn / hinten (Grad):** Standard **vorn 90°** (von der linken Fahrzeugseite gesehen auf 3 Uhr, Richtung Heck) und **hinten −90°** (9 Uhr, Richtung Front), also immer zur Fahrzeugmitte, wie beim Porsche. 0° = oben.
+
+## Bremse wächst mit der Felge (ab 0.48.0)
+Reiter *Package → Optionen → Bremse wächst mit der Felge* (Standard an): Scheibe, Topf, Sattel und Scheibendicke werden proportional zur Felgengröße skaliert; Bezug sind die Datenblattwerte (20 Zoll vorn, 21 Zoll hinten). Beispiel 21 Zoll vorn: Scheibe 408 mm × 21/20 = 428 mm; 22 Zoll hinten: 380 mm × 22/21 = 398 mm. Aus: Scheibengröße genau wie eingestellt.
