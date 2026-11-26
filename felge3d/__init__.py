@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 48, 0),
+    "version": (0, 49, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -138,9 +138,13 @@ class Felge3DSettings(PropertyGroup):
         ("TRIPO", "Tripo", "Tripo API"), ("MESHY", "Meshy", "Meshy API (Image to 3D, nur Mesh ohne Textur)")])
     meshy_texture_mode: EnumProperty(name="Meshy-Ausgabe", items=meshy_texture_items,
                                      description="Mit oder ohne Textur; die Credits stehen in Klammern (Textur kostet laut Preisliste 10 Credits mehr)")
-    meshy_multi: BoolProperty(name="Zweite Ansicht (Multi-Image)", default=False,
-                              description="Meshy Multi-Image to 3D: das Hauptbild ist die Vorderansicht, dazu eine Schrägansicht für bessere Tiefe")
-    meshy_image2: PointerProperty(name="Schrägansicht", type=bpy.types.Image)
+    meshy_views: IntProperty(name="Meshy-Bildfelder", default=1, min=1, max=3,
+                             description="Wie viele Bildfelder für Meshy sichtbar sind (1 = nur das Hauptbild; mit ‚+‘ kommen bis zu zwei weitere Ansichten dazu)")
+    meshy_image2: PointerProperty(name="Ansicht 2 (optional)", type=bpy.types.Image,
+                                  description="Zweite Ansicht derselben Felge (z. B. Perspektive). Mit weiteren Bildern nutzt Meshy Multi-Image to 3D; "
+                                              "das Hauptbild ist die Vorderansicht. Preis bleibt gleich")
+    meshy_image3: PointerProperty(name="Ansicht 3 (optional)", type=bpy.types.Image,
+                                  description="Dritte Ansicht derselben Felge (optional). Insgesamt höchstens 3 Bilder")
     meshy_remesh: BoolProperty(name="Remesh (sauberere Topologie)", default=False,
                                description="Danach /v1/remesh: sauberere Quad-Topologie als Referenz (+5 Credits)")
     meshy_polycount: IntProperty(name="Ziel-Polygone", default=30000, min=100, max=300000)
@@ -1375,6 +1379,21 @@ class FELGE3D_PT_main(Panel):
         if s.method == "SUBD" and not paramui.PARAM_OK:
             box.label(text="Braucht Blender 5.3 oder neuer.", icon="ERROR")
         if s.method == "MESHY":
+            bb = box.box()
+            n_img = 1 + len(meshy_extra_images(s))
+            row_ = bb.row(align=True)
+            row_.label(text="Bilder für Meshy: %d von 3%s" % (n_img, " (Multi-Image)" if n_img > 1 else " (ein Bild reicht)"), icon="IMAGE_DATA")
+            sub_ = row_.row(align=True)
+            sub_.enabled = s.meshy_views < 3
+            sub_.operator("felge3d.meshy_view_add", text="", icon="ADD")
+            bb.label(text="1: Hauptbild (Vorderansicht) = oben geladenes Bild")
+            shown = max(s.meshy_views, 1 + len(meshy_extra_images(s)))
+            for k_, nm_ in ((2, "meshy_image2"), (3, "meshy_image3")):
+                if shown >= k_ or getattr(s, nm_) is not None:
+                    r_ = bb.row(align=True)
+                    r_.template_ID(s, nm_, open="image.open")
+                    if k_ == max(s.meshy_views, 2 if s.meshy_image2 is not None else 1, 3 if s.meshy_image3 is not None else 1):
+                        r_.operator("felge3d.meshy_view_remove", text="", icon="REMOVE")
             box.prop(s, "meshy_texture_mode", expand=True)
             try:
                 box.label(text="Kosten: " + cost_text(make_provider(s, "MESHY")), icon="FUND")
@@ -2031,6 +2050,25 @@ def cloud_key(provider=None):
     return (prefs.meshy_key if prov == "MESHY" else prefs.tripo_key).strip()
 
 
+def meshy_extra_images(s):
+    """Weitere Ansichten (höchstens 2, also mit dem Hauptbild bis zu 3 Bilder): Dateipfade der gesetzten Felder in fester Reihenfolge."""
+    out = []
+    for im in (s.meshy_image2, s.meshy_image3):
+        if im is not None and im.filepath:
+            path = bpy.path.abspath(im.filepath)
+            if os.path.isfile(path):
+                out.append(path)
+    return out
+
+
+def meshy_extra_problem(s):
+    """Text, wenn ein gesetztes Zusatzbild nicht als Datei vorliegt (sonst None)."""
+    for nm, im in (("Ansicht 2", s.meshy_image2), ("Ansicht 3", s.meshy_image3)):
+        if im is not None and not (im.filepath and os.path.isfile(bpy.path.abspath(im.filepath))):
+            return "%s: das Bild muss als Datei vorliegen (nicht nur im Speicher)." % nm
+    return None
+
+
 def meshy_options(s, texture=None):
     """Meshy-Optionen aus Preferences und Szene. texture=None: Auswahl ‚Mit Textur / Nur Mesh‘ der Szene."""
     opts = {}
@@ -2042,8 +2080,9 @@ def meshy_options(s, texture=None):
     opts["texture"] = (s.meshy_texture_mode == "TEX") if texture is None else bool(texture)
     opts["remesh"] = bool(s.meshy_remesh)
     opts["polycount"] = s.meshy_polycount
-    if s.meshy_multi and s.meshy_image2 and s.meshy_image2.filepath:
-        opts["extra_images"] = [bpy.path.abspath(s.meshy_image2.filepath)]
+    extra = meshy_extra_images(s)
+    if extra:                                                      # 1 Bild: Image to 3D, 2–3 Bilder: Multi-Image to 3D (Hauptbild = Vorderansicht)
+        opts["extra_images"] = extra
     return opts
 
 
@@ -2073,8 +2112,8 @@ class FELGE3D_OT_cloud_generate(Operator):
         if not cloud_key():
             self.report({"ERROR"}, "Kein API-Key: in den Add-on-Preferences eintragen.")
             return {"CANCELLED"}
-        if s.cloud_provider == "MESHY" and s.meshy_multi and not (s.meshy_image2 and s.meshy_image2.filepath):
-            self.report({"ERROR"}, "Multi-Image: bitte die Schrägansicht laden.")
+        if s.cloud_provider == "MESHY" and meshy_extra_problem(s):
+            self.report({"ERROR"}, meshy_extra_problem(s))
             return {"CANCELLED"}
         if _CLOUD["job"] is not None and not _CLOUD["job"].done:
             self.report({"WARNING"}, "Es läuft bereits eine Cloud-Generierung.")
@@ -2089,6 +2128,10 @@ class FELGE3D_OT_cloud_generate(Operator):
         L.label(text="Achtung: kostenpflichtig", icon="ERROR")
         L.label(text=prov.cost_note)
         L.label(text="Geschätzt: " + cost_text(make_provider(s)))
+        if s.cloud_provider == "MESHY":
+            n_img = 1 + len(meshy_extra_images(s))
+            L.label(text="Bilder: %d (%s), Ausgabe: %s" % (n_img, "Multi-Image" if n_img > 1 else "Image to 3D",
+                                                          "mit Textur" if s.meshy_texture_mode == "TEX" else "nur Mesh"))
         L.label(text="Das Bild wird an den Anbieter gesendet.")
         L.prop(s, "cloud_confirm")
 
@@ -2316,9 +2359,7 @@ class FELGE3D_PT_cloud(Panel):
             L.label(text="Kein API-Key: Edit → Preferences → Add-ons → Rim Generator", icon="INFO")
         b = L.box()
         b.label(text="Optionen (Image to 3D)")
-        b.prop(s, "meshy_multi")
-        if s.meshy_multi:
-            b.template_ID(s, "meshy_image2", open="image.open")
+        b.label(text="Bilder: Hauptbild + bis zu 2 weitere Ansichten (siehe Methode)")
         b.prop(s, "meshy_remesh")
         if s.meshy_remesh:
             b.prop(s, "meshy_polycount")
@@ -2508,6 +2549,34 @@ def make_meshy_rim(context, s, glb_path):
         col.objects.link(ob)
     paramui.switch_rim(context, s, col.name)
     return col
+
+
+class FELGE3D_OT_meshy_view_add(Operator):
+    """Weiteres Bildfeld für Meshy öffnen (bis zu 3 Bilder insgesamt: Hauptbild + 2 weitere Ansichten)"""
+    bl_idname = "felge3d.meshy_view_add"
+    bl_label = "Weitere Ansicht"
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        if s.meshy_views < 3:
+            s.meshy_views += 1
+        return {"FINISHED"}
+
+
+class FELGE3D_OT_meshy_view_remove(Operator):
+    """Letztes zusätzliches Bildfeld für Meshy entfernen (das Bild wird aus der Auswahl genommen)"""
+    bl_idname = "felge3d.meshy_view_remove"
+    bl_label = "Ansicht entfernen"
+
+    def execute(self, context):
+        s = context.scene.felge3d
+        top = 3 if (s.meshy_views >= 3 or s.meshy_image3 is not None) else 2
+        if top == 3:
+            s.meshy_image3 = None
+        else:
+            s.meshy_image2 = None
+        s.meshy_views = max(1, top - 1)
+        return {"FINISHED"}
 
 
 class FELGE3D_OT_create_rim(Operator):
@@ -2833,6 +2902,8 @@ classes = (
     Felge3DCar,
     FELGE3D_OT_car_generate,
     FELGE3D_OT_create_rim,
+    FELGE3D_OT_meshy_view_add,
+    FELGE3D_OT_meshy_view_remove,
     FELGE3D_OT_car_update,
     FELGE3D_OT_import_tire,
     FELGE3D_OT_import_fbx,

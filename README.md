@@ -77,3 +77,6 @@ Neue Reifen: GLB nach `felge3d/assets/reifen/` legen und in `reifen.json` eintra
 
 ## Bremse wächst mit der Felge (ab 0.48.0)
 Reiter *Package → Optionen → Bremse wächst mit der Felge* (Standard an): Scheibe, Topf, Sattel und Scheibendicke werden proportional zur Felgengröße skaliert; Bezug sind die Datenblattwerte (20 Zoll vorn, 21 Zoll hinten). Beispiel 21 Zoll vorn: Scheibe 408 mm × 21/20 = 428 mm; 22 Zoll hinten: 380 mm × 22/21 = 398 mm. Aus: Scheibengröße genau wie eingestellt.
+
+## Meshy mit 1 bis 3 Bildern (ab 0.49.0)
+Methode *Meshy*: Das oben geladene Bild ist das Hauptbild (Vorderansicht). Mit dem kleinen **+** neben „Bilder für Meshy“ öffnet sich ein zweites Bildfeld, mit nochmal **+** ein drittes (insgesamt höchstens 3); das **−** schließt das letzte Feld wieder. Mit nur einem Bild funktioniert alles wie bisher (Image to 3D); mit 2–3 Bildern nutzt das Add-on Multi-Image to 3D – ein Aufruf, gleicher Preis (mit Textur 30 Credits). Bilder müssen als Datei vorliegen; der Bestätigungsdialog nennt die Bildanzahl.

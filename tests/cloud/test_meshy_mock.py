@@ -165,6 +165,16 @@ open(bad, "wb").write(b"BM" + b"0" * 100)
 p, res, err = run_case("ok", {}, bad)
 check("falsches Bildformat abgewiesen, ohne POST", err and not STATE.get("posts"), str(err))
 
+# 4b) Drei Bilder (Hauptbild + 2 weitere): Multi-Image mit 3 Bildern, Vorderansicht zuerst
+img3 = os.path.join(os.path.dirname(img), "c.png")
+open(img3, "wb").write(b"\x89PNG" + b"1" * 500)
+p, res, err = run_case("ok", {"ai_model": "latest"}, img, extra=[img2, img3])
+path, pl = STATE["posts"][0]
+check("3 Bilder: Multi-Image mit 3 image_urls, Vorderansicht zuerst", path == "/openapi/v1/multi-image-to-3d" and len(pl["image_urls"]) == 3 and pl["image_urls"][0].startswith("data:image/jpeg") and res, str(err))
+check("3 Bilder: genau ein Aufruf", len(STATE["posts"]) == 1)
+p, res, err = run_case("ok", {"ai_model": "latest"}, img)
+check("1 Bild: Image to 3D (kein Multi-Image)", STATE["posts"][0][0] == "/openapi/v1/image-to-3d" and "image_urls" not in STATE["posts"][0][1])
+
 # 5b) Polling übersteht 429 und Verbindungsabbruch; Task-ID im Endfehler; Remesh-Fehler behält das erste GLB
 cloud.MeshyProvider.POLL_S = 0.2
 p, res, err = run_case("poll429", {}, img)

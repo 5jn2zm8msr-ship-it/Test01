@@ -63,6 +63,12 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Meshy mit 1–3 Bildern (27.11., Version 0.49.0)
+- Auftrag: im Felgen-Tool bis zu 3 Bilder für Meshy (Multi-Image), es soll aber auch mit einem funktionieren; statt zweier fester Felder ein kleines „+“, das das nächste Feld öffnet.
+- Umsetzung: `meshy_views` (sichtbare Felder), Operatoren `felge3d.meshy_view_add` (+) / `meshy_view_remove` (−), Felder `meshy_image2`/`meshy_image3` (ersetzen `meshy_multi`), `meshy_extra_images`/`meshy_extra_problem` (Datei-Prüfung), Dialog nennt Bildanzahl und Ausgabe. 1 Bild = Image to 3D, 2–3 Bilder = Multi-Image to 3D (1 Aufruf).
+- Tests: `tests/methods/test_methods.py` (Plus/Minus, Reihenfolge, Bild ohne Datei abgelehnt, Kosten gleich), `tests/cloud/test_meshy_mock.py` (3 Bilder = 3 image_urls, 1 Bild = Image to 3D).
+- Grenze: Bedienfeld nicht im GUI geklickt (nur Code und Tests).
+
 ## Porsche-992-Test: Meshy mit Textur, 21 Zoll vorn / 22 Zoll hinten (27.11., Version 0.48.0)
 - Auftrag: Beide Testbilder (Sideview IMG_2715 + Perspektive IMG_2714, dieselbe Felge) zu Meshy, mit Textur, als Felge 21 Zoll vorn / 22 Zoll hinten; Bremsen proportional.
 - Meshy: **1 Aufruf** Multi-Image to 3D (Sideview als Vorderansicht + Ausschnitt der rechten Felge aus dem Vier-Räder-Foto `porsche_992_perspektive_ausschnitt_IMG_2714.jpg`), `latest` (Meshy 7.1), mit Textur: **30 Credits, Guthaben 1040 → 1010**. Ergebnis `tests/abgleich/out/meshy/porsche_992_einzeln_IMG_2715.glb` (25 MB, nur lokal, gitignored; im Meshy-Cache `out/meshy_cache`).

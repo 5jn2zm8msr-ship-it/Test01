@@ -76,6 +76,48 @@ check("Remesh wird in den Credits berücksichtigt (35 / 25)", "(35 Credits)" in 
 s.meshy_remesh = False
 s.meshy_texture_mode = "TEX"
 
+# 3c) Meshy: bis zu 3 Bilder (Hauptbild + 2 weitere), auch mit nur einem
+tmpd = tempfile.mkdtemp()
+def mkimg(name):
+    im = bpy.data.images.new(name, 64, 64)
+    im.filepath_raw = os.path.join(tmpd, name + ".png")
+    im.file_format = "PNG"
+    im.save()
+    return bpy.data.images.load(im.filepath_raw)
+check("ohne weitere Bilder: Image to 3D (keine Zusatzbilder)", "extra_images" not in felge3d.make_provider(s, "MESHY").options and felge3d.meshy_extra_images(s) == [])
+s.meshy_image2 = mkimg("ansicht2")
+check("ein Zusatzbild: 2 Bilder insgesamt", len(felge3d.make_provider(s, "MESHY").options["extra_images"]) == 1)
+s.meshy_image3 = mkimg("ansicht3")
+ex = felge3d.make_provider(s, "MESHY").options["extra_images"]
+check("zwei Zusatzbilder: 3 Bilder insgesamt, feste Reihenfolge", len(ex) == 2 and ex[0].endswith("ansicht2.png") and ex[1].endswith("ansicht3.png"), str(ex))
+check("Kosten mit 3 Bildern unverändert (Textur 30)", felge3d.make_provider(s, "MESHY").estimate_credits() == 30)
+s.meshy_image2 = None
+check("nur Ansicht 3 gesetzt: trotzdem 2 Bilder", len(felge3d.meshy_extra_images(s)) == 1)
+img_mem = bpy.data.images.new("imspeicher", 8, 8)                       # nur im Speicher, keine Datei
+s.meshy_image2 = img_mem
+check("Zusatzbild ohne Datei wird abgelehnt (Meldung)", felge3d.meshy_extra_problem(s) is not None and "Datei" in felge3d.meshy_extra_problem(s))
+s.meshy_image2 = None
+s.meshy_image3 = None
+check("zurück auf ein Bild", felge3d.meshy_extra_images(s) == [] and felge3d.meshy_extra_problem(s) is None)
+
+# 3d) Plus-Knopf: zusätzliche Bildfelder öffnen sich schrittweise (1 → 2 → 3), mit einem Bild funktioniert alles
+check("Start: nur ein Bildfeld (Hauptbild)", s.meshy_views == 1)
+bpy.ops.felge3d.meshy_view_add()
+check("Plus: zweites Feld öffnet sich", s.meshy_views == 2)
+bpy.ops.felge3d.meshy_view_add()
+check("Plus: drittes Feld öffnet sich", s.meshy_views == 3)
+bpy.ops.felge3d.meshy_view_add()
+check("Plus: nicht mehr als 3 Bilder", s.meshy_views == 3)
+s.meshy_image3 = mkimg("v3")
+s.meshy_image2 = mkimg("v2")
+check("3 Bilder gesetzt: 2 Zusatzbilder", len(felge3d.meshy_extra_images(s)) == 2)
+bpy.ops.felge3d.meshy_view_remove()
+check("Minus: drittes Feld schließt und das Bild wird entfernt", s.meshy_views == 2 and s.meshy_image3 is None and len(felge3d.meshy_extra_images(s)) == 1)
+bpy.ops.felge3d.meshy_view_remove()
+check("Minus: zweites Feld schließt, zurück auf ein Bild", s.meshy_views == 1 and s.meshy_image2 is None and felge3d.meshy_extra_images(s) == [])
+bpy.ops.felge3d.meshy_view_remove()
+check("Minus bei einem Bild ändert nichts", s.meshy_views == 1 and felge3d.make_provider(s, "MESHY").estimate_credits() == 30)
+
 # 4) Meshy: Einstellungen, kein Bau beim Bildladen (kostenpflichtig)
 s.method = "MESHY"
 check("Methode MESHY setzt Anbieter Meshy", s.cloud_provider == "MESHY" and s.mesh_source == "CLOUD")
