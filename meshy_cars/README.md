@@ -10,10 +10,15 @@ Blender-Add-on: 1–4 Autofotos → Meshy **Multi-Image-to-3D** → texturiertes
 Seitenleiste `N` → Reiter **Meshy Cars**: Bilder wählen (erstes = Vorderansicht, dann Seite, Hinten, Schräg), Kostenhaken setzen,
 **Auto bei Meshy erzeugen**. Fortschritt im Panel, `ESC` bricht ab (wartende Tasks werden gelöscht, Credits erstattet).
 
+## Radstand (Skalierung)
+Jedes importierte Auto hängt an einem Wurzel-Empty `Meshy_Car_NN` (am Boden-Mittelpunkt). Der Regler **Radstand (mm)** skaliert das ganze Auto
+gleichmäßig. Meshy liefert keinen Radstand mit: Beim Import wird er grob aus der Fahrzeuglänge geschätzt (≈ 60 %, im Panel als „geschätzt“ markiert).
+Genau wird es mit **Radstand aus 2 Punkten messen** (Edit-Mode: 2 Vertices auf den Radmitten, oder 2 Objekte) – danach bezieht sich der Regler auf diesen Wert.
+
 ## API-Stand (docs.meshy.ai, gelesen 27.11.2026)
 - Standardmodell `meshy-7.1`; `latest` löst auf 7.1 auf.
 - **Veraltet, wird nicht gesendet:** `meshy-7` (endet 31.12.2026, danach HTTP 400), `meshy-5`/`meshy-4` (eingestellt), `ultra_mode`, `hd_texture`, `symmetry_mode`, `is_a_t_pose`.
 - Credit-Preise: Pricing-Seite nicht selbst geprüft – vor Nutzung im Meshy-Dashboard nachsehen.
 
 ## Test
-`python -I tests/meshy_cars/test_client.py` (Mock-Server, ohne Netz/Blender). Die Blender-Oberfläche ist hier **nicht** in Blender getestet.
+`python -I tests/meshy_cars/test_client.py` und `test_sizing.py` (Mock-Server, ohne Netz/Blender). Die Blender-Oberfläche ist hier **nicht** in Blender getestet.
