@@ -1,10 +1,12 @@
-# Rim Generator – Blender-Add-on
+# Rim and Package Generator – Blender-Add-on
+
+> Umgezogen: Dieses Repo heißt jetzt **Rim-amd-Package-Generator** (privat). Für Updates in den Add-on-Einstellungen einen GitHub-Token mit Leserecht eintragen.
 
 Aus einem Felgenfoto (Frontansicht) werden in Sekunden **vier Räder mit Reifen** in Blender.
 
 ## Installation (Blender 3.6, Intel-Mac)
-1. ZIP über *Edit → Preferences → Add-ons → Install…* installieren, Haken bei **Rim Generator** setzen.
-2. Blender mit Cmd+Q neu starten. Seitenleiste `N` → Reiter **Rim Generator**.
+1. ZIP über *Edit → Preferences → Add-ons → Install…* installieren, Haken bei **Rim and Package Generator** setzen.
+2. Blender mit Cmd+Q neu starten. Seitenleiste `N` → Reiter **2D to 3D Rim** und **Package**.
 3. Optional: **KI-Tiefe einrichten** (einmalig, lokal, ~400 MB) – verbessert die Erkennung.
 
 ## Bedienung – zwei Reiter in der Seitenleiste (N)
@@ -35,7 +37,7 @@ Die Musterspeiche (Pizzastück) liegt als Objekt in der Collection: *Muster zum 
 *Als neue Variante speichern* kopiert alles nach `Felge_01_v2`. Optional: Mesh-Quelle *Cloud-API* (Key nur in den Preferences, kostenpflichtig; Tripo-Upload noch gesperrt).
 
 ## Updates
-Panel **Rim Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.
+Panel **Rim and Package Generator · Update** (ganz unten) → *Nach Update suchen* → installieren → Blender neu starten.
 Quelle: dieses Repository, Ordner `felge3d/` (Modulname bleibt `felge3d`).
 
 ## Aufbau

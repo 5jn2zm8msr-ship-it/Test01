@@ -7,12 +7,12 @@ Läuft mit Blender 3.6 (Legacy-Add-on) und 4.2+ (Extension, siehe blender_manife
 """
 
 bl_info = {
-    "name": "Rim Generator",
+    "name": "Rim and Package Generator",
     "author": "Felge3D",
-    "version": (0, 42, 0),
+    "version": (0, 43, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
-    "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
+    "description": "Rim and Package Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
     "category": "Import-Export",
 }
 
@@ -1133,10 +1133,13 @@ def get_prefs(context):
     return context.preferences.addons[__package__].preferences
 
 
+OLD_REPOS = ("5jn2zm8msr-ship-it/test01", "5jn2zm8msr-ship-it/felgen-generator")
+
+
 class Felge3DPreferences(AddonPreferences):
     bl_idname = __package__
 
-    repo: StringProperty(name="GitHub-Repository", default="5jn2zm8msr-ship-it/test01",
+    repo: StringProperty(name="GitHub-Repository", default="5jn2zm8msr-ship-it/rim-amd-package-generator",
                          description="Form: besitzer/repo, z.B. maxmuster/felge3d")
     branch: StringProperty(name="Branch", default="main")
     token: StringProperty(name="Token (nur privates Repo)", default="", subtype="PASSWORD",
@@ -1176,6 +1179,8 @@ class FELGE3D_OT_check_update(Operator):
 
     def execute(self, context):
         p = get_prefs(context)
+        if p.repo.strip().lower() in OLD_REPOS:   # Repo umgezogen
+            p.repo = "5jn2zm8msr-ship-it/rim-amd-package-generator"
         if not p.repo:
             _update_state["msg"] = "Repository in den Add-on-Einstellungen eintragen."
             self.report({"ERROR"}, _update_state["msg"])
@@ -1874,7 +1879,7 @@ class FELGE3D_PT_cloud(Panel):
         col = L.column()
         col.prop(s, "cloud_provider")
         if not has_key:
-            L.label(text="Kein API-Key: Edit → Preferences → Add-ons → Rim Generator", icon="INFO")
+            L.label(text="Kein API-Key: Edit → Preferences → Add-ons → Rim and Package Generator", icon="INFO")
         row = L.row()
         row.enabled = has_key and bool(s.image)
         row.operator("felge3d.cloud_generate", icon="WORLD")

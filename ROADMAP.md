@@ -1,4 +1,4 @@
-# Rim Generator – Stand & nächste Schritte
+# Rim and Package Generator – Stand & nächste Schritte
 
 ## Stand (Version 0.42.0)
 Läuft: Foto → 3D-Felge → 4 Räder (GT3-RS-Maße) mit Reifen (Michelin-Flanke mit Relief, Profil), Update-Knopf,
