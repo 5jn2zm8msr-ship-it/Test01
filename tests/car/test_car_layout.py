@@ -414,6 +414,6 @@ bpy.ops.felge3d.car_update()
 mat = bpy.data.materials["Felge3D | Bremse links"]
 muls = sorted(n.inputs[1].default_value for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeMath" and n.operation == "MULTIPLY")
 check("Sattel rot nach Update (R hoch, G/B niedrig)", len(muls) == 3 and muls[-1] > 0.5 and muls[0] < 0.05, str([round(v, 3) for v in muls]))
-check("Bremse-Startwerte rund 16 % kleiner als die Datenblattwerte (408/380 mm: 7 % und dann noch 10 %)", abs(c.front_disc - 408 * 0.93 * 0.9) < 1 and abs(c.rear_disc - 380 * 0.93 * 0.9) < 1, "%s / %s" % (c.front_disc, c.rear_disc))
+check("Bremse-Startwerte = GT3 RS (408/380 mm, Dicke 36/30 mm)", abs(c.front_disc - 408) < 1e-6 and abs(c.rear_disc - 380) < 1e-6 and abs(c.front_disc_thickness - 36) < 1e-6 and abs(c.rear_disc_thickness - 30) < 1e-6, "%s / %s" % (c.front_disc, c.rear_disc))
 print("\nFehlgeschlagen:", bad)
 sys.exit(1 if bad else 0)

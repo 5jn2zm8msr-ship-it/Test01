@@ -63,6 +63,10 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Bremsengröße = GT3 RS (27.11., Version 0.58.0)
+- Auf Wunsch des Nutzers: Startwerte wieder die des Porsche 911 GT3 RS (Stahlscheiben 408/380 mm, Dicke 36/30 mm; PCCB 410/390 mm). Quellen: Porsche-Pressemappe zum 992 GT3 (408 mm Stahl vorn, PCCB 410/390 mm); Dicke hinten 30 mm laut Ersatzteil-Listing; Dicke vorn 36 mm aus früheren Datenblattwerten, nicht erneut belegt.
+- Die Verkleinerungen aus 0.56/0.57 (379/353, 341/318 mm) sind damit zurückgenommen; Skalierung mit der Felgengröße (Bezug 20"/21") bleibt.
+
 ## Vier Reifen zur Auswahl, Bremse nochmal 10 % kleiner (27.11., Version 0.57.0)
 - Mitgelieferte Reifen aus dem „[FREE] Sport Tire Pack“ von SDC PERFORMANCE (Sketchfab, CC BY 4.0): Pirelli P Zero (Sport, Standard), Pirelli P Zero Trofeo R, Yokohama Advan (Drift), Pirelli F1 (Slick); dazu bleibt der bisherige Pirelli P Zero GT in der Liste. Je Reifen herausgelöst, auf ca. 60 000 Flächen ausgedünnt (`tools/extract_tyre_pack.py`), 1–3 MB je GLB. Credits in `assets.py`, `reifen.json`, `QUELLE.md`, Preferences.
 - Wulst (Innenflanke) sitzt immer auf dem Felgenradius, Außenradius und Breite folgen den Reifenmaßen (Test für alle vier); die Form der Flanke (mehr/weniger Gummi) bleibt die des jeweiligen Modells. Reifen mit mehreren Teilen (Lauffläche, Schrift) werden gemeinsam angepasst. Standard-Drehung/Umdrehen je Reifen in `reifen.json` (Schrift oben).
