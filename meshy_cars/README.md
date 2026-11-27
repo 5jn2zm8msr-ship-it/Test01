@@ -35,7 +35,13 @@ Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tausc
 | + Ultra-Geometrie 2k | +5 | nicht unterstützt | nicht unterstützt |
 | Remesh | 5 | 5 | 5 |
 
-Prüfung: Lauf mit 7.1 + 2K-Textur kostete real **30 Credits** (Preisseite: 30). Remesh ist beim Erzeugen auf der Preisseite ohne Aufpreis aufgeführt (nicht live bestätigt).
+Prüfung: Lauf mit 7.1 + 2K-Textur kostete real **30 Credits** (Preisseite: 30). **Remesh beim Erzeugen kostet keinen Aufpreis** (live bestätigt: Meshy 7.1 + 2K-Textur + Quad-Remesh = 30 Credits).
+
+## Quads wirklich bekommen (GLB = nur Dreiecke)
+Das GLB-Format speichert ausschließlich Dreiecke: Auch ein Quad-Remesh kommt als Dreiecksnetz an (Test: 61.471 Dreiecke, 0 Quads). Meshy baut aber quad-dominant,
+die Dreieckspaare lassen sich lokal verbinden: Option **Dreiecke → Quads (lokal, kostenlos)** (Standard an; greift bei Quad-Topologie) oder Knopf am gewählten Auto
+(`bmesh.ops.join_triangles`, UV-Nähte/Material bleiben). Am echten Meshy-Auto: **93,5 % Quads** (29.696 von 31.775 Flächen), Form und Lage unverändert.
+Test: `tests/meshy_cars/check_quads_bpy.py`.
 
 ## API-Stand (docs.meshy.ai, gelesen 27.11.2026)
 - Standardmodell `meshy-7.1`; `latest` löst auf 7.1 auf.
