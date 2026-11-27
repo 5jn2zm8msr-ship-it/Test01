@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "meshy_cars"
+version = "0.1.0"
+name = "Meshy Cars"
+tagline = "Auto aus 4 Bildern via Meshy als texturiertes Mesh"
+maintainer = "Felge3D"
+type = "add-on"
+tags = ["Import-Export", "Mesh"]
+
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+network = "Sendet die gewählten Bilder an api.meshy.ai und lädt das fertige Modell"
+files = "Liest die gewählten Bilder, schreibt das heruntergeladene GLB in den Temp-Ordner"
