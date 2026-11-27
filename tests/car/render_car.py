@@ -19,14 +19,9 @@ GLB = os.environ.get("MESHY_GLB")                           # vorhandenes Meshy-
 if GLB:
     import felge3d
     sc.felge3d.method = "MESHY"
-    if os.environ.get("PHOTO"):                               # Foto + Felgenkreis (Bruchteile) für die Farbe aus dem Foto
-        sc.felge3d.image = bpy.data.images.load(os.environ["PHOTO"])
-        kx, ky, kr = (float(v) for v in os.environ.get("KREIS", "0.5,0.5,0.48").split(","))
-        sc.felge3d.center_x, sc.felge3d.center_y, sc.felge3d.radius, sc.felge3d.aspect = kx, ky, kr, 1.0
-        if os.environ.get("FOTOFARBE") == "0":
-            sc.felge3d.meshy_photo_color = False
     felge3d.make_meshy_rim(bpy.context, sc.felge3d, GLB)
 else:
+    bpy.context.preferences.addons["felge3d"].preferences.show_local = True              # lokale Methoden (Entwickler) nur hier, ausdrücklich
     sc.felge3d.method = "SUBD"
     bpy.ops.felge3d.import_image(filepath=os.path.join(ab.REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg"))
 if os.environ.get("FRONT_RIM"):

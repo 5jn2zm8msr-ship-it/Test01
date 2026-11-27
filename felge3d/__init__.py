@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 53, 0),
+    "version": (0, 55, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -46,13 +46,12 @@ if "core" in locals():
     fbx = importlib.reload(fbx)
     cloud = importlib.reload(cloud)
     assets = importlib.reload(assets)
-    photomat = importlib.reload(photomat)
     sector = importlib.reload(sector)
     paramdetect = importlib.reload(paramdetect)
     paramrim = importlib.reload(paramrim)
     paramui = importlib.reload(paramui)
 else:
-    from . import ai, assets, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, photomat, sector, tire_data, updater
+    from . import ai, assets, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, sector, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -96,15 +95,41 @@ def meshy_texture_items(self, context):
     return _TEX_ITEMS
 
 
+_METHOD_ITEMS = []
+
+
+def _show_local():
+    """Entwickler-Einstellung: lokale Methoden (Lokale KI, Geometry Nodes) anzeigen – Standard aus (Nutzervorgabe 27.11.2026)."""
+    try:
+        return bool(bpy.context.preferences.addons[__package__].preferences.show_local)
+    except (KeyError, AttributeError):
+        return False
+
+
+def _method_items(self, context):
+    global _METHOD_ITEMS                               # Referenz halten (Blender liest die Strings später)
+    _METHOD_ITEMS = [("MESHY", "Meshy", "Mesh von Meshy (Cloud, verbraucht Credits; vor jedem Aufruf Kosten und Bestätigung)"),
+                     ("OWN", "Eigene Felge", "Eigene 3D-Felge (FBX, OBJ, glTF) importieren oder eine Collection der Szene wählen")]
+    if _show_local():
+        _METHOD_ITEMS += [("AI", "Lokale KI (veraltet)", "Foto -> KI-Mesh mit Foto-Textur auf diesem Rechner; nur Entwickler"),
+                          ("SUBD", "Geometry Nodes (veraltet)", "Erkennt Formen und Materialien, baut eine SubD-Felge (Blender 5.3); nur Entwickler")]
+    return _METHOD_ITEMS
+
+
 def _method_changed(self, context):
     """Methode -> interne Einstellungen: Lokale KI = KI-Mesh, Geometry Nodes = SubD (nur Blender 5.3), Meshy = Cloud-Anbieter Meshy."""
     if self.method == "AI":
         self.result_mode = "KI"
+        self.source = "GENERATED"
     elif self.method == "SUBD":
         self.result_mode = "EDIT" if paramui.PARAM_OK else "KI"
+        self.source = "GENERATED"
+    elif self.method == "OWN":
+        self.source = "COLLECTION"                     # Paket baut mit der eigenen Felge
     else:
         self.cloud_provider = "MESHY"
         self.mesh_source = "CLOUD"
+        self.source = "GENERATED"                      # = Meshy-Felge
 
 
 def method_of_collection(col):
@@ -116,11 +141,8 @@ def method_of_collection(col):
 
 
 class Felge3DSettings(PropertyGroup):
-    method: EnumProperty(name="Methode", default="MESHY", update=_method_changed, items=[
-        ("AI", "Lokale KI", "Foto -> KI-Mesh mit Foto-Textur auf diesem Rechner (kostenlos); gut als Vorlage, schlecht bearbeitbar"),
-        ("SUBD", "Geometry Nodes", "Erkennt Formen, blank/schwarz (Diamond Cut) und Materialien und baut eine bearbeitbare SubD-Felge (Blender 5.3)"),
-        ("MESHY", "Meshy", "Mesh von Meshy (Cloud, verbraucht Credits; vor jedem Aufruf Kosten und Bestätigung)")],
-        description="Wie aus dem Foto eine Felge erzeugt wird")
+    method: EnumProperty(name="Methode", update=_method_changed, items=_method_items,
+                         description="Woher die Felge kommt: Meshy (aus Bildern) oder eine eigene 3D-Felge")
     meshy_source: PointerProperty(name="Meshy-Quelle", type=bpy.types.Collection,
                                   description="Verborgene Collection mit dem importierten Meshy-Mesh (Quelle für die vier Räder)")
     image: PointerProperty(name="Bild", type=bpy.types.Image)
@@ -137,10 +159,6 @@ class Felge3DSettings(PropertyGroup):
         ("CLOUD", "Cloud-API", "Mesh bei einem Anbieter erzeugen lassen (kostenpflichtig, Key in den Preferences)")])
     cloud_provider: EnumProperty(name="Anbieter", default="MESHY", items=[
         ("TRIPO", "Tripo", "Tripo API"), ("MESHY", "Meshy", "Meshy API (Image to 3D, nur Mesh ohne Textur)")])
-    meshy_photo_color: BoolProperty(
-        name="Farbe aus dem Foto (Frontprojektion)", default=True,
-        description="Das Foto wird von vorn auf die sichtbare Felgenseite projiziert (Farbe, Glanz, Schrift stimmen mit dem Foto); Form und Rückseite "
-                    "bleiben von Meshy. Kostet nichts. Voraussetzung: Felgenkreis im Foto stimmt (Reiter Erkennung)")
     meshy_texture_mode: EnumProperty(name="Meshy-Ausgabe", items=meshy_texture_items,
                                      description="Mit oder ohne Textur; die Credits stehen in Klammern (Textur kostet laut Preisliste 10 Credits mehr)")
     meshy_views: IntProperty(name="Meshy-Bildfelder", default=1, min=1, max=3,
@@ -170,7 +188,7 @@ class Felge3DSettings(PropertyGroup):
         ("NO", "Nein – nur Felge", "Äußersten deutlichen Kreis als Felge nehmen"),
     ])
     source: EnumProperty(name="Felge", default="GENERATED", items=[
-        ("GENERATED", "Generierte Felge", "Die Felge aus dem Reiter ‚2D to 3D Rim‘ (Foto) verwenden"),
+        ("GENERATED", "Meshy-Felge", "Die Felge aus dem Reiter ‚2D to 3D Rim‘ (Methode Meshy) verwenden"),
         ("COLLECTION", "Eigene Felge", "Eine beliebige Felge aus einer Collection der Szene wählen (z.B. importierte FBX)"),
     ])
     fbx_collection: PointerProperty(name="Collection", type=bpy.types.Collection,
@@ -1010,8 +1028,8 @@ class FELGE3D_OT_import_image(Operator, ImportHelper):
             pass
         if s.auto_detect:
             bpy.ops.felge3d.detect()
-        if s.method == "MESHY":                 # kostenpflichtig: erst nach ‚Felge erstellen‘ (mit Kostenhinweis und Bestätigung)
-            self.report({"INFO"}, "Bild geladen. Methode Meshy: ‚Felge erstellen‘ drücken (zeigt vorher die Kosten).")
+        if s.method in ("MESHY", "OWN"):        # Meshy kostet: erst nach ‚Felge erstellen‘ (mit Kostenhinweis und Bestätigung); eigene Felge: kein Bau
+            self.report({"INFO"}, "Bild geladen." + (" Methode Meshy: ‚Felge erstellen‘ drücken (zeigt vorher die Kosten)." if s.method == "MESHY" else ""))
             return {"FINISHED"}
         eff = "SUBD" if (s.result_mode == "EDIT" and paramui.PARAM_OK) else "AI"
         same = next((c for c in paramui.rim_collections() if c.get("felge3d_image") == img.name and not c.get("felge3d_variant_of")
@@ -1233,6 +1251,9 @@ class Felge3DPreferences(AddonPreferences):
 
     meshy_key: StringProperty(name="Meshy API-Key", default="", subtype="PASSWORD",
                               description="Nur hier speichern (nie im Code, in der .blend oder im Repo). Beginnt mit msy_. Wird von Meshy bei jeder Generierung belastet")
+    show_local: BoolProperty(
+        name="Lokale Methoden anzeigen (Entwickler, veraltet)", default=False,
+        description="Zeigt zusätzlich Lokale KI und Geometry Nodes als Methode. Standard aus: Das Tool arbeitet mit Meshy und eigenen Teilen")
     meshy_model: StringProperty(name="Meshy-Modell (ai_model)", default="latest",
                                 description="„latest“ = aktuelles Modell laut Meshy. Bei einer Fehlermeldung wegen abgeschalteten Modells hier ein anderes eintragen (docs.meshy.ai/api/models)")
 
@@ -1246,6 +1267,7 @@ class Felge3DPreferences(AddonPreferences):
         box.prop(self, "tripo_key")
         box.prop(self, "meshy_key")
         box.prop(self, "meshy_model")
+        L.prop(self, "show_local")
         box.label(text="Der Key bleibt in den Blender-Preferences dieses Rechners.")
         cb = L.box()
         cb.label(text="Credits (mitgelieferte Objekte)", icon="HEART")
@@ -1377,10 +1399,15 @@ class FELGE3D_PT_main(Panel):
         box = L.box()
         box.label(text="2  Methode", icon="MOD_BUILD")
         box.prop(s, "method", expand=True)
-        info = {"AI": "KI-Mesh mit Foto-Textur, lokal und kostenlos.",
-                "SUBD": "Erkennt Formen und Materialien (blank/schwarz); bearbeitbar.",
-                "MESHY": "Mesh von Meshy (Cloud, kostet Credits)."}[s.method]
+        info = {"AI": "KI-Mesh mit Foto-Textur, lokal (veraltet).",
+                "SUBD": "Erkennt Formen und Materialien (veraltet).",
+                "OWN": "Eigene 3D-Felge (FBX, OBJ, glTF) – ohne Meshy.",
+                "MESHY": "Mesh von Meshy (Cloud, kostet Credits)."}.get(s.method, "")
         box.label(text=info)
+        if s.method == "OWN":
+            box.prop(s, "fbx_collection", text="")
+            if s.fbx_info and s.fbx_collection:
+                box.label(text=s.fbx_info, icon="INFO")
         if s.method == "SUBD" and not paramui.PARAM_OK:
             box.label(text="Braucht Blender 5.3 oder neuer.", icon="ERROR")
         if s.method == "MESHY":
@@ -1400,7 +1427,6 @@ class FELGE3D_PT_main(Panel):
                     if k_ == max(s.meshy_views, 2 if s.meshy_image2 is not None else 1, 3 if s.meshy_image3 is not None else 1):
                         r_.operator("felge3d.meshy_view_remove", text="", icon="REMOVE")
             box.prop(s, "meshy_texture_mode", expand=True)
-            box.prop(s, "meshy_photo_color")
             try:
                 box.label(text="Kosten: " + cost_text(make_provider(s, "MESHY")), icon="FUND")
             except Exception:  # noqa: BLE001
@@ -1409,8 +1435,8 @@ class FELGE3D_PT_main(Panel):
                 box.label(text="Kein Meshy-Key: Preferences → Add-ons → Rim Generator", icon="INFO")
         row = L.row()
         row.scale_y = 1.7
-        row.enabled = bool(s.image) and (s.method != "MESHY" or bool(cloud_key("MESHY"))) and (s.method != "SUBD" or paramui.PARAM_OK)
-        row.operator("felge3d.create_rim", icon="MESH_DATA")
+        row.enabled = ((bool(s.image) and (s.method != "MESHY" or bool(cloud_key("MESHY")))) or s.method == "OWN") and (s.method != "SUBD" or paramui.PARAM_OK)
+        row.operator("felge3d.create_rim", text="3D-Felge importieren…" if s.method == "OWN" else "Felge erstellen", icon="IMPORT" if s.method == "OWN" else "MESH_DATA")
         if s.method == "MESHY" and s.get("cloud_status"):
             L.label(text=s["cloud_status"])
         if paramui.PARAM_OK and s.result_mode == "EDIT" and s.method == "SUBD":
@@ -1757,6 +1783,17 @@ class Felge3DCar(PropertyGroup):
                        "Größe, Breite und Wulstsitz werden an Zoll und Reifenmaße angepasst")])
     tire_bundled: EnumProperty(name="Reifen", items=lambda self, ctx: _bundled_items(),
                                description="Mitgelieferter Reifen aus assets/reifen")
+    brake_source: EnumProperty(name="Bremse", default="GENERATED", items=[
+        ("GENERATED", "Mitgelieferte Bremse", "Scheibe und Sattel aus dem Add-on (Foto-Textur, Sattelfarbe einstellbar)"),
+        ("COLLECTION", "Eigene Bremse", "Eine beliebige Bremse (Scheibe + Sattel) aus einer Collection wählen, z. B. importierte FBX; "
+                       "wird auf die Scheibengröße skaliert und an der Felge ausgerichtet")])
+    brake_collection: PointerProperty(name="Collection", type=bpy.types.Collection,
+                                      description="Collection mit der Bremse (Meshes); Achse, Mitte und Scheibenradius werden erkannt")
+    brake_info: StringProperty(default="")
+    brake_own_flip: BoolProperty(name="Bremse umdrehen", default=False, description="Achsrichtung der eigenen Bremse umkehren (Sattel innen/außen)")
+    brake_own_rotation: FloatProperty(name="Bremse drehen (Grad)", default=0, min=-180, max=180,
+                                      description="Dreht die eigene Bremse um die Radachse (Lage des Sattels)")
+    brake_own_scale: FloatProperty(name="Bremse Größe ×", default=1.0, min=0.5, max=1.5, description="Feinkorrektur der Größe der eigenen Bremse")
     tire_collection: PointerProperty(name="Collection", type=bpy.types.Collection,
                                      description="Collection mit dem Reifen (Meshes); Achse, Mitte und Größe werden erkannt")
     tire_info: StringProperty(default="")
@@ -1843,6 +1880,13 @@ def axle_tag(front):
     return "vorn" if front else "hinten"
 
 
+def _brake_meshes(c):
+    col = c.brake_collection
+    if c.brake_source != "COLLECTION" or not col or col.name not in bpy.data.collections:
+        return []
+    return [o for o in col.all_objects if o.type == "MESH" and len(o.data.vertices) > 0]
+
+
 def _tire_meshes(c):
     if c.tire_source == "BUNDLED":
         if c.tire_bundled in ("", "NONE"):
@@ -1873,7 +1917,7 @@ def car_signature(s, c):
         vals.append((k, v))
     vals += [("source", s.source), ("fbx", s.fbx_collection.name if s.fbx_collection else ""), ("flip", bool(s.fbx_flip)),
              ("image", s.image.name if s.image else ""), ("rim", s.collection.name if s.collection else ""),
-             ("method", s.method), ("meshy", s.meshy_source.name if s.meshy_source else ""), ("fotofarbe", bool(s.meshy_photo_color))]
+             ("method", s.method), ("meshy", s.meshy_source.name if s.meshy_source else "")]
     return repr(vals)
 
 
@@ -1949,6 +1993,10 @@ def build_car(context, s, c):
         raise RuntimeError("Eigener Reifen: eine Collection mit dem Reifen wählen (Picker) oder ‚3D-Reifen importieren‘.")
     if c.tire_source == "BUNDLED" and not tire_meshes:
         raise RuntimeError("Mitgelieferter Reifen nicht verfügbar (Ordner assets/reifen fehlt?). Add-on neu installieren oder ‚Generierter Reifen‘ wählen.")
+    brake_meshes = _brake_meshes(c) if c.use_brakes else []
+    if c.use_brakes and c.brake_source == "COLLECTION" and not brake_meshes:
+        raise RuntimeError("Eigene Bremse: eine Collection mit der Bremse wählen (Picker) oder ‚3D-Bremse importieren‘ (oder ‚Mitgelieferte Bremse‘ wählen).")
+    brake_fit = fbx.brake_fit(brake_meshes, c.brake_own_flip) if brake_meshes else None
     t_def = assets.tyre_entry(c.tire_bundled) if c.tire_source == "BUNDLED" else None
     rot_extra = float(t_def.get("standard_drehung", 0.0)) if t_def else 0.0                       # Standard-Lage des Reifens (z. B. P ZERO oben)
     flip_tire = bool(c.tire_own_flip) != bool(t_def.get("standard_umdrehen", False) if t_def else False)
@@ -1982,12 +2030,6 @@ def build_car(context, s, c):
         if use_fbx:
             M_fit, scale = fbx.fit_matrix(finfo, d["r_rim"] + 0.017, d["rim_out"] + off)
             parts = fbx.bake(src_meshes, M_fit, "FBX " + ("vorn" if front else "hinten"))
-            if s.source != "COLLECTION" and s.method == "MESHY" and s.meshy_photo_color and s.image:     # Meshy-Felge: Farbe aus dem Foto
-                cx_, cy_, ru_, rv_ = photomat.photo_circle(s)
-                for _l, me_ in parts:
-                    if not me_.materials:                                      # Meshy „nur Mesh“ ohne Material: erst neutrales Metall
-                        me_.materials.append(get_material("Meshy Felge (neutral)", (0.55, 0.56, 0.58, 1.0), 0.85, 0.35))
-                    photomat.apply_to_mesh(me_, s.image, cx_, cy_, ru_, rv_, d["r_rim"] + 0.017, frame="wheel")
             back_fn = fbx.back_profile(parts, d["rim_out"] + off, finfo["width"] * scale)
             base = lambda sgn: Matrix.Rotation(math.pi, 4, "Z") if sgn < 0 else Matrix.Identity(4)
             rim_parts = [(label, me) for label, me in parts]
@@ -2081,7 +2123,18 @@ def build_car(context, s, c):
                 ob.parent = parent
                 col.objects.link(ob)
                 car.add_relief(ob, tire_img, c.tire_relief, tread_h, c.tread_relief)
-            if c.use_brakes:
+            if c.use_brakes and brake_fit is not None:                # eigene Bremse: auf die Scheibengröße skaliert, Lage wie die mitgelieferte
+                me_d0, me_c0, x_d0 = car.build_brake(c, d, sgn, mats, name, x_m, back_fn, r_well, bmeta,
+                                                     c.front_caliper_angle if front else c.rear_caliper_angle)
+                bpy.data.meshes.remove(me_d0)
+                bpy.data.meshes.remove(me_c0)
+                dr0 = min(d["disc_d"] / 2.0, r_well - 0.024)
+                for label, me_b in fbx.bake_brake(brake_meshes, brake_fit, dr0, x_d0, sgn, "Bremse " + name, c.brake_own_rotation, c.brake_own_scale):
+                    bo = bpy.data.objects.new("%s %s" % (label, name), me_b)
+                    bo["felge3d_part"] = "brake"
+                    bo.parent = parent
+                    col.objects.link(bo)
+            elif c.use_brakes:
                 me_d, me_c, x_d = car.build_brake(c, d, sgn, mats, name, x_m, back_fn, r_well, bmeta,
                                                   c.front_caliper_angle if front else c.rear_caliper_angle)
                 for label, me in (("Bremsscheibe", me_d), ("Bremssattel", me_c)):
@@ -2620,7 +2673,6 @@ def make_meshy_rim(context, s, glb_path):
     root["felge3d_role"] = "root"
     col.objects.link(root)
     mat = get_material("Meshy Felge (neutral)", (0.55, 0.56, 0.58, 1.0), 0.85, 0.35)
-    use_photo = bool(s.meshy_photo_color and s.image)
     for label, me in parts:
         me.transform(to_photo)
         me.update()
@@ -2628,9 +2680,6 @@ def make_meshy_rim(context, s, glb_path):
         if not has_tex:                                   # nur Mesh (oder keine Textur): neutrales Metall; mit Textur bleibt das Meshy-Material
             me.materials.clear()
             me.materials.append(mat)
-        if use_photo:                                     # Farbe der Vorderseite aus dem Foto (Frontprojektion im Shader)
-            cx_, cy_, ru_, rv_ = photomat.photo_circle(s)
-            photomat.apply_to_mesh(me, s.image, cx_, cy_, ru_, rv_, R_out, frame="photo")
         ob = bpy.data.objects.new("Felge Meshy", me)
         ob["felge3d_role"] = "meshy"
         ob.parent = root
@@ -2678,6 +2727,8 @@ class FELGE3D_OT_create_rim(Operator):
         if not s.image:
             self.report({"ERROR"}, "Erst ein Felgenbild laden.")
             return {"CANCELLED"}
+        if s.method == "OWN":
+            return bpy.ops.felge3d.import_fbx("INVOKE_DEFAULT")                 # eigene 3D-Felge laden (Dateiauswahl)
         if s.method == "MESHY":                          # Kostenhinweis, Guthaben, Bestätigung: Dialog der Cloud-Erzeugung
             s.cloud_provider = "MESHY"
             return bpy.ops.felge3d.cloud_generate("INVOKE_DEFAULT")
@@ -2772,6 +2823,42 @@ class FELGE3D_OT_import_tire(Operator, ImportHelper):
         return {"FINISHED"}
 
 
+class FELGE3D_OT_import_brake(Operator, ImportHelper):
+    """3D-Bremse (FBX, OBJ oder glTF; Scheibe + Sattel) laden: Achse, Mitte und Scheibenradius werden erkannt und beim Bau an die Scheibengröße angepasst"""
+    bl_idname = "felge3d.import_brake"
+    bl_label = "3D-Bremse importieren…"
+    bl_options = {"REGISTER", "UNDO"}
+    filter_glob: StringProperty(default="*.fbx;*.obj;*.glb;*.gltf", options={"HIDDEN"})
+
+    def execute(self, context):
+        c = context.scene.felge3d_car
+        try:
+            new, meshes = fbx.import_file(self.filepath)
+        except Exception as e:  # noqa: BLE001
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        old = c.brake_collection
+        if old and old.name in bpy.data.collections and old.get("felge3d_brake_source"):
+            for o in list(old.all_objects):
+                bpy.data.objects.remove(o)
+            bpy.data.collections.remove(old)
+        col = bpy.data.collections.new("Rim Generator | 3D-Bremse (Quelle)")
+        col["felge3d_brake_source"] = True
+        context.scene.collection.children.link(col)
+        for o in new:
+            for oc in list(o.users_collection):
+                oc.objects.unlink(o)
+            col.objects.link(o)
+        col.hide_viewport = True                      # Quelle ausblenden, die Bremsen entstehen am Rad
+        col.hide_render = True
+        c.brake_collection = col
+        c.brake_source = "COLLECTION"
+        bf = fbx.brake_fit(meshes, c.brake_own_flip)
+        c["brake_info"] = "%d Teile · Scheibe Ø ca. %.0f mm (Quelle)" % (len(meshes), 2000 * bf["r_disc"])
+        self.report({"INFO"}, "3D-Bremse geladen: " + c.brake_info)
+        return {"FINISHED"}
+
+
 class FELGE3D_OT_car_update(Operator):
     """Paket mit den geänderten Parametern (Zoll, Reifen, Spur, Quellen …) neu aufbauen; die Lage des Anker-Empties bleibt erhalten"""
     bl_idname = "felge3d.car_update"
@@ -2817,7 +2904,7 @@ class FELGE3D_OT_car_reset(Operator):
     def execute(self, context):
         c = context.scene.felge3d_car
         for k in c.bl_rna.properties.keys():
-            if k not in ("rna_type", "car_anchor", "tire_collection", "tire_source", "tire_info"):      # Auswahl (Picker) bleibt
+            if k not in ("rna_type", "car_anchor", "tire_collection", "tire_source", "tire_info", "brake_collection", "brake_source", "brake_info"):      # Auswahl (Picker) bleibt
                 c.property_unset(k)
         return {"FINISHED"}
 
@@ -2920,6 +3007,21 @@ class FELGE3D_PT_pkg(Panel):
             row_.prop(c, "tire_own_rotation", text="")
             tire_ready = bool(_tire_meshes(c))
             tb.label(text="Wird an Zoll, Breite und Querschnitt (Achsen-Reiter) angepasst.")
+        bk = L.box()
+        bk.label(text="Bremse", icon="MESH_CYLINDER")
+        bk.prop(c, "brake_source", expand=True)
+        brake_ready = True
+        if c.brake_source == "COLLECTION":
+            bk.prop(c, "brake_collection", text="")
+            bk.operator("felge3d.import_brake", icon="IMPORT")
+            if c.brake_info and c.brake_collection:
+                bk.label(text=c.brake_info, icon="INFO")
+            row_ = bk.row(align=True)
+            row_.prop(c, "brake_own_flip", toggle=True)
+            row_.prop(c, "brake_own_rotation", text="")
+            bk.prop(c, "brake_own_scale")
+            brake_ready = bool(_brake_meshes(c)) or not c.use_brakes
+            bk.label(text="Wird auf die Scheibengröße skaliert und an der Felge ausgerichtet.")
         ab = L.box()
         ab.label(text="Fahrzeug-Empty (Mitte Vorderachse)", icon="EMPTY_ARROWS")
         ab.prop(c, "car_anchor", text="")
@@ -2932,12 +3034,12 @@ class FELGE3D_PT_pkg(Panel):
             ab.label(text="Leer: beim Erzeugen wird ein Empty angelegt (Boden Z = 0).")
         row = L.row()
         row.scale_y = 1.7
-        row.enabled = ready and tire_ready
+        row.enabled = ready and tire_ready and brake_ready
         row.operator("felge3d.car_generate", icon="AUTO")
         stale = car_is_stale(s, c)
         row = L.row()
         row.alert = stale
-        row.enabled = ready and tire_ready and car_collection() is not None
+        row.enabled = ready and tire_ready and brake_ready and car_collection() is not None
         row.operator("felge3d.car_update", icon="FILE_REFRESH")
         if stale:
             L.label(text="Parameter geändert – bitte aktualisieren.", icon="ERROR")
@@ -2996,6 +3098,7 @@ classes = (
     FELGE3D_OT_meshy_view_remove,
     FELGE3D_OT_car_update,
     FELGE3D_OT_import_tire,
+    FELGE3D_OT_import_brake,
     FELGE3D_OT_import_fbx,
     FELGE3D_OT_cloud_generate,
     FELGE3D_OT_cloud_balance,

@@ -5,6 +5,7 @@ Aufruf: /tmp/venv53/bin/python tests/car/test_car_layout.py
 import math
 import os
 import shutil
+import tempfile
 import sys
 
 import bpy  # noqa: I001
@@ -45,6 +46,7 @@ def tire_dims(obj_name):
 
 sc = bpy.context.scene
 s, c = sc.felge3d, sc.felge3d_car
+bpy.context.preferences.addons["felge3d"].preferences.show_local = True              # lokale Methoden (Entwickler) nur hier, ausdrücklich
 s.method = "SUBD"                                            # lokale Methode nur hier, ausdrücklich gewählt
 bpy.ops.felge3d.import_image(filepath=os.path.join(REPO, "tests", "diamond_cut", "neue_felgen", "porsche_gold_IMG_2695.jpg"))
 r = bpy.ops.felge3d.car_generate()
@@ -208,6 +210,65 @@ check("Automatischer Versatz steht am Rad-Empty", "Felge automatisch nach außen
 c.rim_offset = 5.0
 c.tire_source = "GENERATED"
 bpy.ops.felge3d.car_update()
+
+# Eigene Bremse (Collection/Import): auf Scheibengröße skaliert, Scheibenebene wie die mitgelieferte, rechts gespiegelt
+def local_pts(ob):
+    n_ = len(ob.data.vertices)
+    v_ = np.empty(n_ * 3)
+    ob.data.vertices.foreach_get("co", v_)
+    return v_.reshape(-1, 3)
+
+
+c.brake_source = "GENERATED"
+bpy.ops.felge3d.car_update()
+gen = {}
+for n_ in ("Vorne links", "Vorne rechts", "Hinten links"):
+    v_ = local_pts(bpy.data.objects["Bremsscheibe " + n_])
+    rho_ = np.hypot(v_[:, 1], v_[:, 2])
+    ring_ = (rho_ > 0.75 * rho_.max()) & (rho_ < 0.93 * rho_.max())
+    gen[n_] = (rho_.max(), float(0.5 * (v_[ring_, 0].min() + v_[ring_, 0].max())))
+bpy.ops.mesh.primitive_cylinder_add(radius=0.15, depth=0.02, vertices=64)          # Scheibe (Achse Z) – später gedreht
+disc_ = bpy.context.active_object
+bpy.ops.mesh.primitive_cylinder_add(radius=0.11, depth=0.02, vertices=64)          # innerer Ring der Reibfläche (Punkte im Ring-Bereich)
+dsc2_ = bpy.context.active_object
+bpy.ops.mesh.primitive_cube_add(size=0.05, location=(0.12, 0.0, 0.0))             # „Sattel“ seitlich der Scheibe
+cal_ = bpy.context.active_object
+cal_.scale = (1.0, 1.4, 1.2)
+for o_ in (disc_, dsc2_, cal_):
+    o_.select_set(True)
+bpy.context.view_layer.objects.active = disc_
+bpy.ops.object.join()
+brk_ = bpy.context.active_object
+brk_.name = "Bremse_test"
+brk_.rotation_euler = (math.pi / 2, 0.0, 0.3)                                      # Achse beliebig
+glb_b = os.path.join(tempfile.mkdtemp(), "bremse.glb")
+bpy.ops.export_scene.gltf(filepath=glb_b, export_format="GLB", use_selection=True)
+bpy.data.objects.remove(brk_)
+check("import_brake importiert und wählt die Collection", bpy.ops.felge3d.import_brake(filepath=glb_b) == {"FINISHED"} and c.brake_source == "COLLECTION"
+      and c.brake_collection.hide_render and "Scheibe Ø" in c.brake_info, c.brake_info)
+check("Bremsen-Quelle verborgen (Viewport und Rendering)", c.brake_collection.hide_viewport and c.brake_collection.hide_render)
+check("Update mit eigener Bremse", bpy.ops.felge3d.car_update() == {"FINISHED"})
+for n_ in ("Vorne links", "Vorne rechts", "Hinten links"):
+    ob_ = next((o for o in bpy.data.objects if o.name.startswith("Bremse_test") and o.name.endswith(n_)), None)
+    check("eigene Bremse am Rad (%s)" % n_, ob_ is not None and ob_.get("felge3d_part") == "brake")
+    v_ = local_pts(ob_)
+    rho_ = np.hypot(v_[:, 1], v_[:, 2])
+    r95 = float(np.percentile(rho_, 95))
+    ring_ = (rho_ > 0.6 * r95) & (rho_ < 0.95 * r95)
+    xr_ = float(0.5 * (np.percentile(v_[ring_, 0], 2) + np.percentile(v_[ring_, 0], 98)))
+    check("eigene Bremse %s: Scheibenradius = Scheibengröße (±8 %%)" % n_, abs(r95 - gen[n_][0]) / gen[n_][0] < 0.08, "%.3f / %.3f" % (r95, gen[n_][0]))
+    check("eigene Bremse %s: Scheibenebene wie die mitgelieferte (±4 mm), Seite stimmt" % n_, abs(xr_ - gen[n_][1]) < 0.004, "%.4f / %.4f" % (xr_, gen[n_][1]))
+c.brake_own_scale = 1.2
+bpy.ops.felge3d.car_update()
+ob_ = next(o for o in bpy.data.objects if o.name.startswith("Bremse_test") and o.name.endswith("Vorne links"))
+v_ = local_pts(ob_)
+check("Größe ×1,2 wirkt", np.percentile(np.hypot(v_[:, 1], v_[:, 2]), 95) > 1.15 * gen["Vorne links"][0] * 0.95)
+c.brake_own_scale = 1.0
+c.brake_source = "GENERATED"
+bpy.ops.felge3d.car_update()
+check("zurück auf die mitgelieferte Bremse", any(o.name == "Bremsscheibe Vorne links" for o in bpy.data.objects) and not any(o.name.startswith("Bremse_test") for o in bpy.data.objects if o.parent))
+r_ = bpy.ops.felge3d.car_reset()
+check("Maße zurücksetzen lässt die Bremsenauswahl stehen", c.brake_collection is not None)
 
 # Rad-Empties können nicht Anker sein
 try:

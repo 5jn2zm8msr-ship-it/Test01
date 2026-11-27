@@ -33,6 +33,7 @@ def main(name):
     cfg = CASES[name]
     ev.install()
     import felge3d
+    bpy.context.preferences.addons["felge3d"].preferences.show_local = True              # lokale Methoden (Entwickler) nur hier, ausdrücklich
     bpy.context.scene.felge3d.method = "SUBD"
     bpy.ops.felge3d.import_image(filepath=os.path.join(ev.HERE, cfg["photo"]))
     s = bpy.context.scene.felge3d

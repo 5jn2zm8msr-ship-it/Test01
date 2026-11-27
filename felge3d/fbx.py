@@ -257,3 +257,53 @@ def bake_tire(objs, tf, r_rim, R_out, width, sgn, name, rot_deg=0.0):
         me.update()
         out.append((o.name, me))
     return out
+
+
+# ---------------------------------------------------------------- eigene Bremse
+def brake_fit(objs, flip=False):
+    """
+    Achse, Mitte, Scheibenradius und Scheibenebene eines Bremsen-Meshs (Scheibe + Sattel). Scheibenradius = 95-%-Perzentil des Radius
+    (flächengewichtete Punkte: die Scheibe dominiert, der Sattel ragt kaum darüber); Scheibenebene = Mitte der Achslagen im Reibring (zwischen den Reibflächen).
+    """
+    info = analyze(objs, flip)
+    P = collect_points(objs)
+    Q = (P - info["center"]) @ info["R"].T
+    t, rho = Q[:, 0], np.hypot(Q[:, 1], Q[:, 2])
+    r_disc = float(np.percentile(rho, 95))
+    ring = (rho > 0.6 * r_disc) & (rho < 0.95 * r_disc)
+    t_disc = float(0.5 * (np.percentile(t[ring], 2) + np.percentile(t[ring], 98))) if ring.sum() > 20 else float(np.median(t))      # Mitte zwischen den Reibflächen
+    return dict(R=info["R"], center=info["center"], r_disc=r_disc, t_disc=t_disc, n_points=int(len(P)))
+
+
+def bake_brake(objs, bf, r_target, x_d, sgn, name, rot_deg=0.0, scale=1.0):
+    """
+    Bremse in Radkoordinaten backen: gleichmäßig so skaliert, dass der Scheibenradius r_target * scale wird; Scheibenebene bei x = x_d
+    (Außenseite des Rades = +X); rot_deg dreht um die Radachse (Lage des Sattels); sgn = -1: Rad um die Hochachse gedreht (x, y -> -x, -y).
+    Gibt Liste (label, mesh) zurück.
+    """
+    k = r_target * scale / max(bf["r_disc"], 1e-9)
+    T = np.eye(4)
+    T[:3, :3] = bf["R"] * k
+    T[:3, 3] = -(bf["R"] @ bf["center"]) * k + np.array([x_d - bf["t_disc"] * k, 0.0, 0.0])
+    th = np.radians(rot_deg)
+    c_, s_ = np.cos(th), np.sin(th)
+    out = []
+    for i, o in enumerate(objs):
+        me = o.data.copy()
+        M = Matrix(T.tolist()) @ o.matrix_world
+        me.transform(M)
+        if M.determinant() < 0:
+            me.flip_normals()
+        n = len(me.vertices)
+        co = np.empty(n * 3, np.float64)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        x, y, z = co[:, 0].copy(), co[:, 1].copy(), co[:, 2].copy()
+        y, z = y * c_ - z * s_, y * s_ + z * c_
+        if sgn < 0:
+            x, y = -x, -y
+        me.vertices.foreach_set("co", np.stack([x, y, z], axis=1).ravel())
+        me.name = "%s %d" % (name, i)
+        me.update()
+        out.append((o.name, me))
+    return out
