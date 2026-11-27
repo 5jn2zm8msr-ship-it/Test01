@@ -18,7 +18,7 @@ der **Radstand** wird als Schätzung (≈ 60 % der Länge) angezeigt. Jedes Auto
 ## Ausrichtung beim Import
 Das Auto sitzt **zentriert auf dem Weltursprung** (Mitte der Bounding-Box auf X/Y = 0, Räder/Unterkante auf z = 0), **Z oben**, Länge entlang **X**,
 Achsen/Breite entlang **Y**, **Front nach −X**. Liegt die Länge nach dem Import entlang Y, wird um −90° um Z gedreht. Welche Seite „vorn“ ist, kann
-Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tauschen (180°)** drücken. Prüfung: `tests/meshy_cars/check_orientation_bpy.py` (braucht `pip install bpy`).
+Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tauschen (180°)** drücken. Prüfung: `tests/meshy_cars/check_orientation_bpy.py` (braucht `pip install bpy`) – macht je Lauf Workbench-Screenshots ohne Rendering, immer **mit Textur und grau (Form)**; Ergebnisse in `testbilder/ergebnis/`.
 
 ## API-Stand (docs.meshy.ai, gelesen 27.11.2026)
 - Standardmodell `meshy-7.1`; `latest` löst auf 7.1 auf.

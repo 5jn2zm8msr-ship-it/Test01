@@ -1,4 +1,4 @@
-"""Prueft Ausrichtung/Zentrierung/Breite eines Meshy-GLB im echten bpy und macht schnelle Workbench-Screenshots (ohne Rendering).
+"""Prueft Ausrichtung/Zentrierung/Breite eines Meshy-GLB im echten bpy und macht schnelle Workbench-Screenshots (ohne Rendering), jeweils mit Textur UND einfarbig grau (Form).
 Aufruf (pip install bpy): python -I tests/meshy_cars/check_orientation_bpy.py -- <Ausgabeordner> <auto.glb>
 Erwartet: Zentrum XY = (0,0), Boden z = 0, Breite(Y) = 2020 mm, Laenge entlang X, Front (niedrig/schmal) bei -X."""
 import sys, math, glob, time
@@ -36,12 +36,18 @@ tg = bpy.data.objects.new("T", None); tg.location = (0, 0, 0.55); sc.collection.
 t = cam.constraints.new("TRACK_TO"); t.target, t.track_axis, t.up_axis = tg, "TRACK_NEGATIVE_Z", "UP_Y"
 sc.camera = cam
 views = {"front_von_minus_x": (-1, 0), "seite_von_minus_y": (0, -1), "schraeg_front_links": (-0.8, -0.6), "oben": None}
-for k, v in views.items():
-    t0 = time.time()
-    if v is None:
-        cam.location = (0, 0.001, 8.5); cam.data.lens = 35
-    else:
-        cam.data.lens = 42; cam.location = (v[0] * 7.2, v[1] * 7.2, 1.7)
-    sc.render.filepath = SP + "/shot_%s.png" % k
-    bpy.ops.render.render(write_still=True)
-    print("Screenshot %-20s %.1f s" % (k, time.time() - t0))
+STYLES = {"textur": dict(color_type="TEXTURE", show_cavity=False),
+          "grau": dict(color_type="SINGLE", show_cavity=True)}      # grau = Modeling-/Solid-Ansicht: Form beurteilen
+sh.single_color = (0.72, 0.72, 0.72)
+sh.cavity_type = "BOTH"; sh.cavity_ridge_factor = 1.0; sh.cavity_valley_factor = 1.0
+for style, opts in STYLES.items():
+    sh.color_type, sh.show_cavity = opts["color_type"], opts["show_cavity"]
+    for k, v in views.items():
+        t0 = time.time()
+        if v is None:
+            cam.location = (0, 0.001, 8.5); cam.data.lens = 35
+        else:
+            cam.data.lens = 42; cam.location = (v[0] * 7.2, v[1] * 7.2, 1.7)
+        sc.render.filepath = SP + "/shot_%s_%s.png" % (style, k)
+        bpy.ops.render.render(write_still=True)
+        print("Screenshot %-6s %-20s %.1f s" % (style, k, time.time() - t0))
