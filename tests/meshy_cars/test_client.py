@@ -61,6 +61,9 @@ def main():
     assert "image_enhancement" not in client.build_payload(imgs, ai_model="meshy-6-lite")
     pr = client.build_payload(imgs, should_remesh=True, target_polycount=999999)
     assert pr["target_polycount"] == 300000 and pr["topology"] == "quad"
+    pt = client.build_payload(imgs, should_remesh=True, topology="triangle", target_polycount=20000)
+    assert pt["topology"] == "triangle" and pt["target_polycount"] == 20000 and pt["should_remesh"] is True
+    assert client.estimate_credits("meshy-7.1", "standard", True, "2k") == 30          # Remesh beim Erzeugen: kein Aufpreis in der Rechnung
     STATE["fail"] = True
     try: client.run_job("k", imgs, d, opts, base_url=base, interval=0.01); raise SystemExit("FAILED nicht erkannt")
     except client.MeshyError as e: assert "kaputt" in str(e)

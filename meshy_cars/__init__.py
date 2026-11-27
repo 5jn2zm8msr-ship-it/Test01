@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
@@ -100,7 +100,10 @@ class MeshyCarsSettings(PropertyGroup):
     enhance: BoolProperty(name="Bildverbesserung", default=True, description="Aus = Aussehen der Bilder exakt halten")
     remesh: BoolProperty(name="Remesh beim Erzeugen (Quads)", default=False,
                          description="Meshy remesht schon beim Erzeugen (Quads). Alternativ nachträglich per Knopf 'Remesh' (5 Credits)")
-    polycount: IntProperty(name="Polygone", default=30000, min=100, max=300000)
+    gen_topology: EnumProperty(name="Topologie", default="quad", items=[
+        ("quad", "Quads (quad-dominant)", "Überwiegend Vierecke, kein von Hand gelegter Käfig"), ("triangle", "Dreiecke", "Decimated Triangle Mesh")])
+    polycount: IntProperty(name="Polygone", default=30000, min=100, max=300000,
+                           description="Zielwert beim Erzeugen (nur mit Remesh), kein garantierter Wert (Meshy: 100–300.000)")
     auto_size: BoolProperty(name="Echte Größe schätzen", default=False)
     width_mm: FloatProperty(name="Breite (mm)", default=2020.0, min=500.0, max=4000.0, step=100, precision=0,
                             update=_apply_width,
@@ -120,7 +123,7 @@ class MeshyCarsSettings(PropertyGroup):
 def _options(s):
     return dict(ai_model=s.ai_model, geometry_resolution=s.geometry, should_texture=True, enable_pbr=s.pbr,
                 texture_resolution=s.tex_res, texture_prompt=s.prompt, should_remesh=s.remesh,
-                topology="quad", target_polycount=s.polycount, image_enhancement=s.enhance, auto_size=s.auto_size)
+                topology=s.gen_topology, target_polycount=s.polycount, image_enhancement=s.enhance, auto_size=s.auto_size)
 
 
 def _worker(key, paths, out_dir, opts, state, cancel):
@@ -364,7 +367,9 @@ class MESHYCARS_PT_main(Panel):
         r.prop(s, "remesh")
         r.prop(s, "auto_size")
         if s.remesh:
+            L.prop(s, "gen_topology")
             L.prop(s, "polycount")
+            L.label(text="Remesh beim Erzeugen: kein Aufpreis auf der Preisseite (live unbestätigt)", icon="INFO")
         L.separator()
         cr, err = credit_estimate(s)
         L.label(text=("Kosten ≈ %d Credits (Preisseite 27.11.2026)" % cr) if cr is not None else err, icon="INFO" if cr is not None else "ERROR")
