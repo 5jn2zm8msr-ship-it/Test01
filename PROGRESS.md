@@ -63,6 +63,10 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Bremse 7 % kleiner (27.11., Version 0.56.0)
+- Startwerte der Bremse 7 % unter den Datenblattwerten: Scheibe 379 mm vorn / 353 mm hinten, Dicke 33,5 / 28 mm (vorher 408/380, 36/30). Skalierung mit der Felgengröße (Bezug 20"/21") bleibt, Sattel und Topf folgen dem Scheibenradius; eigene Bremse folgt der Scheibengröße.
+- Neue Testfelgen mit Meshy (mit Textur, je 1 Aufruf, 30 Credits): porsche_bronze_IMG_4512 (Guthaben 980 -> 950), mg_konzept_IMG_2726 (950 -> 920). Renderings in `tests/car/referenz/`.
+
 ## Foto-Projektion entfernt, nur Meshy / eigene Teile (27.11., Version 0.55.0)
 - Auf Wunsch des Nutzers: keine Foto-Projektion (`photomat.py`, `meshy_photo_color` gelöscht). Die Felge zeigt nur Meshy-Textur bzw. das Material des importierten Modells.
 - Methoden-Auswahl: Meshy (Standard) und Eigene Felge; KI-Mesh/Geometry Nodes nur mit Preferences-Schalter `show_local` (Entwickler). Tests (Diamond-Cut, Render, Abgleich) setzen ihn ausdrücklich.

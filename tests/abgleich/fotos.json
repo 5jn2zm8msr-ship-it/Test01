@@ -171,5 +171,22 @@
   },
   "gruppe": "porsche_bronze_5speichen",
   "meshy_aus": "porsche_bronze_IMG_4512"
+ },
+ "mg_konzept_IMG_2726": {
+  "foto": "../diamond_cut/neue_felgen/mg_konzept_IMG_2726.png",
+  "ansicht": "perspektivisch (schräg, Felge als Ellipse)",
+  "speichen": 6,
+  "zentrum": "MG-Kappe, blau leuchtend",
+  "farbe": "dunkle Speichen (blau-schwarz), silberne Scheibe/Außenring, blauer Hintergrund",
+  "hinweis": "Konzept-Rendering (Handy-Screenshot, schwarze Balken oben/unten abgeschnitten); Hintergrund blau",
+  "brennweite_mm": 85,
+  "zuschnitt": [
+   0.0,
+   0.16588419405320814,
+   1.0,
+   0.7312206572769953
+  ],
+  "gruppe": "mg_konzept",
+  "meshy_aus": "mg_konzept_IMG_2726"
  }
 }

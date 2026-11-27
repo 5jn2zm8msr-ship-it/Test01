@@ -119,19 +119,19 @@ for n, sg in (("Vorne links", 1), ("Vorne rechts", -1), ("Hinten links", 1), ("H
 
 # Bremse wächst proportional mit der Felgengröße (21 Zoll vorn / 22 Zoll hinten; Bezug 20/21)
 d20, d21 = carmod.wheel_dims(c, True), None
-check("Bremse: bei Standardgrößen unverändert (Faktor 1)", abs(d20["brake_k"] - c.front_rim / 20.0) < 1e-9 and abs(d20["disc_d"] - 0.408 * c.front_rim / 20.0) < 1e-9)
+check("Bremse: bei Standardgrößen unverändert (Faktor 1)", abs(d20["brake_k"] - c.front_rim / 20.0) < 1e-9 and abs(d20["disc_d"] - c.front_disc / 1000.0 * c.front_rim / 20.0) < 1e-9)
 c.front_rim, c.rear_rim = 21, 22
 df, dr_ = carmod.wheel_dims(c, True), carmod.wheel_dims(c, False)
-check("Scheibe vorn 21 Zoll: 408 mm × 21/20 = 428,4 mm", abs(df["disc_d"] - 0.4284) < 1e-6, "%.4f" % df["disc_d"])
-check("Scheibe hinten 22 Zoll: 380 mm × 22/21 = 398,1 mm", abs(dr_["disc_d"] - 0.380 * 22 / 21) < 1e-6, "%.4f" % dr_["disc_d"])
-check("Scheibendicke wächst proportional", abs(df["disc_t"] - 0.036 * 21 / 20) < 1e-9)
+check("Scheibe vorn 21 Zoll: Standard × 21/20", abs(df["disc_d"] - c.front_disc / 1000.0 * 21 / 20) < 1e-6, "%.4f" % df["disc_d"])
+check("Scheibe hinten 22 Zoll: Standard × 22/21", abs(dr_["disc_d"] - c.rear_disc / 1000.0 * 22 / 21) < 1e-6, "%.4f" % dr_["disc_d"])
+check("Scheibendicke wächst proportional", abs(df["disc_t"] - c.front_disc_thickness / 1000.0 * 21 / 20) < 1e-9)
 bpy.ops.felge3d.car_update()
 disc_v = bpy.data.objects["Bremsscheibe Vorne links"]
 ev_ = disc_v.evaluated_get(bpy.context.evaluated_depsgraph_get())
 n_ = len(disc_v.data.vertices); v_ = np.empty(n_ * 3); disc_v.data.vertices.foreach_get("co", v_); v_ = v_.reshape(-1, 3)
-check("Bremsscheiben-Mesh vorn hat die neue Größe (Radius ≈ 214 mm)", abs(np.hypot(v_[:, 1], v_[:, 2]).max() - 0.2142) < 0.004, "%.4f" % np.hypot(v_[:, 1], v_[:, 2]).max())
+check("Bremsscheiben-Mesh vorn hat die neue Größe (Radius = Standard × 21/20 / 2)", abs(np.hypot(v_[:, 1], v_[:, 2]).max() - c.front_disc / 2000.0 * 21 / 20) < 0.004, "%.4f" % np.hypot(v_[:, 1], v_[:, 2]).max())
 c.brake_scale = False
-check("Bremse nicht proportional (aus): Scheibe wie eingestellt", abs(carmod.wheel_dims(c, True)["disc_d"] - 0.408) < 1e-9)
+check("Bremse nicht proportional (aus): Scheibe wie eingestellt", abs(carmod.wheel_dims(c, True)["disc_d"] - c.front_disc / 1000.0) < 1e-9)
 c.brake_scale = True
 c.front_rim, c.rear_rim = 20, 21
 bpy.ops.felge3d.car_update()
@@ -391,5 +391,6 @@ bpy.ops.felge3d.car_update()
 mat = bpy.data.materials["Felge3D | Bremse links"]
 muls = sorted(n.inputs[1].default_value for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeMath" and n.operation == "MULTIPLY")
 check("Sattel rot nach Update (R hoch, G/B niedrig)", len(muls) == 3 and muls[-1] > 0.5 and muls[0] < 0.05, str([round(v, 3) for v in muls]))
+check("Bremse-Startwerte 7 % kleiner als die Datenblattwerte (408/380 mm)", abs(c.front_disc - 408 * 0.93) < 1 and abs(c.rear_disc - 380 * 0.93) < 1, "%s / %s" % (c.front_disc, c.rear_disc))
 print("\nFehlgeschlagen:", bad)
 sys.exit(1 if bad else 0)
