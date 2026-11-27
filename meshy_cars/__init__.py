@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
@@ -29,8 +29,8 @@ else:
     from . import client, sizing
 
 _JOB = {"thread": None, "cancel": None, "state": None}      # nur ein Job gleichzeitig
-_BASE = "mc_base_wheelbase"          # Custom-Property am Wurzel-Empty: Radstand (m) bei Skalierung 1.0
-_EST = "mc_wheelbase_estimated"      # True = nur aus der Fahrzeuglänge geschätzt
+_BASE = "mc_base_width"              # Custom-Property am Wurzel-Empty: Breite (m) des Meshes bei Skalierung 1.0
+_LEN = "mc_base_length"              # Länge (m) bei Skalierung 1.0
 
 
 def find_car_root(obj):
@@ -53,14 +53,12 @@ def active_car_root(context):
 _LOCK = {"on": False}
 
 
-def _apply_wheelbase(self, context):
-    """Regler 'Radstand (mm)' -> Auto gleichmäßig skalieren (Wurzel-Empty, am Boden verankert)."""
-    if _LOCK["on"]:
-        return
+def _apply_width(self, context):
+    """Feld 'Breite (mm)' -> Auto gleichmäßig auf diese Breite skalieren (Wurzel-Empty, am Boden verankert)."""
     root = active_car_root(context)
     if root is None:
         return
-    f = sizing.scale_factor(self.wheelbase_mm, root[_BASE])
+    f = sizing.width_scale(self.width_mm, root[_BASE])
     root.scale = (f, f, f)
 
 
@@ -102,9 +100,9 @@ class MeshyCarsSettings(PropertyGroup):
     remesh: BoolProperty(name="Remesh (Quads)", default=False)
     polycount: IntProperty(name="Polygone", default=30000, min=100, max=300000)
     auto_size: BoolProperty(name="Echte Größe schätzen", default=False)
-    wheelbase_mm: FloatProperty(name="Radstand (mm)", default=2700.0, min=500.0, max=8000.0, step=100, precision=0,
-                                update=_apply_wheelbase,
-                                description="Skaliert das ganze Auto gleichmäßig, bezogen auf den gemessenen/geschätzten Radstand")
+    width_mm: FloatProperty(name="Breite (mm)", default=2020.0, min=500.0, max=4000.0, step=100, precision=0,
+                            update=_apply_width,
+                            description="Jedes Auto wird beim Import auf diese Breite skaliert (Bounding-Box quer zur Fahrtrichtung); Länge und Radstand ergeben sich")
     confirm: BoolProperty(name="Ich weiß: kostenpflichtig (Credits)", default=False)
     # Fortschritt (vom Timer gesetzt)
     progress: FloatProperty(default=0.0, min=0.0, max=1.0)
@@ -150,7 +148,7 @@ def _import_glb(context, glb, name):
 
 
 def _make_root(context, coll, new, meshes, name):
-    """Wurzel-Empty am Boden-Mittelpunkt; alle importierten Objekte werden Kinder. Radstand zunächst aus der Länge geschätzt."""
+    """Wurzel-Empty am Boden-Mittelpunkt; alle importierten Objekte werden Kinder; das Auto wird auf die Zielbreite skaliert."""
     from mathutils import Vector
     pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box] or [Vector((0, 0, 0))]
     lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
@@ -163,11 +161,12 @@ def _make_root(context, coll, new, meshes, name):
         if o.parent is None:
             o.parent = root
             o.matrix_parent_inverse = root.matrix_world.inverted()
-    base = sizing.estimate_wheelbase_m(hi.x - lo.x, hi.y - lo.y)
-    root[_BASE], root[_EST] = base, True
-    _LOCK["on"] = True                               # Regler auf den Startwert setzen, ohne zu skalieren
-    context.scene.meshycars.wheelbase_mm = base * 1000.0
-    _LOCK["on"] = False
+    length, width = sizing.car_dims(hi.x - lo.x, hi.y - lo.y)
+    if width <= 1e-6:
+        raise RuntimeError("Mesh hat keine Breite – kein gültiges Auto.")
+    root[_BASE], root[_LEN] = width, length
+    f = sizing.width_scale(context.scene.meshycars.width_mm, width)
+    root.scale = (f, f, f)
     return root
 
 
@@ -245,43 +244,6 @@ class MESHYCARS_OT_generate(Operator):
             context.window_manager.event_timer_remove(self._timer)
 
 
-class MESHYCARS_OT_measure_wheelbase(Operator):
-    bl_idname = "meshycars.measure_wheelbase"
-    bl_label = "Radstand aus 2 Punkten messen"
-    bl_description = ("Edit-Mode: genau 2 Vertices (Radmitten vorn/hinten) wählen – oder Objekt-Mode: genau 2 Objekte (z.B. Empties auf den Radmitten). "
-                      "Setzt damit den Bezug für den Radstand-Regler")
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        from mathutils import Vector
-        root = active_car_root(context)
-        if root is None:
-            self.report({"ERROR"}, "Kein Meshy-Auto gefunden (Auto-Objekt wählen).")
-            return {"CANCELLED"}
-        obj = context.active_object
-        pts = []
-        if obj and obj.mode == "EDIT" and obj.type == "MESH":
-            import bmesh
-            bm = bmesh.from_edit_mesh(obj.data)
-            pts = [obj.matrix_world @ v.co for v in bm.verts if v.select]
-        else:
-            pts = [o.matrix_world.translation.copy() for o in context.selected_objects if o is not root]
-        if len(pts) != 2:
-            self.report({"ERROR"}, "Genau 2 Punkte nötig (gefunden: %d)." % len(pts))
-            return {"CANCELLED"}
-        measured = (pts[0] - pts[1]).length                       # aktuelle Weltmaße (inkl. aktueller Skalierung)
-        cur = root.scale.x if root.scale.x else 1.0
-        if measured <= 1e-6:
-            self.report({"ERROR"}, "Die Punkte liegen aufeinander.")
-            return {"CANCELLED"}
-        root[_BASE], root[_EST] = measured / cur, False           # Radstand bei Skalierung 1.0
-        _LOCK["on"] = True
-        context.scene.meshycars.wheelbase_mm = measured * 1000.0
-        _LOCK["on"] = False
-        self.report({"INFO"}, "Radstand gemessen: %.0f mm" % (measured * 1000.0))
-        return {"FINISHED"}
-
-
 class MESHYCARS_PT_main(Panel):
     bl_label = "Meshy Cars"
     bl_idname = "MESHYCARS_PT_main"
@@ -321,14 +283,14 @@ class MESHYCARS_PT_main(Panel):
         root = active_car_root(context)
         if root is not None:
             w = L.box()
-            w.label(text="Radstand – %s" % root.name)
-            w.prop(s, "wheelbase_mm")
-            if root.get(_EST):
-                w.label(text="Basis nur geschätzt (≈60 % der Länge)", icon="INFO")
-            w.operator("meshycars.measure_wheelbase", icon="DRIVER_DISTANCE")
+            w.label(text="Größe – %s" % root.name)
+            w.prop(s, "width_mm")
+            f = root.scale.x
+            w.label(text="Länge: %.0f mm" % (root[_LEN] * f * 1000))
+            w.label(text="Radstand ≈ %.0f mm (geschätzt, ~60 %% der Länge)" % (sizing.estimate_wheelbase_m(root[_LEN], 0) * f * 1000))
 
 
-_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_measure_wheelbase, MESHYCARS_PT_main)
+_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_PT_main)
 
 
 def register():

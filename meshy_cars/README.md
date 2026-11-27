@@ -10,10 +10,10 @@ Blender-Add-on: 1–4 Autofotos → Meshy **Multi-Image-to-3D** → texturiertes
 Seitenleiste `N` → Reiter **Meshy Cars**: Bilder wählen (erstes = Vorderansicht, dann Seite, Hinten, Schräg), Kostenhaken setzen,
 **Auto bei Meshy erzeugen**. Fortschritt im Panel, `ESC` bricht ab (wartende Tasks werden gelöscht, Credits erstattet).
 
-## Radstand (Skalierung)
-Jedes importierte Auto hängt an einem Wurzel-Empty `Meshy_Car_NN` (am Boden-Mittelpunkt). Der Regler **Radstand (mm)** skaliert das ganze Auto
-gleichmäßig. Meshy liefert keinen Radstand mit: Beim Import wird er grob aus der Fahrzeuglänge geschätzt (≈ 60 %, im Panel als „geschätzt“ markiert).
-Genau wird es mit **Radstand aus 2 Punkten messen** (Edit-Mode: 2 Vertices auf den Radmitten, oder 2 Objekte) – danach bezieht sich der Regler auf diesen Wert.
+## Größe: feste Breite
+Jedes importierte Auto wird gleichmäßig auf eine feste **Breite** skaliert (Standard **2020 mm**, Feld *Breite (mm)* im Panel; ändern skaliert live).
+Breite = kürzere horizontale Seite der Bounding-Box (Spiegel zählen mit, falls im Mesh vorhanden). Die **Länge** ergibt sich proportional,
+der **Radstand** wird als Schätzung (≈ 60 % der Länge) angezeigt. Jedes Auto hängt an einem Wurzel-Empty `Meshy_Car_NN` am Boden-Mittelpunkt.
 
 ## API-Stand (docs.meshy.ai, gelesen 27.11.2026)
 - Standardmodell `meshy-7.1`; `latest` löst auf 7.1 auf.

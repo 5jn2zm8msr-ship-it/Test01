@@ -14,4 +14,13 @@ for bad in ((0, 2.5), (2450, 0), (-1, 2.5)):
 # Proportionalität: zweimal skalieren == einmal direkt
 f1 = sizing.scale_factor(2800, 2.5); f2 = sizing.scale_factor(2450, 2.5 * f1)
 assert abs(f1 * f2 - sizing.scale_factor(2450, 2.5)) < 1e-12
-print("OK: Radstand-Tests bestanden")
+# Breite als fester Bezug (Standard 2020 mm)
+assert sizing.car_dims(1.8, 4.5) == (4.5, 1.8) and sizing.car_dims(4.5, 1.8) == (4.5, 1.8)   # Achsenlage egal
+f = sizing.width_scale(2020, 1.8)
+assert abs(1.8 * f - 2.02) < 1e-12                       # Breite = 2,02 m
+assert abs(4.5 * f - 5.05) < 1e-9                      # Länge folgt proportional
+assert abs(sizing.estimate_wheelbase_m(4.5 * f, 0) - 0.6 * 4.5 * f) < 1e-12   # Radstand ergibt sich
+for bad in ((0, 1.8), (2020, 0)):
+    try: sizing.width_scale(*bad); raise SystemExit("kein Fehler: %s" % (bad,))
+    except ValueError: pass
+print("OK: Groessen-Tests bestanden")
