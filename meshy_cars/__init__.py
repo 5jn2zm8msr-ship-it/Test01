@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
@@ -98,13 +98,19 @@ class MeshyCarsSettings(PropertyGroup):
     tex_res: EnumProperty(name="Textur", default="2k", items=[("2k", "2K", ""), ("4k", "4K", ""), ("8k", "8K", "")])
     prompt: StringProperty(name="Textur-Hinweis", description="Optional, max. 800 Zeichen (z.B. 'Lack metallic, Chromteile')")
     enhance: BoolProperty(name="Bildverbesserung", default=True, description="Aus = Aussehen der Bilder exakt halten")
-    remesh: BoolProperty(name="Remesh (Quads)", default=False)
+    remesh: BoolProperty(name="Remesh beim Erzeugen (Quads)", default=False,
+                         description="Meshy remesht schon beim Erzeugen (Quads). Alternativ nachträglich per Knopf 'Remesh' (5 Credits)")
     polycount: IntProperty(name="Polygone", default=30000, min=100, max=300000)
     auto_size: BoolProperty(name="Echte Größe schätzen", default=False)
     width_mm: FloatProperty(name="Breite (mm)", default=2020.0, min=500.0, max=4000.0, step=100, precision=0,
                             update=_apply_width,
                             description="Jedes Auto wird beim Import auf diese Breite skaliert (Bounding-Box quer zur Fahrtrichtung); Länge und Radstand ergeben sich")
     confirm: BoolProperty(name="Ich weiß: kostenpflichtig (Credits)", default=False)
+    rm_topology: EnumProperty(name="Topologie", default="quad", items=[
+        ("quad", "Quads (quad-dominant)", "Überwiegend Vierecke – kein von Hand gelegter Käfig"), ("triangle", "Dreiecke", "Decimated Triangle Mesh")])
+    rm_polycount: IntProperty(name="Ziel-Polygone", default=30000, min=100, max=300000,
+                              description="Zielwert, kein garantierter Wert (Meshy: 100–300.000)")
+    rm_confirm: BoolProperty(name="Ich weiß: Remesh kostet Credits", default=False)
     # Fortschritt (vom Timer gesetzt)
     progress: FloatProperty(default=0.0, min=0.0, max=1.0)
     status: StringProperty(default="")
@@ -127,7 +133,25 @@ def _worker(key, paths, out_dir, opts, state, cancel):
         state.update(done=True, error=str(e))
 
 
-def _import_glb(context, glb, name):
+def _remesh_worker(key, task_id, glb, out_dir, opts, state, cancel):
+    def prog(f, txt):
+        state["progress"], state["status"] = f, txt
+    try:
+        out, tid, credits, way = client.run_remesh(key, task_id, glb, out_dir, opts, prog, cancel.is_set)
+        state.update(done=True, glb=out, task_id=tid, credits=credits, way=way)
+    except Exception as e:  # noqa: BLE001
+        state.update(done=True, error=str(e))
+
+
+def credit_estimate(s):
+    """(Credits, Fehltext) für die aktuellen Einstellungen, nach der Preisseite."""
+    try:
+        return client.estimate_credits(s.ai_model, s.geometry, True, s.tex_res), ""
+    except client.MeshyError as e:
+        return None, str(e)
+
+
+def _import_glb(context, glb, name, task_id=None, hide_root=None):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=glb)
     new = [o for o in bpy.data.objects if o not in before]
@@ -142,6 +166,13 @@ def _import_glb(context, glb, name):
         coll.objects.link(o)
     meshes = [o for o in new if o.type == "MESH"]
     root = _make_root(context, coll, new, meshes, "Meshy_Car_%02d" % n)
+    root["mc_glb"] = glb                              # für Remesh (Rückfall auf model_url)
+    if task_id:
+        root["mc_task_id"] = task_id
+    if hide_root is not None:                         # Vorgänger-Auto ausblenden (liegt sonst deckungsgleich darunter)
+        for o in [hide_root] + list(hide_root.children_recursive):
+            o.hide_set(True)
+        root["mc_parent"] = hide_root.name
     bpy.ops.object.select_all(action="DESELECT")
     root.select_set(True)
     context.view_layer.objects.active = root
@@ -178,40 +209,20 @@ def _make_root(context, coll, new, meshes, name):
     return root
 
 
-class MESHYCARS_OT_generate(Operator):
-    bl_idname = "meshycars.generate"
-    bl_label = "Auto bei Meshy erzeugen"
-    bl_description = "Schickt die Bilder an Meshy (kostenpflichtig) und importiert das texturierte Mesh"
+class _JobMixin:
+    """Gemeinsame Job-Logik: Hintergrund-Thread + Timer; ESC bricht ab; _done() importiert das Ergebnis."""
     _timer = None
 
     @classmethod
     def poll(cls, context):
         return not context.scene.meshycars.busy
 
-    def execute(self, context):
+    def _start(self, context, worker, args):
         s = context.scene.meshycars
-        paths = [bpy.path.abspath(p) for p in (s.img_front, s.img_2, s.img_3, s.img_4) if p]
-        if not s.img_front:
-            self.report({"ERROR"}, "Vorderansicht (Hauptbild) fehlt.")
-            return {"CANCELLED"}
-        if not s.confirm:
-            self.report({"ERROR"}, "Bitte erst bestätigen, dass die Erzeugung Credits kostet.")
-            return {"CANCELLED"}
-        key = api_key()
-        if not key:
-            self.report({"ERROR"}, "Kein Meshy-API-Key in den Add-on-Preferences.")
-            return {"CANCELLED"}
-        try:
-            client.build_payload(paths, **_options(s))        # Eingaben vorab prüfen (Format, Größe), noch vor dem Thread
-        except client.MeshyError as e:
-            self.report({"ERROR"}, str(e))
-            return {"CANCELLED"}
         state, cancel = {}, threading.Event()
-        out = os.path.join(tempfile.gettempdir(), "meshy_cars")
-        th = threading.Thread(target=_worker, args=(key, paths, out, _options(s), state, cancel), daemon=True)
+        th = threading.Thread(target=worker, args=args + (state, cancel), daemon=True)
         _JOB.update(thread=th, cancel=cancel, state=state)
         s.busy, s.progress, s.status = True, 0.0, "Starte …"
-        s.confirm = False
         th.start()
         wm = context.window_manager
         self._timer = wm.event_timer_add(0.5, window=context.window)
@@ -238,18 +249,81 @@ class MESHYCARS_OT_generate(Operator):
             self.report({"ERROR"}, st["error"])
             return {"CANCELLED"}
         try:
-            coll, n = _import_glb(context, st["glb"], "Meshy_Car")
+            s.progress, s.status = 1.0, self._done(context, st)
         except Exception as e:  # noqa: BLE001
-            s.status = "Import fehlgeschlagen: %s (GLB: %s)" % (e, st["glb"])
+            s.status = "Import fehlgeschlagen: %s (GLB: %s)" % (e, st.get("glb"))
             self.report({"ERROR"}, s.status)
             return {"CANCELLED"}
-        s.progress, s.status = 1.0, "Fertig: %d Mesh-Objekt(e) in %s (Credits: %s)" % (n, coll.name, st.get("credits"))
         self.report({"INFO"}, s.status)
         return {"FINISHED"}
 
     def cancel(self, context):
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
+
+
+class MESHYCARS_OT_generate(_JobMixin, Operator):
+    bl_idname = "meshycars.generate"
+    bl_label = "Auto bei Meshy erzeugen"
+    bl_description = "Schickt die Bilder an Meshy (kostenpflichtig) und importiert das texturierte Mesh"
+
+    def execute(self, context):
+        s = context.scene.meshycars
+        paths = [bpy.path.abspath(p) for p in (s.img_front, s.img_2, s.img_3, s.img_4) if p]
+        if not s.img_front:
+            self.report({"ERROR"}, "Vorderansicht (Hauptbild) fehlt.")
+            return {"CANCELLED"}
+        if not s.confirm:
+            self.report({"ERROR"}, "Bitte erst bestätigen, dass die Erzeugung Credits kostet.")
+            return {"CANCELLED"}
+        key = api_key()
+        if not key:
+            self.report({"ERROR"}, "Kein Meshy-API-Key in den Add-on-Preferences.")
+            return {"CANCELLED"}
+        try:
+            client.build_payload(paths, **_options(s))        # Eingaben vorab prüfen (Format, Größe, Kombination), noch vor dem Thread
+        except client.MeshyError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        s.confirm = False
+        out = os.path.join(tempfile.gettempdir(), "meshy_cars")
+        return self._start(context, _worker, (key, paths, out, _options(s)))
+
+    def _done(self, context, st):
+        coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"))
+        return "Fertig: %d Mesh-Objekt(e) in %s (Credits: %s)" % (n, coll.name, st.get("credits"))
+
+
+class MESHYCARS_OT_remesh(_JobMixin, Operator):
+    bl_idname = "meshycars.remesh"
+    bl_label = "Remesh (Quads) für dieses Auto"
+    bl_description = "Meshy-Remesh (5 Credits): neue Topologie/Polygonzahl; das neue Auto wird importiert, das alte ausgeblendet"
+
+    def execute(self, context):
+        s = context.scene.meshycars
+        root = active_car_root(context)
+        if root is None or not root.get("mc_task_id"):
+            self.report({"ERROR"}, "Auto mit Meshy-Task wählen (nur von diesem Add-on erzeugte Autos).")
+            return {"CANCELLED"}
+        if not s.rm_confirm:
+            self.report({"ERROR"}, "Bitte erst bestätigen, dass der Remesh %d Credits kostet." % client.REMESH_CREDITS)
+            return {"CANCELLED"}
+        key = api_key()
+        if not key:
+            self.report({"ERROR"}, "Kein Meshy-API-Key in den Add-on-Preferences.")
+            return {"CANCELLED"}
+        s.rm_confirm = False
+        self._src = root.name
+        out = os.path.join(tempfile.gettempdir(), "meshy_cars")
+        opts = dict(topology=s.rm_topology, target_polycount=s.rm_polycount)
+        return self._start(context, _remesh_worker, (key, root["mc_task_id"], root.get("mc_glb", ""), out, opts))
+
+    def _done(self, context, st):
+        old = bpy.data.objects.get(getattr(self, "_src", ""))
+        coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"), hide_root=old)
+        faces = sum(len(o.data.polygons) for o in coll.all_objects if o.type == "MESH")
+        quads = sum(1 for o in coll.all_objects if o.type == "MESH" for p in o.data.polygons if len(p.vertices) == 4)
+        return "Remesh fertig: %d Flächen (%d Quads) in %s, Weg: %s, Credits: %s" % (faces, quads, coll.name, st.get("way"), st.get("credits"))
 
 
 class MESHYCARS_OT_flip(Operator):
@@ -292,6 +366,8 @@ class MESHYCARS_PT_main(Panel):
         if s.remesh:
             L.prop(s, "polycount")
         L.separator()
+        cr, err = credit_estimate(s)
+        L.label(text=("Kosten ≈ %d Credits (Preisseite 27.11.2026)" % cr) if cr is not None else err, icon="INFO" if cr is not None else "ERROR")
         L.prop(s, "confirm")
         r = L.row()
         r.scale_y = 1.5
@@ -312,9 +388,17 @@ class MESHYCARS_PT_main(Panel):
             f = root.scale.x
             w.label(text="Länge: %.0f mm" % (root[_LEN] * f * 1000))
             w.label(text="Radstand ≈ %.0f mm (geschätzt, ~60 %% der Länge)" % (sizing.estimate_wheelbase_m(root[_LEN], 0) * f * 1000))
+            if root.get("mc_task_id"):
+                m = L.box()
+                m.label(text="Remesh – %s" % root.name)
+                m.prop(s, "rm_topology")
+                m.prop(s, "rm_polycount")
+                m.label(text="Kosten: %d Credits" % client.REMESH_CREDITS, icon="INFO")
+                m.prop(s, "rm_confirm")
+                m.operator("meshycars.remesh", icon="MOD_REMESH")
 
 
-_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_flip, MESHYCARS_PT_main)
+_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_remesh, MESHYCARS_OT_flip, MESHYCARS_PT_main)
 
 
 def register():

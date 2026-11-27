@@ -20,10 +20,27 @@ Das Auto sitzt **zentriert auf dem Weltursprung** (Mitte der Bounding-Box auf X/
 Achsen/Breite entlang **Y**, **Front nach −X**. Liegt die Länge nach dem Import entlang Y, wird um −90° um Z gedreht. Welche Seite „vorn“ ist, kann
 Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tauschen (180°)** drücken. Prüfung: `tests/meshy_cars/check_orientation_bpy.py` (braucht `pip install bpy`) – macht je Lauf Workbench-Screenshots ohne Rendering, immer **mit Textur und grau (Form)**; Ergebnisse in `testbilder/ergebnis/`.
 
+## Remesh (Quads) und Kosten
+- **Beim Erzeugen:** Haken *Remesh beim Erzeugen (Quads)* + Regler *Polygone*.
+- **Nachträglich:** Auto wählen → Box *Remesh*: Topologie (Quads = quad-dominant, kein Handkäfig), Ziel-Polygone (100–300.000, Zielwert), Bestätigung, Knopf.
+  Das neue Auto wird importiert, das alte ausgeblendet. Meshys Remesh-Doku nennt Multi-Image-Tasks nicht als Quelle: Lehnt Meshy die Task-ID ab (HTTP 400),
+  schickt das Add-on automatisch das lokale GLB als `model_url` (Data-URI, max. 100 MB). Ob dabei die **Textur erhalten bleibt**, nennt die Doku nicht – noch nicht live getestet.
+- **Preise** (docs.meshy.ai/en/api/pricing, 27.11.2026, Credits je Anfrage; das Panel rechnet vorab mit):
+
+| Leistung | meshy-7.1 / latest | meshy-6 | meshy-6-lite |
+|---|---|---|---|
+| Multi-Image, nur Mesh | 20 | 20 | 5 |
+| + Textur 2K / 4K | +10 / +10 | +10 / +10 | +10 / nicht unterstützt |
+| + Textur 8K | +15 | +15 | nicht unterstützt |
+| + Ultra-Geometrie 2k | +5 | nicht unterstützt | nicht unterstützt |
+| Remesh | 5 | 5 | 5 |
+
+Prüfung: Lauf mit 7.1 + 2K-Textur kostete real **30 Credits** (Preisseite: 30). Remesh ist beim Erzeugen auf der Preisseite ohne Aufpreis aufgeführt (nicht live bestätigt).
+
 ## API-Stand (docs.meshy.ai, gelesen 27.11.2026)
 - Standardmodell `meshy-7.1`; `latest` löst auf 7.1 auf.
 - **Veraltet, wird nicht gesendet:** `meshy-7` (endet 31.12.2026, danach HTTP 400), `meshy-5`/`meshy-4` (eingestellt), `ultra_mode`, `hd_texture`, `symmetry_mode`, `is_a_t_pose`.
 - Credit-Preise: Pricing-Seite nicht selbst geprüft – vor Nutzung im Meshy-Dashboard nachsehen.
 
 ## Test
-`python -I tests/meshy_cars/test_client.py` und `test_sizing.py` (Mock-Server, ohne Netz/Blender). Die Blender-Oberfläche ist hier **nicht** in Blender getestet.
+`python -I tests/meshy_cars/test_client.py` `test_sizing.py` und `test_remesh.py` (Mock-Server, ohne Netz/Blender). Die Blender-Oberfläche ist hier **nicht** in Blender getestet.
