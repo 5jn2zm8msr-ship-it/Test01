@@ -15,6 +15,11 @@ Jedes importierte Auto wird gleichmäßig auf eine feste **Breite** skaliert (St
 Breite = kürzere horizontale Seite der Bounding-Box (Spiegel zählen mit, falls im Mesh vorhanden). Die **Länge** ergibt sich proportional,
 der **Radstand** wird als Schätzung (≈ 60 % der Länge) angezeigt. Jedes Auto hängt an einem Wurzel-Empty `Meshy_Car_NN` am Boden-Mittelpunkt.
 
+## Ausrichtung beim Import
+Das Auto sitzt **zentriert auf dem Weltursprung** (Mitte der Bounding-Box auf X/Y = 0, Räder/Unterkante auf z = 0), **Z oben**, Länge entlang **X**,
+Achsen/Breite entlang **Y**, **Front nach −X**. Liegt die Länge nach dem Import entlang Y, wird um −90° um Z gedreht. Welche Seite „vorn“ ist, kann
+Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tauschen (180°)** drücken. Prüfung: `tests/meshy_cars/check_orientation_bpy.py` (braucht `pip install bpy`).
+
 ## API-Stand (docs.meshy.ai, gelesen 27.11.2026)
 - Standardmodell `meshy-7.1`; `latest` löst auf 7.1 auf.
 - **Veraltet, wird nicht gesendet:** `meshy-7` (endet 31.12.2026, danach HTTP 400), `meshy-5`/`meshy-4` (eingestellt), `ultra_mode`, `hd_texture`, `symmetry_mode`, `is_a_t_pose`.

@@ -6,13 +6,14 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
     "category": "Import-Export",
 }
 
+import math
 import os
 import tempfile
 import threading
@@ -149,24 +150,31 @@ def _import_glb(context, glb, name):
 
 def _make_root(context, coll, new, meshes, name):
     """Wurzel-Empty am Boden-Mittelpunkt; alle importierten Objekte werden Kinder; das Auto wird auf die Zielbreite skaliert."""
-    from mathutils import Vector
+    from mathutils import Matrix, Vector
+    context.view_layer.update()                      # matrix_world frisch importierter Objekte ist sonst veraltet
     pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box] or [Vector((0, 0, 0))]
     lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
     hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
     root = bpy.data.objects.new(name, None)
     root.empty_display_type = "PLAIN_AXES"
-    root.location = ((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z)
+    pivot = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z))      # Boden-Mittelpunkt des Meshes
+    root.location = pivot
     coll.objects.link(root)
     for o in new:
         if o.parent is None:
             o.parent = root
-            o.matrix_parent_inverse = root.matrix_world.inverted()
+            o.matrix_parent_inverse = Matrix.Translation(-pivot)       # explizit (matrix_world des neuen Empties wäre veraltet)
     length, width = sizing.car_dims(hi.x - lo.x, hi.y - lo.y)
     if width <= 1e-6:
         raise RuntimeError("Mesh hat keine Breite – kein gültiges Auto.")
     root[_BASE], root[_LEN] = width, length
     f = sizing.width_scale(context.scene.meshycars.width_mm, width)
     root.scale = (f, f, f)
+    # Ausrichtung: Länge entlang X (Achsen in Y-Richtung), Front nach -X, Z oben, zentriert am Ursprung, Räder auf z = 0.
+    # Meshy/glTF: Front zeigt nach +Z (Blender: -Y). Liegt die Länge entlang Y (Vorderansicht war Bild 1), -90° um Z: -Y -> -X.
+    # Liegt sie schon entlang X (z.B. Seitenansicht als Bild 1, Bildlinks = -X), bleibt es. Falsch herum? -> Knopf "Front/Heck tauschen".
+    root.rotation_euler = (0.0, 0.0, -math.pi / 2 if (hi.y - lo.y) > (hi.x - lo.x) else 0.0)
+    root.location = (0.0, 0.0, 0.0)               # Pivot = Boden-Mittelpunkt des Meshes -> Auto sitzt zentriert auf dem Ursprung
     return root
 
 
@@ -244,6 +252,21 @@ class MESHYCARS_OT_generate(Operator):
             context.window_manager.event_timer_remove(self._timer)
 
 
+class MESHYCARS_OT_flip(Operator):
+    bl_idname = "meshycars.flip_front"
+    bl_label = "Front/Heck tauschen (180°)"
+    bl_description = "Dreht das Auto um 180° um die Z-Achse (Pivot = Mitte am Boden), falls die Front nicht nach -X zeigt"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        root = active_car_root(context)
+        if root is None:
+            self.report({"ERROR"}, "Kein Meshy-Auto gefunden (Auto-Objekt wählen).")
+            return {"CANCELLED"}
+        root.rotation_euler.z += math.pi
+        return {"FINISHED"}
+
+
 class MESHYCARS_PT_main(Panel):
     bl_label = "Meshy Cars"
     bl_idname = "MESHYCARS_PT_main"
@@ -285,12 +308,13 @@ class MESHYCARS_PT_main(Panel):
             w = L.box()
             w.label(text="Größe – %s" % root.name)
             w.prop(s, "width_mm")
+            w.operator("meshycars.flip_front", icon="LOOP_BACK")
             f = root.scale.x
             w.label(text="Länge: %.0f mm" % (root[_LEN] * f * 1000))
             w.label(text="Radstand ≈ %.0f mm (geschätzt, ~60 %% der Länge)" % (sizing.estimate_wheelbase_m(root[_LEN], 0) * f * 1000))
 
 
-_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_PT_main)
+_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_flip, MESHYCARS_PT_main)
 
 
 def register():

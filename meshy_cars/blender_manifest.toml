@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "meshy_cars"
-version = "0.3.0"
+version = "0.4.0"
 name = "Meshy Cars"
 tagline = "Auto aus 4 Bildern via Meshy als texturiertes Mesh"
 maintainer = "Felge3D"
