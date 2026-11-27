@@ -89,3 +89,6 @@ Standard: **vorn 2,00 m, hinten 2,10 m** (Abstand der Radmitten links/rechts, Ei
 
 ## Standardmethode Meshy (ab 0.52.0)
 Die Standardmethode im Reiter *2D to 3D Rim* ist jetzt **Meshy**: Bild laden baut nichts, erst *Felge erstellen* (mit Kostenhinweis und Bestätigung) startet den Aufruf. *Lokale KI* und *Geometry Nodes* bleiben wählbar, laufen aber nur, wenn man sie ausdrücklich auswählt. Vergleichsläufe (`tests/abgleich/abgleich.py`) zeigen standardmäßig nur Foto + Meshy; mit `LOKAL=1` kommen die lokalen Spalten dazu.
+
+## Meshy-Felge: Farbe aus dem Foto (ab 0.53.0)
+Bei der Methode *Meshy* gibt es die Einstellung **Farbe aus dem Foto (Frontprojektion)** (Standard an, kostet keine Credits): Das Foto wird im Shader von vorn auf die nach außen zeigenden Flächen der Felge projiziert (Farbe, Glanzlichter, Schrift), Form und Rückseite bleiben von Meshy. Das behebt Meshy-Texturen, die farblich vom Foto abweichen (z. B. beige statt silber). Voraussetzung: der Felgenkreis im Foto stimmt (Mitte/Radius, Reiter *Erkennung*) und die Meshy-Felge ist zum Foto ausgerichtet. Gilt für die sichtbare Felge und die vier Räder im Paket (`felge3d/photomat.py`).

@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 52, 0),
+    "version": (0, 53, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -46,12 +46,13 @@ if "core" in locals():
     fbx = importlib.reload(fbx)
     cloud = importlib.reload(cloud)
     assets = importlib.reload(assets)
+    photomat = importlib.reload(photomat)
     sector = importlib.reload(sector)
     paramdetect = importlib.reload(paramdetect)
     paramrim = importlib.reload(paramrim)
     paramui = importlib.reload(paramui)
 else:
-    from . import ai, assets, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, sector, tire_data, updater
+    from . import ai, assets, brake_data, car, cloud, core, fbx, paramdetect, paramrim, paramui, photomat, sector, tire_data, updater
 
 PREVIEW_NAME = "Felge3D_Vorschau"
 MASK_NAME = "Felge3D_Maske"
@@ -136,6 +137,10 @@ class Felge3DSettings(PropertyGroup):
         ("CLOUD", "Cloud-API", "Mesh bei einem Anbieter erzeugen lassen (kostenpflichtig, Key in den Preferences)")])
     cloud_provider: EnumProperty(name="Anbieter", default="MESHY", items=[
         ("TRIPO", "Tripo", "Tripo API"), ("MESHY", "Meshy", "Meshy API (Image to 3D, nur Mesh ohne Textur)")])
+    meshy_photo_color: BoolProperty(
+        name="Farbe aus dem Foto (Frontprojektion)", default=True,
+        description="Das Foto wird von vorn auf die sichtbare Felgenseite projiziert (Farbe, Glanz, Schrift stimmen mit dem Foto); Form und Rückseite "
+                    "bleiben von Meshy. Kostet nichts. Voraussetzung: Felgenkreis im Foto stimmt (Reiter Erkennung)")
     meshy_texture_mode: EnumProperty(name="Meshy-Ausgabe", items=meshy_texture_items,
                                      description="Mit oder ohne Textur; die Credits stehen in Klammern (Textur kostet laut Preisliste 10 Credits mehr)")
     meshy_views: IntProperty(name="Meshy-Bildfelder", default=1, min=1, max=3,
@@ -1395,6 +1400,7 @@ class FELGE3D_PT_main(Panel):
                     if k_ == max(s.meshy_views, 2 if s.meshy_image2 is not None else 1, 3 if s.meshy_image3 is not None else 1):
                         r_.operator("felge3d.meshy_view_remove", text="", icon="REMOVE")
             box.prop(s, "meshy_texture_mode", expand=True)
+            box.prop(s, "meshy_photo_color")
             try:
                 box.label(text="Kosten: " + cost_text(make_provider(s, "MESHY")), icon="FUND")
             except Exception:  # noqa: BLE001
@@ -1867,7 +1873,7 @@ def car_signature(s, c):
         vals.append((k, v))
     vals += [("source", s.source), ("fbx", s.fbx_collection.name if s.fbx_collection else ""), ("flip", bool(s.fbx_flip)),
              ("image", s.image.name if s.image else ""), ("rim", s.collection.name if s.collection else ""),
-             ("method", s.method), ("meshy", s.meshy_source.name if s.meshy_source else "")]
+             ("method", s.method), ("meshy", s.meshy_source.name if s.meshy_source else ""), ("fotofarbe", bool(s.meshy_photo_color))]
     return repr(vals)
 
 
@@ -1976,6 +1982,12 @@ def build_car(context, s, c):
         if use_fbx:
             M_fit, scale = fbx.fit_matrix(finfo, d["r_rim"] + 0.017, d["rim_out"] + off)
             parts = fbx.bake(src_meshes, M_fit, "FBX " + ("vorn" if front else "hinten"))
+            if s.source != "COLLECTION" and s.method == "MESHY" and s.meshy_photo_color and s.image:     # Meshy-Felge: Farbe aus dem Foto
+                cx_, cy_, ru_, rv_ = photomat.photo_circle(s)
+                for _l, me_ in parts:
+                    if not me_.materials:                                      # Meshy „nur Mesh“ ohne Material: erst neutrales Metall
+                        me_.materials.append(get_material("Meshy Felge (neutral)", (0.55, 0.56, 0.58, 1.0), 0.85, 0.35))
+                    photomat.apply_to_mesh(me_, s.image, cx_, cy_, ru_, rv_, d["r_rim"] + 0.017, frame="wheel")
             back_fn = fbx.back_profile(parts, d["rim_out"] + off, finfo["width"] * scale)
             base = lambda sgn: Matrix.Rotation(math.pi, 4, "Z") if sgn < 0 else Matrix.Identity(4)
             rim_parts = [(label, me) for label, me in parts]
@@ -2608,6 +2620,7 @@ def make_meshy_rim(context, s, glb_path):
     root["felge3d_role"] = "root"
     col.objects.link(root)
     mat = get_material("Meshy Felge (neutral)", (0.55, 0.56, 0.58, 1.0), 0.85, 0.35)
+    use_photo = bool(s.meshy_photo_color and s.image)
     for label, me in parts:
         me.transform(to_photo)
         me.update()
@@ -2615,6 +2628,9 @@ def make_meshy_rim(context, s, glb_path):
         if not has_tex:                                   # nur Mesh (oder keine Textur): neutrales Metall; mit Textur bleibt das Meshy-Material
             me.materials.clear()
             me.materials.append(mat)
+        if use_photo:                                     # Farbe der Vorderseite aus dem Foto (Frontprojektion im Shader)
+            cx_, cy_, ru_, rv_ = photomat.photo_circle(s)
+            photomat.apply_to_mesh(me, s.image, cx_, cy_, ru_, rv_, R_out, frame="photo")
         ob = bpy.data.objects.new("Felge Meshy", me)
         ob["felge3d_role"] = "meshy"
         ob.parent = root

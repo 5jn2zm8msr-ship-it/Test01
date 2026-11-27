@@ -63,6 +63,12 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Schritt B: Meshy-Felge mit Foto-Farbe (27.11., Version 0.53.0)
+- Problem: Die Meshy-Textur der 993-Felge war beige/matt statt silber.
+- Umsetzung (`felge3d/photomat.py`): Frontprojektion des Fotos im Shader (Object-Koordinaten, Maske: nach außen zeigend und innerhalb des Felgenradius, Mix mit der Meshy-Textur, Helligkeit ×1,45 und moderates Material, weil das Licht schon im Foto steckt); Einstellung `meshy_photo_color` (Standard an), wirkt auf die sichtbare Felge (`make_meshy_rim`) und die vier Räder (`build_car`); Teile ohne Material bekommen zuerst das neutrale Metall.
+- Ergebnis: 993-Felge silbern mit Glanzlichtern wie im Foto (Nahaufnahme gerendert), Tests grün (Blender 5.3): methods (Projektion an/aus, vier Räder), car; Diamond-Cut Volvo unverändert.
+- Grenzen: Die Projektion setzt voraus, dass die Meshy-Felge zum Foto ausgerichtet ist (Drehlage/Maßstab); sonst „Geisterbild“. Am äußeren Ring bleibt ein leichter Warmton von Meshy (Fläche steht schräg zur Projektion). Die Foto-Schattierung steckt fest in der Farbe (keine echte Neu-Beleuchtung).
+
 ## Meshy als Standard, lokale Methoden nur auf Wunsch (27.11., Version 0.52.0)
 - Vorgabe des Nutzers: das eingebaute KI-Tool und Geometry Nodes nicht immer laufen lassen (können im Vergleich zu Meshy wenig).
 - Umsetzung: Add-on-Standard `method` = Meshy (`cloud_provider` Meshy, `mesh_source` Cloud); `tests/abgleich/abgleich.py` läuft standardmäßig nur Foto + Meshy (`run_meshy`, ca. 21 s statt 90 s, kein lokaler Bau; ohne vorhandenes Meshy-Mesh bricht er ab); lokale Spalten nur mit `LOKAL=1`; Tests wählen die lokale Methode ausdrücklich; Regel in `CLAUDE.md`.

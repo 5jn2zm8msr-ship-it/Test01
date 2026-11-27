@@ -159,6 +159,17 @@ ro = np.hypot(w[:, 0], w[:, 2]).max()
 check("Meshy-Felge: Außenradius = Felgenradius", abs(ro - R_out) / R_out < 0.03, "%.3f / %.3f" % (ro, R_out))
 check("Meshy-Felge: Achse = Welt-Y (Ausdehnung in Y klein)", (w[:, 1].max() - w[:, 1].min()) < 0.5 * 2 * ro)
 check("sichtbar (aktive Felge)", not col.hide_viewport and s.collection == col)
+# Farbe aus dem Foto (Frontprojektion)
+mats_ = [m_ for o_ in col.objects if o_.type == "MESH" for m_ in o_.data.materials]
+imgs_ = [n_.image for m_ in mats_ for n_ in m_.node_tree.nodes if n_.type == "TEX_IMAGE"]
+check("Farbe aus dem Foto: Material mit Foto-Projektion (Standard an)", len(mats_) >= 1 and all(m_.name.endswith(" Foto") for m_ in mats_) and s.image in imgs_, str([m_.name for m_ in mats_]))
+check("Foto-Projektion: Mischknoten und Helligkeit vorhanden", any(n_.bl_idname in ("ShaderNodeMix", "ShaderNodeMixRGB") for n_ in mats_[0].node_tree.nodes)
+      and any(n_.bl_idname == "ShaderNodeHueSaturation" for n_ in mats_[0].node_tree.nodes))
+s.meshy_photo_color = False
+col_np = felge3d.make_meshy_rim(bpy.context, s, glb)
+mats_np = [m_ for o_ in col_np.objects if o_.type == "MESH" for m_ in o_.data.materials]
+check("Foto-Projektion aus: Material bleibt unverändert", all(not m_.name.endswith(" Foto") for m_ in mats_np))
+s.meshy_photo_color = True
 
 # 6) Paket aus der Meshy-Felge
 check("Methode MESHY: Paket nutzt Meshy-Quelle", felge3d._source_collection(s) is s.meshy_source and bool(felge3d._fbx_meshes(s)))
@@ -172,6 +183,8 @@ def _ov(front, sg, nm):
 bpy.context.view_layer.update()
 ovm = [_ov(f_, sg_, "Rad %s %s" % ("Vorne" if f_ else "Hinten", sd_)) for f_ in (True, False) for sg_, sd_ in ((1, "links"), (-1, "rechts"))]
 check("Meshy-Felge steckt nicht im Reifen (alle vier Räder)", max(ovm) < 0.2, str([round(x, 2) for x in ovm]))
+rim_mats = [m_.name for o_ in bpy.data.objects if o_.name.startswith("Felge Meshy ") or (o_.parent and o_.parent.name.startswith("Rad ") and o_.get("felge3d_part") == "rim") for m_ in o_.data.materials]
+check("Paket: Felgen der vier Räder mit Foto-Projektion", len(rim_mats) >= 4 and all(" Foto" in n_ for n_ in rim_mats), str(rim_mats[:4]))
 check("Methodenwechsel -> Update-Hinweis", (setattr(s, "method", "SUBD") or True) and felge3d.car_is_stale(s, c))
 print("\nFehlgeschlagen:", bad)
 sys.exit(1 if bad else 0)
