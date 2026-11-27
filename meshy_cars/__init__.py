@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
