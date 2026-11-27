@@ -8,6 +8,10 @@ CREDITS (Namensnennung nach CC BY 4.0, Pflicht bei Weitergabe):
   Mitgelieferter Reifen „car tyre game ready p zero“ (https://skfb.ly/oNqAJ) von Iftekhar.Tushar,
   Lizenz Creative Commons Attribution 4.0 (http://creativecommons.org/licenses/by/4.0/).
   Änderungen: nur der Reifen aus dem Gesamtmodell herausgelöst, neu exportiert, beim Bau an Größe und Drehung angepasst.
+  Mitgelieferte Reifen „[FREE] Sport Tire Pack - by SDC“ (https://sketchfab.com/3d-models/free-sport-tire-pack-by-sdc-07ffafa14c0348738edff992999511f9)
+  von SDC PERFORMANCE (Pirelli P Zero Sport, Pirelli P Zero Trofeo R, Yokohama Advan Drift, Pirelli F1 Slick), Lizenz CC BY 4.0
+  (http://creativecommons.org/licenses/by/4.0/). Änderungen: je Reifen herausgelöst, Mesh auf ca. 60 000 Flächen ausgedünnt, neu exportiert,
+  beim Bau an Größe und Drehung angepasst (tools/extract_tyre_pack.py).
   Alle Angaben stehen auch in assets/reifen/reifen.json und assets/reifen/QUELLE.md und in den Add-on-Preferences.
 """
 import json

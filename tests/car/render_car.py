@@ -28,6 +28,12 @@ if os.environ.get("FRONT_RIM"):
     sc.felge3d_car.front_rim = int(os.environ["FRONT_RIM"])
 if os.environ.get("REAR_RIM"):
     sc.felge3d_car.rear_rim = int(os.environ["REAR_RIM"])
+if os.environ.get("TIRE_ID"):                               # z. B. TIRE_ID=pzero_trofeo_r: einen bestimmten mitgelieferten Reifen
+    sc.felge3d_car.tire_bundled = os.environ["TIRE_ID"]
+    if os.environ.get("TIRE_FLIP"):
+        sc.felge3d_car.tire_own_flip = True
+    if os.environ.get("TIRE_ROT"):
+        sc.felge3d_car.tire_own_rotation = float(os.environ["TIRE_ROT"])
 if os.environ.get("TIRE"):                                  # z. B. TIRE=BUNDLED: mitgelieferter Reifen
     sc.felge3d_car.tire_source = os.environ["TIRE"]
 bpy.ops.felge3d.car_generate()

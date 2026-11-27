@@ -177,24 +177,47 @@ check("mitgelieferte Reifen in der Liste", len(felge3d.assets.tyre_list()) >= 1 
 r_ = bpy.ops.felge3d.car_update()
 check("Update mit mitgeliefertem Reifen", r_ == {"FINISHED"})
 dB = carmod.wheel_dims(c, True)
-tb_ = [o.name for o in bpy.data.collections[carmod.COLL_NAME].all_objects if o.name == "Reifen Vorne links"]
-check("mitgelieferter Reifen am Rad", len(tb_) == 1 and any(n_.type == "TEX_IMAGE" for n_ in bpy.data.objects[tb_[0]].data.materials[0].node_tree.nodes), str(tb_))
-roB, wdB = tire_dims(tb_[0])
+def tyre_parts(side):
+    """Alle Reifenteile eines Rads (mitgelieferte Reifen bestehen aus mehreren Teilen: Lauffläche, Flanke/Schrift)."""
+    return [o for o in bpy.data.collections[carmod.COLL_NAME].all_objects if o.get("felge3d_part") == "tyre" and o.name.endswith(side)]
+
+
+def tyre_pts(side):
+    arr = []
+    for o_ in tyre_parts(side):
+        v_ = np.empty(len(o_.data.vertices) * 3)
+        o_.data.vertices.foreach_get("co", v_)
+        arr.append(v_.reshape(-1, 3))
+    return np.concatenate(arr) if arr else np.zeros((0, 3))
+
+
+def tyre_textured(side):
+    return any(n_.type == "TEX_IMAGE" and n_.image for o_ in tyre_parts(side) for m_ in o_.data.materials if m_ and m_.use_nodes for n_ in m_.node_tree.nodes)
+
+
+tb_ = [o.name for o in tyre_parts("Vorne links")]
+check("mitgelieferter Reifen am Rad (alle Teile)", len(tb_) >= 1 and tyre_textured("Vorne links"), str(tb_))
+vB = tyre_pts("Vorne links")
+roB, wdB = np.hypot(vB[:, 1], vB[:, 2]).max(), vB[:, 0].max() - vB[:, 0].min()
 check("mitgelieferter Reifen: Radius und Breite = Reifenmaße", abs(roB - dB["R"]) < 0.004 and abs(wdB - dB["W"]) < 0.004, "%.3f/%.3f %.3f/%.3f" % (roB, dB["R"], wdB, dB["W"]))
-vB = np.empty(len(bpy.data.objects[tb_[0]].data.vertices) * 3)
-bpy.data.objects[tb_[0]].data.vertices.foreach_get("co", vB)
-vB = vB.reshape(-1, 3)
 check("mitgelieferter Reifen: Wulst sitzt auf dem Felgenradius", abs(np.hypot(vB[:, 1], vB[:, 2]).min() - dB["r_rim"]) < 0.004, "%.3f / %.3f" % (np.hypot(vB[:, 1], vB[:, 2]).min(), dB["r_rim"]))
-mats_ = bpy.data.objects[tb_[0]].data.materials
-check("mitgelieferter Reifen: Textur bleibt erhalten", len(mats_) >= 1 and any(n_.type == "TEX_IMAGE" and n_.image for n_ in mats_[0].node_tree.nodes))
+check("mitgelieferter Reifen: Textur bleibt erhalten", tyre_textured("Vorne links"))
 te_ = felge3d.assets.tyre_entry("pzero_gt")
 check("Credits: Autor, Quelle und Lizenz CC BY 4.0 vorhanden", te_["autor"] == "Iftekhar.Tushar" and te_["quelle_url"] == "https://skfb.ly/oNqAJ"
       and te_["lizenz"] == "CC BY 4.0" and te_["lizenz_url"].startswith("http://creativecommons.org/licenses/by/4.0"), str(te_.get("autor")))
 check("Credits: Änderungen genannt, Zeilen für die Oberfläche", bool(te_.get("aenderungen")) and len(felge3d.assets.all_credits()) >= 4)
 check("Standard-Drehung des Reifens (P ZERO oben): -90°", abs(te_["standard_drehung"] + 90.0) < 1e-9)
 check("mitgelieferter Reifen: nur ein Import (Collection einmalig)", len([x for x in bpy.data.collections if x.name.startswith(felge3d.assets.PREFIX)]) == 1)
-check("alle vier Räder mit dem mitgelieferten (texturierten) Reifen", all(any(n2.type == "TEX_IMAGE" for n2 in bpy.data.objects["Reifen " + n_].data.materials[0].node_tree.nodes)
-      for n_ in ("Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts")))
+check("alle vier Räder mit dem mitgelieferten (texturierten) Reifen", all(tyre_textured(n_) for n_ in ("Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts")))
+check("Standardreifen = Pirelli P Zero (Sport), vier Reifen zur Auswahl (+ GT)", c.tire_bundled == "pzero_sport" and {"pzero_sport", "pzero_trofeo_r", "advan_drift", "f1_slick"} <= {t["id"] for t in felge3d.assets.tyre_list()})
+for tid_ in ("pzero_trofeo_r", "advan_drift", "f1_slick"):                                       # jeder Reifen passt sich Zoll und Maßen an
+    c.tire_bundled = tid_
+    bpy.ops.felge3d.car_update()
+    v_ = tyre_pts("Vorne links")
+    check("Reifen %s: Wulst = Felgenradius, Außenradius und Breite = Reifenmaße" % tid_, abs(np.hypot(v_[:, 1], v_[:, 2]).min() - dB["r_rim"]) < 0.004
+          and abs(np.hypot(v_[:, 1], v_[:, 2]).max() - dB["R"]) < 0.004 and abs((v_[:, 0].max() - v_[:, 0].min()) - dB["W"]) < 0.004, "%.3f/%.3f %.3f/%.3f" % (np.hypot(v_[:, 1], v_[:, 2]).max(), dB["R"], v_[:, 0].max() - v_[:, 0].min(), dB["W"]))
+c.tire_bundled = "pzero_sport"
+bpy.ops.felge3d.car_update()
 ovb = overlaps()
 check("Felge steckt nicht in der Reifenflanke (mitgelieferter Reifen)", max(ovb.values()) < 0.2, str({k: round(v, 2) for k, v in ovb.items()}))
 c.rim_auto_clear = False
@@ -391,6 +414,6 @@ bpy.ops.felge3d.car_update()
 mat = bpy.data.materials["Felge3D | Bremse links"]
 muls = sorted(n.inputs[1].default_value for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeMath" and n.operation == "MULTIPLY")
 check("Sattel rot nach Update (R hoch, G/B niedrig)", len(muls) == 3 and muls[-1] > 0.5 and muls[0] < 0.05, str([round(v, 3) for v in muls]))
-check("Bremse-Startwerte 7 % kleiner als die Datenblattwerte (408/380 mm)", abs(c.front_disc - 408 * 0.93) < 1 and abs(c.rear_disc - 380 * 0.93) < 1, "%s / %s" % (c.front_disc, c.rear_disc))
+check("Bremse-Startwerte rund 16 % kleiner als die Datenblattwerte (408/380 mm: 7 % und dann noch 10 %)", abs(c.front_disc - 408 * 0.93 * 0.9) < 1 and abs(c.rear_disc - 380 * 0.93 * 0.9) < 1, "%s / %s" % (c.front_disc, c.rear_disc))
 print("\nFehlgeschlagen:", bad)
 sys.exit(1 if bad else 0)

@@ -15,7 +15,7 @@ Credits / Lizenzen (Namensnennung):
 bl_info = {
     "name": "Rim Generator",
     "author": "Felge3D",
-    "version": (0, 56, 0),
+    "version": (0, 57, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > 2D to 3D Rim / Package",
     "description": "Rim Generator: Felge aus Foto oder 3D-Datei -> 4 Räder mit Reifen und Bremsen",
@@ -1722,10 +1722,10 @@ class Felge3DCar(PropertyGroup):
     rear_aspect: IntProperty(name="Querschnitt hinten (%)", default=30, min=20, max=85)
     front_camber: FloatProperty(name="Sturz vorn (Grad)", default=-1.5, min=-12, max=12)
     rear_camber: FloatProperty(name="Sturz hinten (Grad)", default=-1.5, min=-12, max=12)
-    front_disc: FloatProperty(name="Scheibe vorn (mm)", default=379, min=250, max=450)
-    rear_disc: FloatProperty(name="Scheibe hinten (mm)", default=353, min=240, max=450)
-    front_disc_thickness: FloatProperty(name="Scheibendicke vorn (mm)", default=33.5, min=18, max=48)
-    rear_disc_thickness: FloatProperty(name="Scheibendicke hinten (mm)", default=28, min=18, max=48)
+    front_disc: FloatProperty(name="Scheibe vorn (mm)", default=341, min=250, max=450)
+    rear_disc: FloatProperty(name="Scheibe hinten (mm)", default=318, min=240, max=450)
+    front_disc_thickness: FloatProperty(name="Scheibendicke vorn (mm)", default=30, min=18, max=48)
+    rear_disc_thickness: FloatProperty(name="Scheibendicke hinten (mm)", default=25, min=18, max=48)
 
     tire_rotation: FloatProperty(name="Reifentextur drehen (Grad)", default=0, min=-180, max=180,
                                  description="Dreht die Reifentextur auf der Flanke (Beschriftung oben/unten)")

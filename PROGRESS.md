@@ -63,6 +63,11 @@ Teller-Kurve, Nabenmitte, Spiegelungen, Käfig entlang der Speiche, Abgleich-Bil
 - Tests: `tests/car/test_car_layout.py` (Blender 5.3, 38 Prüfungen: Lage, Achse, Anker verschieben, Update, eigener Reifen inkl. 19→21 Zoll, gewählter Empty), Sichtprüfung `tests/car/render_car.py`.
 - Annahme: „Zentrum des Vorderreifens in X und Z“ = Mitte der Vorderachse auf der Fahrzeugmitte (Y des Empties = Fahrzeugmittellinie). Die Panel-Oberfläche selbst (Zeichnen der Felder) ist nur im laufenden Blender prüfbar und wurde hier nicht im GUI getestet.
 
+## Vier Reifen zur Auswahl, Bremse nochmal 10 % kleiner (27.11., Version 0.57.0)
+- Mitgelieferte Reifen aus dem „[FREE] Sport Tire Pack“ von SDC PERFORMANCE (Sketchfab, CC BY 4.0): Pirelli P Zero (Sport, Standard), Pirelli P Zero Trofeo R, Yokohama Advan (Drift), Pirelli F1 (Slick); dazu bleibt der bisherige Pirelli P Zero GT in der Liste. Je Reifen herausgelöst, auf ca. 60 000 Flächen ausgedünnt (`tools/extract_tyre_pack.py`), 1–3 MB je GLB. Credits in `assets.py`, `reifen.json`, `QUELLE.md`, Preferences.
+- Wulst (Innenflanke) sitzt immer auf dem Felgenradius, Außenradius und Breite folgen den Reifenmaßen (Test für alle vier); die Form der Flanke (mehr/weniger Gummi) bleibt die des jeweiligen Modells. Reifen mit mehreren Teilen (Lauffläche, Schrift) werden gemeinsam angepasst. Standard-Drehung/Umdrehen je Reifen in `reifen.json` (Schrift oben).
+- Bremse: Startwerte nochmal 10 % kleiner (Scheibe 341/318 mm, Dicke 30/25 mm), Skalierung mit der Felgengröße bleibt.
+
 ## Bremse 7 % kleiner (27.11., Version 0.56.0)
 - Startwerte der Bremse 7 % unter den Datenblattwerten: Scheibe 379 mm vorn / 353 mm hinten, Dicke 33,5 / 28 mm (vorher 408/380, 36/30). Skalierung mit der Felgengröße (Bezug 20"/21") bleibt, Sattel und Topf folgen dem Scheibenradius; eigene Bremse folgt der Scheibengröße.
 - Neue Testfelgen mit Meshy (mit Textur, je 1 Aufruf, 30 Credits): porsche_bronze_IMG_4512 (Guthaben 980 -> 950), mg_konzept_IMG_2726 (950 -> 920). Renderings in `tests/car/referenz/`.
