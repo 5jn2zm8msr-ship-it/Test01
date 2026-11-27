@@ -147,5 +147,29 @@
   "meshy_extra": [
    "../diamond_cut/neue_felgen/porsche_993_perspektive_ausschnitt.jpg"
   ]
+ },
+ "porsche_bronze_IMG_4512": {
+  "foto": "../diamond_cut/neue_felgen/porsche_bronze_IMG_4512.jpg",
+  "ansicht": "frontal",
+  "speichen": 5,
+  "zentrum": "Wappenkappe mit 5 Radschrauben sichtbar",
+  "farbe": "matt bronze/Neodym, Speichenflächen leicht glänzend",
+  "hinweis": "ohne Reifen; Garagenwand-Hintergrund, Keile unten; 5 breite Speichen mit Absatz",
+  "brennweite_mm": 135,
+  "zuschnitt": [
+   0.0,
+   0.127,
+   1.0,
+   0.877
+  ],
+  "oberflaeche": {
+   "lack": {
+    "Metallic": 0.7,
+    "Roughness": 0.45
+   },
+   "blank": {}
+  },
+  "gruppe": "porsche_bronze_5speichen",
+  "meshy_aus": "porsche_bronze_IMG_4512"
  }
 }
