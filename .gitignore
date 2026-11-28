@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 *.zip
 .DS_Store
+
+# Environment-Nachbau: Meshy-Modelle (Konto-Daten) und Zwischenbilder bleiben lokal
+environment_nachbau/work/
+environment_nachbau/work2/
+environment_nachbau/runden/
+environment_nachbau/ergebnis_log.txt
