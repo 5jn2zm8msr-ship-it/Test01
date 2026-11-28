@@ -18,7 +18,7 @@ opt = dict(a.lstrip('-').split('=') for a in sys.argv[4:] if '=' in a)
 F = lambda k, d: float(opt.get(k, d))
 
 # ---- Kamera: laengere Brennweite (weniger Weitwinkel-Eindruck); Raum wird daraus aus Foto-Pixeln neu berechnet
-FOCAL = F('focal', 50.0); FPX = 720.0 * FOCAL / 36.0                  # Brennweite (Kleinbild) -> Pixel bei 720 px Bildbreite
+FOCAL = F('focal', 70.0); FPX = 720.0 * FOCAL / 36.0                  # Brennweite (Kleinbild) -> Pixel bei 720 px Bildbreite
 CAM_H = 1.6; HORIZON_PX = F('horizon', 243.0)                         # Horizont aus den Linien der linken Wand (Fluchtpunkt bei y=243)
 CAM_YAW = math.degrees(math.atan((F('vp1x', 795.0) - 360.0) / FPX))   # Kamera so gedreht, dass die linke Wand parallel zur Welt-Y-Achse liegt
 _ya = math.radians(CAM_YAW)
@@ -50,7 +50,7 @@ CAR_YAW = F('car_yaw', 4.0)
 SUN_A = Vector((F('ax', -0.30), F('ay', -0.75), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
 SUN_W = Vector((F('wx', -0.60), F('wy', -0.685), F('wz', -1.0)))   # nur linke Wand
 STR_A, STR_W = F('sunA', 42.0), F('sunW', 30.0)
-SKY = F('sky', 0.6)
+SKY = F('sky', 0.7)
 EXPO = F('expo', 2.0)
 DIRT = F('dirt', 1.7)
 
@@ -208,14 +208,14 @@ def box(name, x0, x1, y0, y1, z0, z1, mat, bevel=0.015):
     return o
 
 # ---------------------------------------------------------------- Materialien
-wall = dirty_concrete('Wand', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7),
+wall = dirty_concrete('Wand', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 3.3),
                       nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 slab = dirty_concrete('Decke', 'concrete_wall_006', 'concrete_wall_007', 0.30, 'ceiling', tint=(0.9, 0.9, 0.9), bright=F('slabb', 2.7),
                       nor=0.6, mottle=0.30, stain=0.45, streak=0.25, pits=0.5, ao_dirt=0.5, brown=0.1, edge=F('edge', 0.9), bug=F('bug', 0.6))
 dark = dirty_concrete('Pfeiler', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.80, 0.78, 0.75), bright=F('pilb', 0.57),
                       nor=0.8, mottle=0.3, stain=0.35, streak=0.35, pits=0.5, ao_dirt=0.5, edge=F('edge', 0.9) * 0.6, bug=F('bug', 0.6))
-floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 1.7),
-                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.15))
+floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 1.0),
+                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.5))
 
 # ---------------------------------------------------------------- Raum
 def rbox(name, cx, cy, sx, sy, z0, z1, ang, mat, bevel=0.015):
@@ -226,9 +226,10 @@ def rbox(name, cx, cy, sx, sy, z0, z1, ang, mat, bevel=0.015):
     if bevel:
         bm_ = o.modifiers.new('Fase', 'BEVEL'); bm_.width = bevel; bm_.segments = 2; bm_.limit_method = 'ANGLE'
     return o
-o_floor = box('Boden', -14, 14, -16, 16, -0.5, 0, floor, bevel=0)
+_fh = max(16.0, BACK_Y + 8.0)                                         # Boden symmetrisch um den Ursprung (Objektkoordinaten = Weltkoordinaten)
+o_floor = box('Boden', -_fh, _fh, -_fh, _fh, -0.5, 0, floor, bevel=0)
 o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.6, 0, WALL_H, wall)
-wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.76),
+wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 3.3) * F('backdim', 0.78),
                         nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 _bn = (-math.sin(BACK_ANG), math.cos(BACK_ANG)); _bd = (math.cos(BACK_ANG), math.sin(BACK_ANG))
 def wedge_wall(name, p0, dvec, nvec, L, thick, h0, slope, mat, s0=-0.3):
@@ -305,8 +306,8 @@ low = mixc(nt, DIRT, gray(1), low)
 ao = nt.nodes.new('ShaderNodeAmbientOcclusion'); ao.inputs['Distance'].default_value = 0.14; ao.samples = 8
 aoc = ramp(nt, ao.outputs['AO'], [(0.0, (0.30, 0.28, 0.25)), (0.6, gray(1))]); aoc = mixc(nt, DIRT, gray(1), aoc)
 dust = ramp(nt, noise(nt, geo.outputs['Position'], 22, 6, 0.6), [(0.35, (0.74, 0.72, 0.68)), (0.68, gray(1))]); dust = mixc(nt, DIRT, gray(1), dust)
-hsc = nt.nodes.new('ShaderNodeHueSaturation'); hsc.inputs['Saturation'].default_value = F('carsat', 3.2) if GOLD else 1.0; L(tb.outputs['Color'], hsc.inputs['Color'])
-col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.27),) * 3 if GOLD else (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
+hsc = nt.nodes.new('ShaderNodeHueSaturation'); hsc.inputs['Saturation'].default_value = F('carsat', 2.2) if GOLD else 1.0; hsc.inputs['Hue'].default_value = F('carhue', 0.465) if GOLD else 0.5; L(tb.outputs['Color'], hsc.inputs['Color'])
+col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.17),) * 3 if GOLD else (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
 col = mixc(nt, 1.0, col, aoc, 'MULTIPLY'); col = mixc(nt, 1.0, col, dust, 'MULTIPLY')
 col = mixc(nt, rimv, col, (0.012, 0.012, 0.014))                                   # schwarze Felgen
 L(col, bsdf.inputs['Base Color'])
@@ -360,7 +361,7 @@ def sun(name, d, strength, receivers):
     for ob in receivers: c.objects.link(ob)
     o.light_linking.receiver_collection = c
     return o
-SPOT_R = 300.0
+SPOT_R = 500.0
 def masked_spot(name, d, strength, poly, receivers, blockers, eps=None):
     eps = F('maskeps', 0.00005) if eps is None else eps
     """Weit entfernter Spot, der wie eine Sonne wirkt (Staerke kalibriert), mit polygonaler Lichtmaske.
@@ -424,7 +425,7 @@ else:
 # Bounce-Karte: unsichtbare Flaeche ueber dem hellen Lichtkeil, nur fuer die Decke verlinkt (ersetzt den fehlenden Bounce vom stark ueberstrahlten Boden)
 bl = bpy.data.objects.new('Bounce_Decke', bpy.data.lights.new('Bounce_Decke', 'AREA')); sc.collection.objects.link(bl)
 bl.data.shape = 'RECTANGLE'; bl.data.size = 7.0; bl.data.size_y = 6.0; bl.data.energy = F('ceilfill', 130.0); bl.data.color = (1.0, 0.95, 0.89)
-bl.data.use_shadow = False; bl.location = (F('bx', WALL_X + 2.0), F('by', 6.2), 0.4); bl.rotation_euler = (0, 0, 0)   # leuchtet nach unten -> drehen
+bl.data.use_shadow = False; bl.location = (F('bx', WALL_X + 2.0), F('by', SLAB_MID[1] - 2.0), 0.4); bl.rotation_euler = (0, 0, 0)   # leuchtet nach unten -> drehen
 bl.rotation_euler = (math.pi, 0, 0)   # Flaeche zeigt nach oben (Area-Licht strahlt entlang -Z; gedreht -> +Z)
 bcol = bpy.data.collections.new('Bounce_Empfaenger'); sc.collection.children.link(bcol); bcol.objects.link(o_slab)
 bl.light_linking.receiver_collection = bcol
@@ -434,11 +435,11 @@ sky.sun_disc = False; sky.air_density = 1.0; sky.aerosol_density = 2.0; sky.alti
 sd = -SUN_A.normalized(); sky.sun_elevation = math.asin(sd.z); sky.sun_rotation = -math.atan2(sd.x, sd.y)
 bg = w.node_tree.nodes['Background']; bg.inputs['Strength'].default_value = SKY
 lp = w.node_tree.nodes.new('ShaderNodeLightPath'); cm_ = w.node_tree.nodes.new('ShaderNodeMath'); cm_.operation = 'MULTIPLY_ADD'
-cm_.inputs[1].default_value = -F('camsky', 0.975) * SKY; cm_.inputs[2].default_value = SKY
+cm_.inputs[1].default_value = -F('camsky', 0.985) * SKY; cm_.inputs[2].default_value = SKY
 w.node_tree.links.new(lp.outputs['Is Camera Ray'], cm_.inputs[0]); w.node_tree.links.new(cm_.outputs[0], bg.inputs['Strength'])
 hs = w.node_tree.nodes.new('ShaderNodeHueSaturation'); hs.inputs['Saturation'].default_value = F('skysat', 0.5)
 w.node_tree.links.new(sky.outputs['Color'], hs.inputs['Color']); w.node_tree.links.new(hs.outputs['Color'], bg.inputs['Color'])
-sm_ = w.node_tree.nodes.new('ShaderNodeMath'); sm_.operation = 'MULTIPLY_ADD'; sm_.inputs[1].default_value = F('camsat', 0.55); sm_.inputs[2].default_value = F('skysat', 0.5)
+sm_ = w.node_tree.nodes.new('ShaderNodeMath'); sm_.operation = 'MULTIPLY_ADD'; sm_.inputs[1].default_value = F('camsat', 0.1); sm_.inputs[2].default_value = F('skysat', 0.5)
 w.node_tree.links.new(lp.outputs['Is Camera Ray'], sm_.inputs[0]); w.node_tree.links.new(sm_.outputs[0], hs.inputs['Saturation'])
 
 # ---------------------------------------------------------------- Kamera
