@@ -25,7 +25,7 @@ CAR_LEN = F('car_len', 4.25)
 CAR_X, CAR_Y = F('car_x', -3.55), F('car_y', 5.95)
 CAR_YAW = F('car_yaw', 4.0)
 SUN_A = Vector((F('ax', 0.10), F('ay', -0.75), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
-SUN_W = Vector((F('wx', -0.40), F('wy', -0.85), F('wz', -1.0)))   # nur linke Wand
+SUN_W = Vector((F('wx', -0.40), F('wy', -0.685), F('wz', -1.0)))   # nur linke Wand
 STR_A, STR_W = F('sunA', 34.0), F('sunW', 24.0)
 SKY = F('sky', 0.85)
 EXPO = F('expo', 2.5)
@@ -164,14 +164,16 @@ floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 
 # ---------------------------------------------------------------- Raum
 o_floor = box('Boden', -9, 9, -9, BACK_Y + 0.5, -0.5, 0, floor, bevel=0)
 o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.5, 0, WALL_H + 0.5, wall)
-o_back = box('Wand_hinten', WALL_X - 0.6, 6, BACK_Y, BACK_Y + 0.6, 0, WALL_H, wall)
+wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.82),
+                        nor=0.55, mottle=0.30, stain=0.40, streak=0.30, pits=0.6, ao_dirt=0.45, brown=0.0, joints=0.28)
+o_back = box('Wand_hinten', WALL_X - 0.6, 6, BACK_Y, BACK_Y + 0.6, 0, WALL_H, wall_b)
 o_slab = box('Decke', WALL_X - 0.6, 9, -9, SLAB_EDGE_Y, WALL_H, WALL_H + SLAB_T, slab, bevel=0.02)
 ya = math.radians(CAM_YAW); a = Vector((-math.sin(ya), math.cos(ya), 0)); r = Vector((math.cos(ya), math.sin(ya), 0))
 bpy.ops.mesh.primitive_cube_add(); pil = bpy.context.object; pil.name = 'Pfeiler'
 pil.scale = (1.0, 0.3, F('pil_h', 2.55) / 2); bpy.ops.object.transform_apply(scale=True); pil.data.materials.append(dark)
 pil.location = r * (F('pil_lat', 1.6) + 1.0) + a * F('pil_z', 3.7) + Vector((0, 0, F('pil_h', 2.55) / 2)); pil.rotation_euler = Euler((0, 0, ya))
 b = pil.modifiers.new('Fase', 'BEVEL'); b.width = 0.02; b.segments = 2; b.limit_method = 'ANGLE'
-o_back2 = box('Wand_rechts_hinten', 5.5, 6.0, 0, BACK_Y + 0.6, 0, WALL_H, wall)
+o_back2 = box('Wand_rechts_hinten', 5.5, 6.0, 0, BACK_Y + 0.6, 0, WALL_H, wall_b)
 room = [o_floor, o_back, o_slab, pil, o_back2]
 
 # ---------------------------------------------------------------- Auto (Meshy multi-image-to-3d 01a21f80, goldener Lamborghini -> weiss)
@@ -326,10 +328,10 @@ if int(F('spotmask', 1)):
     # Lichtkeil auf dem Boden: Polygon aus den Foto-Messpunkten (Unterkante schraeg, rechte Kante schraeg), siehe README
     ky = F('wedge_y', 0.0)
     floor_poly = [(-5.5, 2.53 + ky, 0), (-1.60, 3.73 + ky, 0), (-2.54, 11.0, 0), (-5.5, 11.0, 0)]
-    masked_spot('Sonne_Boden', SUN_A, STR_A, floor_poly, [o_floor, o_back, o_slab, pil, o_back2, car, cs], [car, pil])
+    masked_spot('Sonne_Boden', SUN_A, STR_A, floor_poly, [o_floor, o_back, o_slab, pil, o_back2, car, cs], [car, pil, o_back, o_back2])
     # Lichtflaeche auf der linken Wand: Halbebene, Diagonale (y - z/1.036 > 2.82) wie im Foto
     wall_poly = [(WALL_X, 2.82, 0), (WALL_X, 7.65, 5.0), (WALL_X, 13.0, 5.0), (WALL_X, 13.0, 0)]
-    masked_spot('Sonne_Wand', SUN_W, STR_W, wall_poly, [o_wall], [car, pil])
+    masked_spot('Sonne_Wand', SUN_W, STR_W, wall_poly, [o_wall], [car, pil, o_back, o_back2])
 else:
     sun('Sonne_Boden', SUN_A, STR_A, room + [car])
     sun('Sonne_Wand', SUN_W, STR_W, [o_wall])
