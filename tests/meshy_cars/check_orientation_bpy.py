@@ -41,6 +41,7 @@ STYLES = {"textur": dict(color_type="TEXTURE", show_cavity=False),
 sh.single_color = (0.72, 0.72, 0.72)
 sh.cavity_type = "BOTH"; sh.cavity_ridge_factor = 1.0; sh.cavity_valley_factor = 1.0
 for style, opts in STYLES.items():
+    sh.color_type, sh.show_cavity = opts["color_type"], opts["show_cavity"]       # NICHT entfernen: sonst ist "grau" in Wahrheit texturiert
     for k, v in views.items():
         t0 = time.time()
         if v is None:
@@ -50,3 +51,16 @@ for style, opts in STYLES.items():
         sc.render.filepath = SP + "/shot_%s_%s.png" % (style, k)
         bpy.ops.render.render(write_still=True)
         print("Screenshot %-6s %-20s %.1f s" % (style, k, time.time() - t0))
+
+# Selbstkontrolle: die graue Variante muss wirklich farblos sein, die Lack-Variante darf es nicht sein (Regression: 0.8.0 lieferte "grau" mit Textur)
+import numpy as np
+def _sat(f):
+    im = bpy.data.images.load(f)
+    w, h = im.size
+    a = np.array(im.pixels[:]).reshape(h, w, 4)[..., :3] * 255.0
+    ctr = a[250:650, 200:1200]                                   # Bildmitte = Auto
+    return float((ctr.max(2) - ctr.min(2)).mean())
+sg, st = _sat(SP + "/shot_grau_seite_von_minus_y.png"), _sat(SP + "/shot_textur_seite_von_minus_y.png")
+print("Farbsaettigung Bildmitte: grau %.1f | textur %.1f" % (sg, st))
+assert sg < 12, "grauer Screenshot ist nicht grau (Saettigung %.1f)" % sg
+assert st > sg + 5, "Lack-Screenshot ist nicht farbiger als grau"
