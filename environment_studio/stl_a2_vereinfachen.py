@@ -63,7 +63,7 @@ if not __import__('os').environ.get('NOFILL'):
     print('gefuellt, Vol cm3', occ.sum()*P**3/1000, flush=True)
 lab, n = ndi.label(occ); sz = ndi.sum(occ, lab, range(1, n+1))*P**3
 keep = np.isin(lab, [i+1 for i, v in enumerate(sz) if v >= MINV]); print('Komponenten', n, 'behalten', int((sz >= MINV).sum()), flush=True)
-vol = ndi.gaussian_filter(keep.astype(np.float32), 0.8)
+vol = ndi.gaussian_filter(keep.astype(np.float32), float(__import__('os').environ.get('GAUSS', '0.8')))
 vol = np.pad(vol, 1)
 verts, faces, _, _ = measure.marching_cubes(vol, 0.5, spacing=(P, P, P))
 verts += lo - P; mm = trimesh.Trimesh(verts, faces, process=True); trimesh.repair.fix_normals(mm); print('MC watertight', mm.is_watertight, 'Vol', round(mm.volume/1000, 1), flush=True)

@@ -15,7 +15,11 @@ def U(*a):
     r = a[0]
     for b in a[1:]: r = r + b
     return r
-S0 = trimesh.load(src); S0.merge_vertices(); S = to_man(S0); print('Huelle V=%.1f cm3' % (S.volume()/1000))
+S0 = trimesh.load(src); S0.merge_vertices(); S = to_man(S0)
+SW = S
+if len(sys.argv) > 3:                       # Raeder aus der detaillierten Original-Huelle (Reifenprofil)
+    W0 = trimesh.load(sys.argv[3]); W0.merge_vertices(); SW = to_man(W0); print('Raeder aus', sys.argv[3])
+print('Huelle V=%.1f cm3' % (S.volume()/1000))
 CZ, RW, Y_CUT = 40.0, 41.0, 62.4
 WHEELS = {'VL': (-159.0, -1), 'VR': (-159.0, 1), 'HL': (116.0, -1), 'HR': (116.0, 1)}
 PIN_D, HOLE_D = 6.0, 6.0 + 2*SP; R_RIM = 24.0
@@ -24,7 +28,7 @@ for k, (cx, sg) in WHEELS.items():
     y0, y1 = (Y_CUT, 104.0) if sg > 0 else (-104.0, -Y_CUT); cuts.append(cyl_y(y0, y1, cx, CZ, RW))
 # ---- ein Rad (hinten links als Vorlage), Zapfen Richtung +y (wird fuer rechts gedreht) ----
 cx = 116.0
-wheel = S ^ cyl_y(-104.0, -Y_CUT, cx, CZ, RW)
+wheel = SW ^ cyl_y(-104.0, -Y_CUT, cx, CZ, RW)
 boss = cyl_y(-81.0, -63.5, cx, CZ, 6.0); pin = cyl_y(-64.0, -50.8, cx, CZ, PIN_D/2)
 rim = (wheel ^ cyl_y(-104.0, -Y_CUT, cx, CZ, R_RIM)) + boss + pin
 tire = wheel - cyl_y(-104.0, -Y_CUT, cx, CZ, R_RIM)
