@@ -53,6 +53,10 @@ gcode_flavor = marlin2
 use_relative_e_distances = 1
 layer_gcode = G92 E0
 """
+if os.environ.get('NOSUPPORT'): CFG = CFG.replace('support_material = 1', 'support_material = 0')
+if os.environ.get('SUPPORT_STYLE'): CFG = CFG.replace('support_material_style = organic', 'support_material_style = ' + os.environ['SUPPORT_STYLE'])
+if os.environ.get('SUPPORT_THR'): CFG = CFG.replace('support_material_threshold = 40', 'support_material_threshold = ' + os.environ['SUPPORT_THR'])
+if os.environ.get('BPONLY'): CFG = CFG.replace('support_material_buildplate_only = 0', 'support_material_buildplate_only = 1')
 open(os.path.join(wd, 'bambu_aehnlich.ini'), 'w').write(CFG)
 def rot(axis, deg):
     return trimesh.transformations.rotation_matrix(np.radians(deg), axis)
