@@ -22,6 +22,7 @@ Im Szenenbaum gibt es den Empty **`Anker_Vorderrad`** genau dort, wo der Vorderr
 ## Zwei weitere Ansichten (`./final_ansichten.sh`)
 - **Bild 1** `ergebnis_ansichten/bild1_auto180.png`: Originalkamera (70 mm), Auto um 180° gedreht (`--carrot=180`, Heck zur Kamera, steht unverändert im Lichtfeld; weitere Winkel per `--carrot`, Position per `--carshiftx/--carshifty` in Meter, Welt-x/-y).
 - **Bild 2** `ergebnis_ansichten/bild2_ecke_wald.png`: Kamera hinten in der Ecke (`--view=ecke`, 70 mm, 1,50 m Höhe; Position `--camx/--camy/--camh`, Zielpunkt `--camtx/--camty/--camtz`), Auto um 35° gedreht (3/4-Heck). Dort, wo die Originalkamera steht, schließt eine **Waldwand** (`--wald=1`) den Raum: ein PNG (`textures/wald_wand.png`) auf einer Fläche, per Emission beleuchtungsunabhängig, Helligkeit `--waldstr`.
+- **Abstand des Waldes:** `--wald_y=-4.0` (Standard) = Waldfläche 4 m hinter dem Ort der Originalkamera; weiter weg (z. B. `-6`) = kleinere Bäume. Fläche 28 × 5,2 m, das Waldbild (`textures/wald_wand.png`) passt dazu (`wald_png.py … wand … 180 12 72 15.37`).
 - **Waldbild:** Poly Haven *Forest Slope* (CC0, 4k-HDRI), von `wald_png.py` tonemappt und als perspektivischer Ausschnitt (Azimut 180°, 72° × 10°) ausgeschnitten. Poly Haven hat kein HDRI mit Koordinaten in Schweden (nächstes: *Bergen*, Norwegen, nur Winter/Fels), deshalb ist es ein mitteleuropäischer Nadel-/Laubmischwald, der nordisch wirkt, aber kein schwedischer. Das 4k-HDRI liegt lokal in `work_wald/`.
 
 ## Quellen

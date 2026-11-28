@@ -40,7 +40,8 @@ BACK_SLOPE = (BACK_H1 - BACK_H0) / math.hypot(_rp[0] - CORNER[0], _rp[1] - CORNE
 SLAB_ANG = math.atan2(_s2[1] - _s1[1], _s2[0] - _s1[0]); SLAB_MID = ((_s1[0] + _s2[0]) / 2, (_s1[1] + _s2[1]) / 2)
 SLAB_YA, SLAB_YB = SLAB_MID[1] - 1.8, SLAB_MID[1]
 _G1 = at_height(0, 505, 0.0); FG_YA, FG_YB = _G1[1] - 1.7, _G1[1] - 0.2
-FLOOR_CY = (((F('wald_y', 0.0) - 0.2) + (BACK_Y + 8.0)) / 2) if int(F('wald', 0)) else 0.0   # Mitte des Bodens in Y (Objektkoordinaten)
+WALD_Y = F('wald_y', -4.0)                                            # Waldflaeche: 4 m hinter dem Ort der Originalkamera (Baeume wirken kleiner/weiter weg)
+FLOOR_CY = (((WALD_Y - 0.2) + (BACK_Y + 8.0)) / 2) if int(F('wald', 0)) else 0.0   # Mitte des Bodens in Y (Objektkoordinaten)
 _pf = at_height(640, 555, 0.0)                                        # Pfeiler: ferne Kante (Fusspunkt)
 PIL_LAT = _pf[0] * CAM_R[0] + _pf[1] * CAM_R[1]; PIL_D = _pf[0] * CAM_A[0] + _pf[1] * CAM_A[1]      # seitlicher Abstand / Tiefe der frontalen Flaeche
 PIL_LAT2 = (689.0 - 360.0) * PIL_D / FPX                              # rechte Kante der dunklen Flaeche bei x=689
@@ -229,7 +230,7 @@ def rbox(name, cx, cy, sx, sy, z0, z1, ang, mat, bevel=0.015):
     return o
 _fh = max(16.0, BACK_Y + 8.0)                                         # Boden symmetrisch um den Ursprung (Objektkoordinaten = Weltkoordinaten)
 if int(F('wald', 0)):                                                  # mit Waldhintergrund: Betonvorplatz endet kurz hinter der Deckenkante
-    _fy0, _fy1 = F('wald_y', 0.0) - 0.2, BACK_Y + 8.0
+    _fy0, _fy1 = WALD_Y - 0.2, BACK_Y + 8.0
     o_floor = box('Boden', -12, 16, _fy0, _fy1, -0.5, 0, floor, bevel=0)
 else:
     o_floor = box('Boden', -_fh, _fh, -_fh, _fh, -0.5, 0, floor, bevel=0)
@@ -258,7 +259,7 @@ wall_p = dirty_concrete('Pfeiler_hell', 'concrete_wall_006', 'concrete_wall_007'
 pilB = rbox('Pfeiler_hell', _pb[0], _pb[1], 3.4 - PIL_LAT2, 0.05, 0, WALL_H, _ya, wall_p, bevel=0.0)    # hellere Flaeche rechts davon (x>689)
 room = [o_floor, o_back, o_slab, pil, pilB]
 if int(F('wald', 0)):    # Waldwand: Bild (PNG) schliesst die offene Seite des Raums dort, wo die Originalkamera stand (beleuchtungsunabhaengig, Emission)
-    _wy, _wwid, _wht, _wxc = F('wald_y', 0.0), F('wald_w', 28.0), F('wald_h', 3.4), F('wald_x', 2.0)
+    _wy, _wwid, _wht, _wxc = WALD_Y, F('wald_w', 28.0), F('wald_h', 5.2), F('wald_x', 2.0)
     bpy.ops.mesh.primitive_plane_add(size=1); wp = bpy.context.object; wp.name = 'Waldwand'
     wp.scale = (_wwid, _wht, 1.0); wp.rotation_euler = (math.pi / 2, 0, 0); wp.location = (_wxc, _wy, _wht / 2)
     wm = bpy.data.materials.new('Waldwand'); wm.use_nodes = True; wnt = wm.node_tree; wnt.nodes.clear()
