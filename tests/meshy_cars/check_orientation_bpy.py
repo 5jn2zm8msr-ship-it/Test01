@@ -55,13 +55,15 @@ for style, opts in STYLES.items():
 
 # Selbstkontrolle: die graue Variante muss wirklich farblos sein, die Lack-Variante darf es nicht sein (Regression: 0.8.0 lieferte "grau" mit Textur)
 import numpy as np
-def _sat(f):
+def _px(f):
     im = bpy.data.images.load(f)
     w, h = im.size
     a = np.array(im.pixels[:]).reshape(h, w, 4)[..., :3] * 255.0
-    ctr = a[250:650, 200:1200]                                   # Bildmitte = Auto
-    return float((ctr.max(2) - ctr.min(2)).mean())
-sg, st = _sat(SP + "/shot_grau_seite_von_minus_y.png"), _sat(SP + "/shot_textur_seite_von_minus_y.png")
-print("Farbsaettigung Bildmitte: grau %.1f | textur %.1f" % (sg, st))
-assert sg < 12, "grauer Screenshot ist nicht grau (Saettigung %.1f)" % sg
-assert st > sg + 5, "Lack-Screenshot ist nicht farbiger als grau"
+    return a[250:650, 200:1200]                                  # Bildmitte = Auto
+g, t = _px(SP + "/shot_grau_seite_von_minus_y.png"), _px(SP + "/shot_textur_seite_von_minus_y.png")
+sat_g = float((g.max(2) - g.min(2)).mean())
+diff = float(np.abs(g - t).mean())
+print("Farbsaettigung grau %.1f | Unterschied grau/textur (0-255): %.1f" % (sat_g, diff))
+assert sat_g < 12, "grauer Screenshot ist nicht grau (Saettigung %.1f)" % sat_g
+# Regression 0.8.0: 'grau' war texturiert -> beide Bilder identisch. Auch matte/dunkle Autos (kaum Farbe) muessen sich in der Helligkeit unterscheiden.
+assert diff > 3.0, "grau und textur sehen gleich aus (Unterschied %.1f) - Textur/Grau-Umschaltung kaputt?" % diff
