@@ -43,6 +43,12 @@ mat.blend_method = 'OPAQUE' if hasattr(mat, 'blend_method') else None
 bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
 bsdf.inputs['Specular IOR Level'].default_value = 0.25
 mat.use_backface_culling = False
+KARO = float(os.environ.get('KARO', '0.56'))   # Lack/Karosserie dunkler und neutraler (Referenz: fast Schwarz, matt)
+for l in list(mat.node_tree.links):
+    if l.to_node == bsdf and l.to_socket.name == 'Base Color':
+        mxn = mat.node_tree.nodes.new('ShaderNodeMix'); mxn.data_type = 'RGBA'; mxn.blend_type = 'MULTIPLY'
+        mxn.inputs['Factor'].default_value = 1.0; mxn.inputs['B'].default_value = (KARO, KARO, KARO*1.02, 1)
+        mat.node_tree.links.new(l.from_socket, mxn.inputs['A']); mat.node_tree.links.new(mxn.outputs['Result'], bsdf.inputs['Base Color']); break
 RAU_MIN = float(os.environ.get('RAU_MIN', '0.62'))
 nt = mat.node_tree
 for l in list(nt.links):
@@ -130,8 +136,43 @@ def schatten(name, sx_, sy_, dichte, z):
     m.use_backface_culling = False
     o.data.materials.append(m); o.visible_shadow = False
     return o
-schatten('Kontaktschatten_gross', 3.2, 1.9, float(os.environ.get('SCH', '0.9')), 0.004)
-schatten('Kontaktschatten_Reifen', 2.6, 1.35, float(os.environ.get('SCH2', '0.75')), 0.006)
+def schatten_wolke(z=0.004):
+    """Breites, wolkig-fleckiges Schattenfeld unter dem Auto wie im Referenzfoto (Frontansicht):
+    grau-blau, seitlich ueber die Reifen hinaus, vor dem Stossfaenger weich auslaufend, mit rauchiger Noise-Struktur."""
+    bpy.ops.mesh.primitive_plane_add(size=1, location=(0, 0, z)); o = bpy.context.object; o.name = 'Schattenfeld'
+    o.scale = (14, 7, 1); bpy.ops.object.transform_apply(scale=True)
+    m = bpy.data.materials.new('Schattenfeld'); m.use_nodes = True; n = m.node_tree; n.nodes.clear()
+    L = lambda a, b, c, d: n.links.new(a.outputs[b] if isinstance(b, str) else a.outputs[b], c.inputs[d])
+    tcx = n.nodes.new('ShaderNodeTexCoord'); sp = n.nodes.new('ShaderNodeSeparateXYZ'); L(tcx, 'Object', sp, 'Vector')
+    def smooth(src_sock_node, src, a, b, name):
+        r = n.nodes.new('ShaderNodeMapRange'); r.interpolation_type = 'SMOOTHSTEP'; r.clamp = True
+        r.inputs['From Min'].default_value = a; r.inputs['From Max'].default_value = b
+        n.links.new(src_sock_node.outputs[src], r.inputs['Value']); return r
+    # Laenge: Front liegt bei -X (FRONT_SIGN), Schatten reicht ~1.1 m ueber die Front hinaus, hinten kuerzer
+    fx = smooth(sp, 'X', -3.0, -2.0, 'fx')
+    fr = smooth(sp, 'X', 3.4, 1.6, 'fr')
+    ab = n.nodes.new('ShaderNodeMath'); ab.operation = 'ABSOLUTE'; L(sp, 'Y', ab, 0)
+    fy = smooth(ab, 'Value', 1.8, 1.0, 'fy')
+    m1 = n.nodes.new('ShaderNodeMath'); m1.operation = 'MULTIPLY'; L(fx, 'Result', m1, 0); L(fr, 'Result', m1, 1)
+    m2 = n.nodes.new('ShaderNodeMath'); m2.operation = 'MULTIPLY'; L(m1, 'Value', m2, 0); L(fy, 'Result', m2, 1)
+    # rauchige Struktur: verzerrtes Noise, grosse Wolken + feines Detail
+    nz = n.nodes.new('ShaderNodeTexNoise'); nz.inputs['Scale'].default_value = 0.9; nz.inputs['Detail'].default_value = 9
+    nz.inputs['Roughness'].default_value = 0.62; nz.inputs['Distortion'].default_value = 1.4
+    L(tcx, 'Object', nz, 'Vector')
+    nr = n.nodes.new('ShaderNodeMapRange'); nr.inputs['From Min'].default_value = 0.30; nr.inputs['From Max'].default_value = 0.70
+    nr.inputs['To Min'].default_value = 0.35; nr.inputs['To Max'].default_value = 1.15; nr.clamp = True
+    L(nz, 'Fac', nr, 'Value')
+    m3 = n.nodes.new('ShaderNodeMath'); m3.operation = 'MULTIPLY'; L(m2, 'Value', m3, 0); L(nr, 'Result', m3, 1)
+    m4 = n.nodes.new('ShaderNodeMath'); m4.operation = 'MULTIPLY'; m4.inputs[1].default_value = float(os.environ.get('SCH', '0.50')); m4.use_clamp = True; L(m3, 'Value', m4, 0)
+    tr_ = n.nodes.new('ShaderNodeBsdfTransparent'); bk = n.nodes.new('ShaderNodeBsdfDiffuse'); bk.inputs['Color'].default_value = (0.012, 0.022, 0.035, 1)
+    mx = n.nodes.new('ShaderNodeMixShader'); out = n.nodes.new('ShaderNodeOutputMaterial')
+    L(m4, 'Value', mx, 0); L(tr_, 'BSDF', mx, 1); L(bk, 'BSDF', mx, 2); L(mx, 'Shader', out, 'Surface')
+    try: m.surface_render_method = 'BLENDED'
+    except Exception: m.blend_method = 'BLEND'
+    o.data.materials.append(m); o.visible_shadow = False
+    return o
+schatten_wolke()
+schatten('Kontaktschatten_Reifen', 2.3, 1.15, float(os.environ.get('SCH2', '0.55')), 0.006)
 
 # Welt: sehr helles, leicht kuehles Grau (Streulicht der weissen Hohlkehle)
 w = bpy.data.worlds.new('Studio'); sc.world = w; w.use_nodes = True
@@ -188,7 +229,7 @@ CAMS = {
   # 8/10: schraeg von hinten, etwas niedriger, weitwinkliger
   '8':  cam('Kamera_8_heck_schraeg', (-fs*7.4, side*6.8, 1.15), (0.1, 0, 0.95), 75),
   # 6/10: frontal, niedrig (Mitte Kuehlergrill), Tele
-  '6':  cam('Kamera_6_front', (fs*8.4, 0, 0.95), (0, 0, 0.95), 100),
+  '6':  cam('Kamera_6_front', (fs*8.1, 0, 0.95), (0, 0, 1.12), 100),
 }
 
 # ---------------- Render (Eevee) -----------------
