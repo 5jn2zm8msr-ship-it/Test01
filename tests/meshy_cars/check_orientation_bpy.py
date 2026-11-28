@@ -35,7 +35,8 @@ cam = bpy.data.objects.new("Cam", bpy.data.cameras.new("Cam")); sc.collection.ob
 tg = bpy.data.objects.new("T", None); tg.location = (0, 0, 0.55); sc.collection.objects.link(tg)
 t = cam.constraints.new("TRACK_TO"); t.target, t.track_axis, t.up_axis = tg, "TRACK_NEGATIVE_Z", "UP_Y"
 sc.camera = cam
-views = {"front_von_minus_x": (-1, 0), "seite_von_minus_y": (0, -1), "schraeg_front_links": (-0.8, -0.6), "oben": None}
+views = {"front_von_minus_x": (-1, 0), "seite_von_minus_y": (0, -1), "schraeg_front_links": (-0.8, -0.6), "oben": None,
+         "heck_von_plus_x": (1, 0), "schraeg_heck_links": (0.8, -0.6)}       # Heckansichten gehören immer dazu
 STYLES = {"textur": dict(color_type="TEXTURE", show_cavity=False),
           "grau": dict(color_type="SINGLE", show_cavity=True)}      # grau = Modeling-/Solid-Ansicht: Form beurteilen
 sh.single_color = (0.72, 0.72, 0.72)
