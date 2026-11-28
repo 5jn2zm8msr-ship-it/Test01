@@ -25,7 +25,7 @@ def wheel(cx, left, off=0.0, limit=250000):
     b = part('Rad_Felge_weiss', WHITE, (cx, (off if not left else -off), 40.0), (0, 0, z), limit); return a, b
 focus = None; lens = 50; cam = (0, -300, 150); tgt = (0, 0, 60); fstop = None
 if shot == 'rad_aufhaengung':
-    part('Karosserie_2_Heck', BLACK, limit=600000); wheel(116.0, True, 58.0, 300000); lens, cam, tgt, fstop = 60, (290, -150, 78), (116, -88, 42), 5.0
+    part('Karosserie_2_Heck', BLACK, limit=600000); wheel(116.0, True, 58.0, 300000); lens, cam, tgt, fstop = 42, (300, -175, 95), (116, -102, 40), 6.0
 elif shot == 'duebel_kabine':
     part('Karosserie_1_Front_Kabine', BLACK, limit=500000)
     for i, (y, z) in enumerate(POST): cyl(2.9, 24, (XJ + (22 if i < 2 else 8), y, z), (0, math.pi/2, 0))
@@ -33,19 +33,24 @@ elif shot == 'duebel_kabine':
 elif shot == 'duebel_heck':
     part('Karosserie_2_Heck', BLACK, limit=600000)
     for i, (y, z) in enumerate(POST): cyl(2.9, 24, (XJ - (4 if i % 2 == 0 else 14) + 1, y, z), (0, math.pi/2, 0))
-    lens, cam, tgt, fstop = 38, (-95, -85, 160), (XJ, 0, 125), 6.0
+    lens, cam, tgt, fstop = 30, (-200, -160, 190), (XJ, 0, 118), 9.0
 elif shot == 'pins_aufbau':
     part('Karosserie_2_Heck', BLACK, limit=600000); part('Karosserie_3_Aufbau', BLACK, (0, 0, 42), limit=500000)
     for (x, y) in AUF: cyl(1.5, 13, (x, y, ZC - 0.5), (0, 0, 0), WHITE, 16)
     lens, cam, tgt, fstop = 45, (205, -175, 105), (140, -5, 86), 6.0
 elif shot == 'reifen':
     wheel(0.0, True, 0.0, 500000); lens, cam, tgt, fstop = 85, (95, -255, 55), (0, -82, 5), 3.5
-elif shot in ('hero_front', 'hero_heck', 'explosion_detail'):
+elif shot == 'explosion_detail':
+    part('Karosserie_2_Heck', BLACK, limit=500000); part('Karosserie_3_Aufbau', BLACK, (0, 0, 70), limit=450000)
+    for cx in (116.0,):
+        wheel(cx, True, 0.0, 120000); wheel(cx, False, 0.0, 120000)
+    for (x, y) in AUF: cyl(1.5, 13, (x, y, ZC - 0.5), (0, 0, 0), WHITE, 16)
+    lens, cam, tgt, fstop = 38, (380, -330, 215), (140, -5, 108), 9.0
+elif shot in ('hero_front', 'hero_heck'):
     part('Karosserie_1_Front_Kabine', BLACK); part('Karosserie_2_Heck', BLACK); part('Karosserie_3_Aufbau', BLACK)
     for cx, left in ((-159.0, True), (-159.0, False), (116.0, True), (116.0, False)): wheel(cx, left, 0.0, 120000)
-    if shot == 'hero_front': lens, cam, tgt = 52, (-590, -520, 300), (0, 0, 85)
-    elif shot == 'hero_heck': lens, cam, tgt = 52, (590, 480, 300), (20, 0, 85)
-    else: lens, cam, tgt = 70, (110, -330, 250), (150, -20, 85)
+    if shot == 'hero_front': lens, cam, tgt = 60, (-560, -500, 270), (-5, 0, 85)
+    else: lens, cam, tgt = 60, (560, 470, 270), (25, 0, 85)
 # Boden, Licht, Welt (wie Explosionszeichnung)
 bpy.ops.mesh.primitive_plane_add(size=20000, location=(0, 0, -0.3)); fl = bpy.context.object
 fm = bpy.data.materials.new('fl'); fm.use_nodes = True; fm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.93, 0.93, 0.94, 1); fl.data.materials.append(fm)
