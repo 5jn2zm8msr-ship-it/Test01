@@ -9,8 +9,8 @@ P = float(sys.argv[3]) if len(sys.argv) > 3 else 0.6
 RC = float(sys.argv[4]) if len(sys.argv) > 4 else 1.6
 RO = float(sys.argv[5]) if len(sys.argv) > 5 else 0.9
 MINV = float(sys.argv[6]) if len(sys.argv) > 6 else 300.0
-CAB = (-92.0, 62.0, 78.0, 73.0, 192.0)      # x0,x1,|y|,z0,z1
-HOOD = (-215.0, -92.0, 84.0)               # x0,x1,|y|
+CAB_X0, CAB_X1, PLUG_X1, CABZ0, SHELL = -40.0, 45.0, 62.5, 73.0, 3.0    # Kabine hohl von -40 bis 45, Stecker 45..62,5
+HOOD = (-215.0, -40.0, 84.0)               # Motorraum/Keil massiv x0,x1,|y|
 t0 = time.time()
 m = trimesh.load(src); m.merge_vertices(); print('geladen', len(m.faces), round(time.time()-t0), flush=True)
 lo = m.bounds[0] - 3; hi = m.bounds[1] + 3
@@ -36,8 +36,23 @@ occ = dil(ero(occ, RO), RO); print('Opening', round(time.time()-t0), 'Vol cm3', 
 # Fuellen: Kabine (Seitenscheiben geschlossen, innen massiv) und Motorraum unter der Haube -> keine geschlossenen Hohlraeume (Stuetzen innen unmoeglich)
 X = lambda x: int(round((x - lo[0])/P)); Y = lambda y: int(round((y - lo[1])/P)); Z = lambda z: int(round((z - lo[2])/P))
 if not __import__('os').environ.get('NOFILL'):
-    occ[X(CAB[0]):X(CAB[1]), Y(-CAB[2]):Y(CAB[2]), Z(CAB[3]):Z(CAB[4])] = True              # Kabine als Block
-    zone = occ[X(HOOD[0]):X(HOOD[1]), Y(-HOOD[2]):Y(HOOD[2]), :]                         # Motorraum: je (x,y) von der tiefsten bis zur hoechsten Stelle fuellen
+    # Kabine x in [CAB_X0, CAB_X1]: Silhouette (Projektion entlang x) -> hohles Prisma, 3 mm Wand, Fenster geschlossen, Innenleben entfernt
+    y0, y1, z0, z1 = Y(-84), Y(84), Z(CABZ0), Z(192)
+    proj = occ[X(CAB_X0):X(PLUG_X1), y0:y1, z0:z1].any(0)
+    proj = ndi.binary_closing(proj, iterations=int(round(2.0/P))); sil = ndi.binary_fill_holes(proj)
+    inner = ndi.distance_transform_edt(sil, sampling=P) > SHELL
+    shell2 = sil & ~inner
+    ys, zs = np.where(sil); print('Silhouette y %.1f..%.1f z %.1f..%.1f' % (lo[1]+(y0+ys.min())*P, lo[1]+(y0+ys.max())*P, lo[2]+(z0+zs.min())*P, lo[2]+(z0+zs.max())*P), flush=True)
+    for zz in (81, 120, 176):
+        row = np.where(sil[:, Z(zz)-z0])[0]; print('  z=%d: y %.1f..%.1f' % (zz, lo[1]+(y0+row.min())*P, lo[1]+(y0+row.max())*P), flush=True)
+    ax0, ax1, ax2 = X(CAB_X0), X(CAB_X1), X(PLUG_X1)
+    blk = occ[ax0:ax2, y0:y1, z0:z1]
+    blk &= ~sil[None]                                   # alles innerhalb der Silhouette raus
+    blk[:ax1-ax0] |= shell2[None]                       # Prisma-Huelle
+    blk[ax1-ax0:] |= sil[None]                          # massiver Stecker (Dueubel-Platte) hinter der Kabine bis zur Rueckwand
+    occ[ax0:ax2, y0:y1, z0:z1] = blk
+    # Motorraum + Windschutzscheiben-Keil vorn: je (x,y) von tiefster bis hoechster Stelle fuellen
+    zone = occ[X(HOOD[0]):X(HOOD[1]), Y(-HOOD[2]):Y(HOOD[2]), :]
     zi = np.arange(occ.shape[2])[None, None, :]
     has = zone.any(2, keepdims=True); zmin = np.where(zone, zi, 10**6).min(2, keepdims=True); zmax = np.where(zone, zi, -1).max(2, keepdims=True)
     zone |= has & (zi >= zmin) & (zi <= zmax)

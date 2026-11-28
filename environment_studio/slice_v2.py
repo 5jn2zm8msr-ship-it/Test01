@@ -16,9 +16,12 @@ R = lambda ax, deg: trimesh.transformations.rotation_matrix(np.radians(deg), ax)
 X, Y = [1, 0, 0], [0, 1, 0]
 JOBS = {  # name: (dateien, Ausrichtung)
  'Front_stehend': (['Karosserie_1_Front'], R(Y, 90)),
- 'Kabine_hinten_unten': (['Karosserie_2_Kabine'], R(Y, 90)),
- 'Kabine_vorn_unten': (['Karosserie_2_Kabine'], R(Y, -90)),
+ 'Kabine_stehend': (['Karosserie_2_Kabine'], R(Y, -90)),
  'Heck_stehend': (['Karosserie_3_Heck'], R(Y, -90)),
+ 'Front_Nase_unten': (['Karosserie_1_Front'], R(Y, -90)),
+ 'Heck_Schnittflaeche_unten_gedreht': (['Karosserie_3_Heck'], R(Y, 90)),
+ 'Front_liegend_seite': (['Karosserie_1_Front'], R(X, 90)),
+ 'Heck_liegend_seite': (['Karosserie_3_Heck'], R(X, 90)),
  'Rad_zweifarbig': (['Rad_Reifen_schwarz', 'Rad_Felge_weiss'], R(X, 90)),
  'Duebel': (['Duebel'], R(Y, -90)),
 }

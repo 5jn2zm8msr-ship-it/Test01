@@ -6,27 +6,34 @@ from bpy_extras.object_utils import world_to_camera_view
 d, out = sys.argv[1], sys.argv[2]; W = int(sys.argv[3]) if len(sys.argv) > 3 else 1800; H = int(W*0.62)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 sc = bpy.context.scene
-ORDER = ['Karosserie_vorn', 'Karosserie_hinten', 'Rad_VL', 'Rad_VR', 'Rad_HL', 'Rad_HR', 'Spiegel_L', 'Spiegel_R', 'Reserverad', 'Duebel_1', 'Duebel_2', 'Duebel_3', 'Duebel_4']
-BOSS = [(-71.0, 78.0), (71.0, 78.0), (-66.0, 182.0), (66.0, 182.0)]
-OFF = {'Karosserie_vorn': (-70, 0, 0), 'Karosserie_hinten': (70, 0, 0), 'Rad_VL': (0, -75, -5), 'Rad_VR': (0, 75, -5), 'Rad_HL': (0, -75, -5), 'Rad_HR': (0, 75, -5),
-       'Spiegel_L': (-5, -45, 45), 'Spiegel_R': (-5, 45, 45), 'Reserverad': (0, -70, 0)}
-GREY = [0.62, 0.55, 0.78, 0.70, 0.78, 0.70, 0.9, 0.9, 0.82, 0.95, 0.95, 0.95, 0.95]
+import math
+ORDER = ['Karosserie_1_Front', 'Karosserie_2_Kabine', 'Karosserie_3_Heck', 'Rad_VL', 'Rad_VR', 'Rad_HL', 'Rad_HR'] + ['Duebel_%d' % i for i in range(1, 9)]
+POST = [(-74.0, 83.0), (74.0, 83.0), (-64.0, 181.0), (64.0, 181.0)]
+WH = {'Rad_VL': (-159.0, -1), 'Rad_VR': (-159.0, 1), 'Rad_HL': (116.0, -1), 'Rad_HR': (116.0, 1)}
+OFF = {'Karosserie_1_Front': (-70, 0, 0), 'Karosserie_2_Kabine': (0, 0, 0), 'Karosserie_3_Heck': (70, 0, 0)}
 objs = {}
-for i, name in enumerate(ORDER):
-    p = os.path.join(d, name + '.stl')
-    if name.startswith('Duebel'):
-        y, z = BOSS[int(name[-1])-1]
-        bpy.ops.mesh.primitive_cylinder_add(radius=2.9, depth=24, location=(-8, y, z), rotation=(0, math.pi/2, 0), vertices=24); o = bpy.context.object
-    else:
-        bpy.ops.wm.stl_import(filepath=p); o = bpy.context.object
-        if len(o.data.polygons) > 60000:
-            m = o.modifiers.new('d', 'DECIMATE'); m.ratio = 60000 / len(o.data.polygons); bpy.ops.object.modifier_apply(modifier='d')
-        bpy.ops.object.shade_smooth()
-        o.location = OFF.get(name, (0, 0, 0))
-    o.name = name; objs[name] = o
-    mat = bpy.data.materials.new(name); mat.use_nodes = True; b = mat.node_tree.nodes['Principled BSDF']
-    g = GREY[i]; b.inputs['Base Color'].default_value = (g, g, g*1.02, 1); b.inputs['Roughness'].default_value = 0.55
-    o.data.materials.append(mat)
+def load(path, name):
+    bpy.ops.wm.stl_import(filepath=path); o = bpy.context.object
+    if len(o.data.polygons) > 60000:
+        m = o.modifiers.new('d', 'DECIMATE'); m.ratio = 60000 / len(o.data.polygons); bpy.ops.object.modifier_apply(modifier='d')
+    bpy.ops.object.shade_smooth(); o.name = name; return o
+def mat(o, g, name):
+    m = bpy.data.materials.new(name); m.use_nodes = True; b = m.node_tree.nodes['Principled BSDF']
+    b.inputs['Base Color'].default_value = (g, g, g*1.02, 1); b.inputs['Roughness'].default_value = 0.55; o.data.materials.append(m)
+for n, g in (('Karosserie_1_Front', 0.62), ('Karosserie_2_Kabine', 0.78), ('Karosserie_3_Heck', 0.55)):
+    o = load(os.path.join(d, n + '.stl'), n); o.location = OFF[n]; mat(o, g, n); objs[n] = o
+import math
+for n, (cx, sg) in WH.items():
+    parts = []
+    for f, g in (('Rad_Reifen_schwarz', 0.38), ('Rad_Felge_weiss', 0.92)):
+        o = load(os.path.join(d, f + '.stl'), n + '_' + f); mat(o, g, n + f)
+        if sg > 0: o.rotation_euler = (0, 0, math.pi)
+        o.location = (cx + (0 if sg < 0 else 0), (-75 if sg < 0 else 75), 40.0 - 5.0); parts.append(o)
+    objs[n] = parts[0]
+for i in range(8):
+    X = -40.0 if i < 4 else 45.0; y, z = POST[i % 4]
+    bpy.ops.mesh.primitive_cylinder_add(radius=2.9, depth=24, location=(X, y, z), rotation=(0, math.pi/2, 0), vertices=24); o = bpy.context.object
+    o.name = 'Duebel_%d' % (i+1); mat(o, 0.95, o.name); objs[o.name] = o
 # Boden-Schatten
 bpy.ops.mesh.primitive_plane_add(size=40000, location=(0, 0, -0.5)); fl = bpy.context.object
 fm = bpy.data.materials.new('fl'); fm.use_nodes = True; fm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.93, 0.93, 0.94, 1); fl.data.materials.append(fm)
