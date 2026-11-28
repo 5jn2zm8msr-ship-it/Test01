@@ -19,15 +19,15 @@ F = lambda k, d: float(opt.get(k, d))
 
 CAM_H, FOCAL, CAM_YAW = 1.6, 35.0, 31.6
 HORIZON_PX = F('horizon', 254)
-WALL_X, BACK_Y, WALL_H = -4.94, 9.06, 2.8
+WALL_X, BACK_Y, WALL_H = -4.94, F('back_y', 10.8), 2.8
 SLAB_EDGE_Y, SLAB_T = F('slab_y', 5.4), 0.45
 CAR_LEN = F('car_len', 4.25)
 CAR_X, CAR_Y = F('car_x', -3.55), F('car_y', 5.95)
 CAR_YAW = F('car_yaw', 4.0)
-SUN_A = Vector((F('ax', 0.10), F('ay', -0.75), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
-SUN_W = Vector((F('wx', -0.40), F('wy', -0.685), F('wz', -1.0)))   # nur linke Wand
-STR_A, STR_W = F('sunA', 34.0), F('sunW', 24.0)
-SKY = F('sky', 0.85)
+SUN_A = Vector((F('ax', -0.30), F('ay', -0.6), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
+SUN_W = Vector((F('wx', -0.60), F('wy', -0.685), F('wz', -1.0)))   # nur linke Wand
+STR_A, STR_W = F('sunA', 42.0), F('sunW', 30.0)
+SKY = F('sky', 1.05)
 EXPO = F('expo', 2.5)
 DIRT = F('dirt', 1.7)
 
@@ -196,7 +196,7 @@ floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 
 
 # ---------------------------------------------------------------- Raum
 o_floor = box('Boden', -9, 9, -9, BACK_Y + 0.5, -0.5, 0, floor, bevel=0)
-o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.5, 0, WALL_H + 0.5, wall)
+o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.5, 0, WALL_H, wall)
 wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.82),
                         nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 o_back = box('Wand_hinten', WALL_X - 0.6, 6, BACK_Y, BACK_Y + 0.6, 0, WALL_H, wall_b)
@@ -235,7 +235,7 @@ ctr = (mn + mx) / 2
 car.location = (-ctr.x, -ctr.y, -mn.z); bpy.ops.object.transform_apply(location=True)
 car.rotation_mode = 'XYZ'
 car.rotation_euler = (0, 0, math.radians(90 + 180 * int(F('flip', 0)) + CAR_YAW))   # Nase zur Kamera
-car.location = (CAR_X, CAR_Y, 0)
+car.location = (CAR_X, CAR_Y, -0.005)
 
 cm = bpy.data.materials.new('Lack_weiss_verschmutzt'); cm.use_nodes = True
 nt = cm.node_tree; src = car.data.materials[0].node_tree; L = nt.links.new
@@ -262,8 +262,8 @@ low = mixc(nt, DIRT, gray(1), low)
 ao = nt.nodes.new('ShaderNodeAmbientOcclusion'); ao.inputs['Distance'].default_value = 0.14; ao.samples = 8
 aoc = ramp(nt, ao.outputs['AO'], [(0.0, (0.30, 0.28, 0.25)), (0.6, gray(1))]); aoc = mixc(nt, DIRT, gray(1), aoc)
 dust = ramp(nt, noise(nt, geo.outputs['Position'], 22, 6, 0.6), [(0.35, (0.74, 0.72, 0.68)), (0.68, gray(1))]); dust = mixc(nt, DIRT, gray(1), dust)
-hsc = nt.nodes.new('ShaderNodeHueSaturation'); hsc.inputs['Saturation'].default_value = F('carsat', 1.7) if GOLD else 1.0; L(tb.outputs['Color'], hsc.inputs['Color'])
-col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.42),) * 3 if GOLD else (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
+hsc = nt.nodes.new('ShaderNodeHueSaturation'); hsc.inputs['Saturation'].default_value = F('carsat', 3.2) if GOLD else 1.0; L(tb.outputs['Color'], hsc.inputs['Color'])
+col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.27),) * 3 if GOLD else (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
 col = mixc(nt, 1.0, col, aoc, 'MULTIPLY'); col = mixc(nt, 1.0, col, dust, 'MULTIPLY')
 col = mixc(nt, rimv, col, (0.012, 0.012, 0.014))                                   # schwarze Felgen
 L(col, bsdf.inputs['Base Color'])
@@ -282,10 +282,10 @@ rs = nt.nodes.new('ShaderNodeMath'); rs.operation = 'MULTIPLY_ADD'; rs.inputs[1]
 rn = ramp(nt, noise(nt, geo.outputs['Position'], 60, 4, 0.6), [(0.3, gray(0)), (0.7, gray(1))]); rnf = nt.nodes.new('ShaderNodeSeparateColor'); L(rn, rnf.inputs['Color'])
 rv = nt.nodes.new('ShaderNodeMath'); rv.operation = 'MULTIPLY_ADD'; rv.inputs[1].default_value = 0.10; L(rnf.outputs['Red'], rv.inputs[0]); L(rs.outputs[0], rv.inputs[2])   # Lack-Orangenhaut
 r1 = mixf(glassf.outputs['Red'], rv.outputs[0], 0.05)           # Scheiben: Klarglanz-Schwarz
-r2 = mixf(rimv, r1, F('rimrough', 0.42))                                        # Felgen: seidenmatt-glaenzend
+r2 = mixf(rimv, r1, F('rimrough', 0.2))                                        # Felgen: seidenmatt-glaenzend
 L(r2, bsdf.inputs['Roughness'])
 met = nt.nodes.new('ShaderNodeMath'); met.operation = 'MULTIPLY'; met.inputs[1].default_value = F('carmet', 0.15) if GOLD else 0.25
-L(sp.outputs['Blue'], met.inputs[0]); L(mixf(rimv, met.outputs[0], F('rimmet', 0.12)), bsdf.inputs['Metallic'])
+L(sp.outputs['Blue'], met.inputs[0]); L(mixf(rimv, met.outputs[0], F('rimmet', 0.9)), bsdf.inputs['Metallic'])
 tnor = tn(nm_node.image, 'Non-Color'); nn = nt.nodes.new('ShaderNodeNormalMap'); nn.inputs['Strength'].default_value = 0.5
 L(tnor.outputs['Color'], nn.inputs['Color']); L(nn.outputs['Normal'], bsdf.inputs['Normal'])
 L(mixf(glassf.outputs['Red'], 0.7, 0.0), bsdf.inputs['Coat Weight']); bsdf.inputs['Coat Roughness'].default_value = 0.08
@@ -386,7 +386,7 @@ sky.sun_disc = False; sky.air_density = 1.0; sky.aerosol_density = 2.0; sky.alti
 sd = -SUN_A.normalized(); sky.sun_elevation = math.asin(sd.z); sky.sun_rotation = -math.atan2(sd.x, sd.y)
 bg = w.node_tree.nodes['Background']; bg.inputs['Strength'].default_value = SKY
 lp = w.node_tree.nodes.new('ShaderNodeLightPath'); cm_ = w.node_tree.nodes.new('ShaderNodeMath'); cm_.operation = 'MULTIPLY_ADD'
-cm_.inputs[1].default_value = -F('camsky', 0.915) * SKY; cm_.inputs[2].default_value = SKY
+cm_.inputs[1].default_value = -F('camsky', 0.931) * SKY; cm_.inputs[2].default_value = SKY
 w.node_tree.links.new(lp.outputs['Is Camera Ray'], cm_.inputs[0]); w.node_tree.links.new(cm_.outputs[0], bg.inputs['Strength'])
 hs = w.node_tree.nodes.new('ShaderNodeHueSaturation'); hs.inputs['Saturation'].default_value = F('skysat', 0.5)
 w.node_tree.links.new(sky.outputs['Color'], hs.inputs['Color']); w.node_tree.links.new(hs.outputs['Color'], bg.inputs['Color'])
@@ -398,6 +398,40 @@ cam = bpy.data.objects.new('Kamera', bpy.data.cameras.new('Kamera')); sc.collect
 cam.data.lens = FOCAL; cam.data.sensor_width = 36; cam.data.sensor_fit = 'HORIZONTAL'
 cam.data.shift_y = -(360 - HORIZON_PX) / 720.0
 cam.location = (0, 0, CAM_H); cam.rotation_euler = (math.radians(90), 0, math.radians(CAM_YAW))
+
+# ---------------------------------------------------------------- Auto auf Foto-Reifenpunkte einpassen
+sc.render.resolution_x = sc.render.resolution_y = RES; sc.render.resolution_percentage = 100   # vor der Projektion setzen (quadratisch)
+if int(F('match', 1)):
+    from bpy_extras.object_utils import world_to_camera_view
+    PF = np.array([F('pfx', 437.0), F('pfy', 478.0)])     # Vorderreifen unten (Foto, 720-px-Koordinaten) - harte Vorgabe
+    PR = np.array([F('prx', 533.0), F('pry', 408.0)])     # Hinterreifen unten - schwaecher gewichtet (anderer Radstand)
+    WF, WR = 1.0, F('wr', 0.3)
+    cv = np.zeros(len(car.data.vertices) * 3, np.float32); car.data.vertices.foreach_get('co', cv); cv = cv.reshape(-1, 3)
+    rimv = cv[rim > 0.5]
+    def wheel_pt(front):
+        sel = rimv[(rimv[:, 0] < 0) == front]; sel = sel[sel[:, 1] < 0]          # sichtbare Seite: lokal y < 0 (flip=0)
+        low = sel[sel[:, 2] < sel[:, 2].min() + 0.012]                           # tiefster Reifenpunkt (unterste 1,2 cm)
+        return np.array([low[:, 0].mean(), sel[:, 1].min(), 0.0])                # dessen Laengsposition, aeussere Reifenflanke, Boden
+    cf_, cr_ = wheel_pt(True), wheel_pt(False)
+    cam_obj = sc.camera; bpy.context.view_layer.update()
+    def wpt(pl, X, Y, yaw):
+        th = math.radians(90 + 180 * int(F('flip', 0)) + yaw)
+        return Vector((math.cos(th) * pl[0] - math.sin(th) * pl[1] + X, math.sin(th) * pl[0] + math.cos(th) * pl[1] + Y, -0.005))
+    def pix(w_):
+        v = world_to_camera_view(sc, cam_obj, w_); return np.array([v.x * 720.0, (1 - v.y) * 720.0])
+    def resid(p):
+        return np.concatenate([WF * (pix(wpt(cf_, *p)) - PF), WR * (pix(wpt(cr_, *p)) - PR)])
+    p = np.array([CAR_X, CAR_Y, CAR_YAW], float)
+    for _ in range(40):
+        r0 = resid(p); J = np.zeros((4, 3))
+        for k, e in enumerate((1e-3, 1e-3, 1e-2)):
+            q = p.copy(); q[k] += e; J[:, k] = (resid(q) - r0) / e
+        dp = np.linalg.lstsq(J, -r0, rcond=None)[0]; p = p + 0.7 * dp
+    print('EINPASSUNG X=%.3f Y=%.3f Yaw=%.2f | Vorderreifen soll %s ist %s | Hinterreifen soll %s ist %s' % (
+        p[0], p[1], p[2], PF.round(1), pix(wpt(cf_, *p)).round(1), PR.round(1), pix(wpt(cr_, *p)).round(1)))
+    CAR_X, CAR_Y, CAR_YAW = p
+    car.rotation_euler = (0, 0, math.radians(90 + 180 * int(F('flip', 0)) + CAR_YAW)); car.location = (CAR_X, CAR_Y, -0.005)
+    cs.location = car.location + Vector((0, 0, 0.009)); cs.rotation_euler = (0, 0, car.rotation_euler.z)
 
 # ---------------------------------------------------------------- Render
 cy = sc.cycles
