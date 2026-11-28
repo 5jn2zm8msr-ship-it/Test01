@@ -19,6 +19,11 @@ Im Szenenbaum gibt es den Empty **`Anker_Vorderrad`** genau dort, wo der Vorderr
 ```
 `--wfx/--wrx` = Längsposition von Vorder-/Hinterrad, `--wz` = Radmittelpunkt-Höhe, `--rimr` = Radradius des Modells. Der Löser stellt das Auto dann automatisch so, dass sein Vorderreifen auf (437 | 478) im Foto liegt (`--pfx/--pfy`); der Hinterreifen (`--prx/--pry`) wird schwächer gewichtet.
 
+## Zwei weitere Ansichten (`./final_ansichten.sh`)
+- **Bild 1** `ergebnis_ansichten/bild1_auto90.png`: Originalkamera (70 mm), Auto um 90° gedreht (`--carrot=90`, Heck zur offenen Seite; `--carrot=-90` dreht andersherum), Position per `--carshiftx/--carshifty` (Meter in Welt-x/-y).
+- **Bild 2** `ergebnis_ansichten/bild2_ecke_wald.png`: Kamera hinten in der Ecke (`--view=ecke`, 70 mm, 1,50 m Höhe; Position `--camx/--camy/--camh`, Zielpunkt `--camtx/--camty/--camtz`), Auto um 35° gedreht (3/4-Heck). Dort, wo die Originalkamera steht, schließt eine **Waldwand** (`--wald=1`) den Raum: ein PNG (`textures/wald_wand.png`) auf einer Fläche, per Emission beleuchtungsunabhängig, Helligkeit `--waldstr`.
+- **Waldbild:** Poly Haven *Forest Slope* (CC0, 4k-HDRI), von `wald_png.py` tonemappt und als perspektivischer Ausschnitt (Azimut 180°, 72° × 10°) ausgeschnitten. Poly Haven hat kein HDRI mit Koordinaten in Schweden (nächstes: *Bergen*, Norwegen, nur Winter/Fels), deshalb ist es ein mitteleuropäischer Nadel-/Laubmischwald, der nordisch wirkt, aber kein schwedischer. Das 4k-HDRI liegt lokal in `work_wald/`.
+
 ## Quellen
 - **Auto:** Meshy multi-image-to-3d `01a21f80-5baf-7266-a9e3-b4afe40a764e` (goldener Lamborghini). Lack goldgelb (Originaltextur, Farbton auf 37° korrigiert), Scheiben schwarz (aus Textur), Felgen schwarz und metallisch (aus der Geometrie: Radmaske). Breite 2050 mm (nur Y skaliert), 5 mm im Boden.
 - **Beton:** Poly Haven (CC0): `concrete_wall_004/006/007`, `concrete_floor_worn_001`, je 2K diffuse/normal/roughness (`textures/`). Stand der Abfrage: 28.11.2026 über die Poly-Haven-API.

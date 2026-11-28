@@ -40,6 +40,7 @@ BACK_SLOPE = (BACK_H1 - BACK_H0) / math.hypot(_rp[0] - CORNER[0], _rp[1] - CORNE
 SLAB_ANG = math.atan2(_s2[1] - _s1[1], _s2[0] - _s1[0]); SLAB_MID = ((_s1[0] + _s2[0]) / 2, (_s1[1] + _s2[1]) / 2)
 SLAB_YA, SLAB_YB = SLAB_MID[1] - 1.8, SLAB_MID[1]
 _G1 = at_height(0, 505, 0.0); FG_YA, FG_YB = _G1[1] - 1.7, _G1[1] - 0.2
+FLOOR_CY = (((F('wald_y', 0.0) - 0.2) + (BACK_Y + 8.0)) / 2) if int(F('wald', 0)) else 0.0   # Mitte des Bodens in Y (Objektkoordinaten)
 _pf = at_height(640, 555, 0.0)                                        # Pfeiler: ferne Kante (Fusspunkt)
 PIL_LAT = _pf[0] * CAM_R[0] + _pf[1] * CAM_R[1]; PIL_D = _pf[0] * CAM_A[0] + _pf[1] * CAM_A[1]      # seitlicher Abstand / Tiefe der frontalen Flaeche
 PIL_LAT2 = (689.0 - 360.0) * PIL_D / FPX                              # rechte Kante der dunklen Flaeche bei x=689
@@ -131,7 +132,7 @@ def dirty_concrete(name, A, B, scale, kind, tint=(1, 1, 1), bright=1.0, rough_mu
         col = mixc(nt, density, col, mixc(nt, 1.0, col, dot, 'MULTIPLY'))
     if fg_dark > 0:   # Vordergrund (vor dem Lichtkeil) dunkler und fleckiger wie im Foto
         sy = nt.nodes.new('ShaderNodeSeparateXYZ'); L(obj, sy.inputs['Vector'])
-        fgm = ramp(nt, sy.outputs['Y'], [(FG_YA, gray(1 - fg_dark)), (FG_YB, gray(1))])
+        fgm = ramp(nt, sy.outputs['Y'], [(FG_YA - FLOOR_CY, gray(1 - fg_dark)), (FG_YB - FLOOR_CY, gray(1))])
         fgn = ramp(nt, noise(nt, obj, 0.9, 8, 0.6, 0.3), [(0.35, gray(0.55)), (0.65, gray(1))])
         col = mixc(nt, 1.0, col, mixc(nt, 1.0, fgm, fgn, 'MULTIPLY'), 'MULTIPLY')
     if joints > 0:   # Schalungsstoesse: waagerecht alle 1,2 m, senkrecht alle 2,4 m
@@ -227,7 +228,11 @@ def rbox(name, cx, cy, sx, sy, z0, z1, ang, mat, bevel=0.015):
         bm_ = o.modifiers.new('Fase', 'BEVEL'); bm_.width = bevel; bm_.segments = 2; bm_.limit_method = 'ANGLE'
     return o
 _fh = max(16.0, BACK_Y + 8.0)                                         # Boden symmetrisch um den Ursprung (Objektkoordinaten = Weltkoordinaten)
-o_floor = box('Boden', -_fh, _fh, -_fh, _fh, -0.5, 0, floor, bevel=0)
+if int(F('wald', 0)):                                                  # mit Waldhintergrund: Betonvorplatz endet kurz hinter der Deckenkante
+    _fy0, _fy1 = F('wald_y', 0.0) - 0.2, BACK_Y + 8.0
+    o_floor = box('Boden', -12, 16, _fy0, _fy1, -0.5, 0, floor, bevel=0)
+else:
+    o_floor = box('Boden', -_fh, _fh, -_fh, _fh, -0.5, 0, floor, bevel=0)
 o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.6, 0, WALL_H, wall)
 wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 3.3) * F('backdim', 0.78),
                         nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
@@ -252,6 +257,15 @@ wall_p = dirty_concrete('Pfeiler_hell', 'concrete_wall_006', 'concrete_wall_007'
                         nor=0.7, mottle=0.3, stain=0.3, streak=0.35, pits=0.4, ao_dirt=0.4, edge=0.0, bug=F('bug', 0.6))
 pilB = rbox('Pfeiler_hell', _pb[0], _pb[1], 3.4 - PIL_LAT2, 0.05, 0, WALL_H, _ya, wall_p, bevel=0.0)    # hellere Flaeche rechts davon (x>689)
 room = [o_floor, o_back, o_slab, pil, pilB]
+if int(F('wald', 0)):    # Waldwand: Bild (PNG) schliesst die offene Seite des Raums dort, wo die Originalkamera stand (beleuchtungsunabhaengig, Emission)
+    _wy, _wwid, _wht, _wxc = F('wald_y', 0.0), F('wald_w', 28.0), F('wald_h', 3.4), F('wald_x', 2.0)
+    bpy.ops.mesh.primitive_plane_add(size=1); wp = bpy.context.object; wp.name = 'Waldwand'
+    wp.scale = (_wwid, _wht, 1.0); wp.rotation_euler = (math.pi / 2, 0, 0); wp.location = (_wxc, _wy, _wht / 2)
+    wm = bpy.data.materials.new('Waldwand'); wm.use_nodes = True; wnt = wm.node_tree; wnt.nodes.clear()
+    wtx = wnt.nodes.new('ShaderNodeTexImage'); wtx.image = bpy.data.images.load(os.path.join(HERE, 'textures', 'wald_wand.png')); wtx.image.colorspace_settings.name = 'sRGB'
+    wem = wnt.nodes.new('ShaderNodeEmission'); wem.inputs['Strength'].default_value = F('waldstr', 0.35)      # +2 EV Belichtung: 0.25 = originale Bildhelligkeit
+    wout = wnt.nodes.new('ShaderNodeOutputMaterial'); wnt.links.new(wtx.outputs['Color'], wem.inputs['Color']); wnt.links.new(wem.outputs[0], wout.inputs['Surface'])
+    wp.data.materials.append(wm); wp.visible_shadow = False
 
 # ---------------------------------------------------------------- Auto (Meshy multi-image-to-3d 01a21f80, goldener Lamborghini -> weiss)
 import numpy as np
@@ -493,6 +507,23 @@ if int(F('match', 1)):
     bpy.context.view_layer.update()
     cs.location = car.matrix_world.translation + Vector((0, 0, 0.009)); cs.rotation_euler = (0, 0, anchor.rotation_euler.z)
     print('ANKER Anker_Vorderrad: Welt (%.3f, %.3f, 0.000)  Drehung %.2f Grad  | Auto-Kontaktpunkt lokal (%.3f, %.3f, 0)' % (_Fw.x, _Fw.y, math.degrees(anchor.rotation_euler.z), cf_[0], cf_[1]))
+
+# ---------------------------------------------------------------- Ansichten: Auto drehen / Kamera hinten in der Ecke
+CARROT = F('carrot', 0.0)
+if int(F('match', 1)) and abs(CARROT) > 1e-6:      # Auto um die Z-Achse um seine Mitte drehen (haengt am Anker, Anker wird mitgefuehrt)
+    _C0 = car.matrix_world.translation.copy(); _thn = anchor.rotation_euler.z + math.radians(CARROT)
+    _Cn = _C0 + Vector((F('carshiftx', 0.0), F('carshifty', 0.0), 0.0)); _off = Vector((-float(cf_[0]), -float(cf_[1]), 0.0))
+    anchor.rotation_euler = (0, 0, _thn); anchor.location = _Cn - (Matrix.Rotation(_thn, 3, 'Z') @ _off); anchor.location.z = 0.0
+    bpy.context.view_layer.update()
+    cs.location = car.matrix_world.translation + Vector((0, 0, 0.009)); cs.rotation_euler = (0, 0, _thn)
+    print('AUTO gedreht um %.1f Grad, Mitte (%.2f, %.2f)' % (CARROT, car.matrix_world.translation.x, car.matrix_world.translation.y))
+if opt.get('view', 'orig') == 'ecke':               # Kamera hinten in der Ecke (Rueckwand/linke Wand), blickt zum Auto und zur offenen Seite
+    _cp = Vector((F('camx', WALL_X + 0.55), F('camy', BACK_Y - 0.75), F('camh', 1.5)))
+    _tg = car.matrix_world.translation + Vector((F('camtx', 0.0), F('camty', 0.0), F('camtz', 0.45)))
+    _d = _tg - _cp; _hz = math.hypot(_d.x, _d.y)
+    cam.location = _cp; cam.rotation_euler = (math.radians(90), 0, math.atan2(-_d.x, _d.y))
+    cam.data.shift_y = (_d.z / _hz) * FPX / 720.0 + F('camshy', 0.0); cam.data.shift_x = F('camshx', 0.0)      # waagerechte Kamera, Ziel in Bildmitte
+    print('KAMERA Ecke: (%.2f, %.2f, %.2f)  Ziel (%.2f, %.2f, %.2f)  Abstand %.1f m  Brennweite %.0f mm' % (_cp.x, _cp.y, _cp.z, _tg.x, _tg.y, _tg.z, _hz, FOCAL))
 
 # ---------------------------------------------------------------- Linienpruefung (ohne Rendern): --check=1
 if int(F('check', 0)):
