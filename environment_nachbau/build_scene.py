@@ -51,9 +51,9 @@ CAR_X, CAR_Y = F('car_x', -3.55), F('car_y', 5.95)
 CAR_YAW = F('car_yaw', 4.0)
 SUN_A = Vector((F('ax', -0.30), F('ay', -0.75), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
 SUN_W = Vector((F('wx', -0.60), F('wy', -0.685), F('wz', -1.0)))   # nur linke Wand
-STR_A, STR_W = F('sunA', 60.0), F('sunW', 45.0)
-SKY = F('sky', 0.45)
-EXPO = F('expo', 2.7)
+STR_A, STR_W = F('sunA', 50.0), F('sunW', 50.0)
+SKY = F('sky', 0.8)
+EXPO = F('expo', 2.1)
 DIRT = F('dirt', 1.7)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -210,14 +210,14 @@ def box(name, x0, x1, y0, y1, z0, z1, mat, bevel=0.015):
     return o
 
 # ---------------------------------------------------------------- Materialien
-wall = dirty_concrete('Wand', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 3.3),
-                      nor=0.38, mottle=0.30, stain=0.40, streak=0.28, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
+wall = dirty_concrete('Wand', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7),
+                      nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 slab = dirty_concrete('Decke', 'concrete_wall_006', 'concrete_wall_007', 0.30, 'ceiling', tint=(0.9, 0.9, 0.9), bright=F('slabb', 2.7),
                       nor=0.6, mottle=0.30, stain=0.45, streak=0.25, pits=0.5, ao_dirt=0.5, brown=0.1, edge=F('edge', 0.9), bug=F('bug', 0.6))
-dark = dirty_concrete('Pfeiler', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.80, 0.78, 0.75), bright=F('pilb', 0.57),
+dark = dirty_concrete('Pfeiler', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.80, 0.78, 0.75), bright=F('pilb', 0.4),
                       nor=0.8, mottle=0.3, stain=0.35, streak=0.35, pits=0.5, ao_dirt=0.5, edge=F('edge', 0.9) * 0.6, bug=F('bug', 0.6))
-floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 1.0),
-                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.5))
+floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 0.8),
+                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.04))
 
 # ---------------------------------------------------------------- Raum
 def rbox(name, cx, cy, sx, sy, z0, z1, ang, mat, bevel=0.015):
@@ -235,8 +235,8 @@ if int(F('wald', 0)):                                                  # mit Wal
 else:
     o_floor = box('Boden', -_fh, _fh, -_fh, _fh, -0.5, 0, floor, bevel=0)
 o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.6, 0, WALL_H, wall)
-wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 3.3) * F('backdim', 0.78),
-                        nor=0.38, mottle=0.30, stain=0.40, streak=0.28, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
+wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.82),
+                        nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 _bn = (-math.sin(BACK_ANG), math.cos(BACK_ANG)); _bd = (math.cos(BACK_ANG), math.sin(BACK_ANG))
 def wedge_wall(name, p0, dvec, nvec, L, thick, h0, slope, mat, s0=-0.3):
     """Rueckwand als Keil: Oberkante steigt linear (wie im Foto), Fuss gerade."""
@@ -301,7 +301,7 @@ nt = cm.node_tree; src = car.data.materials[0].node_tree; L = nt.links.new
 bsdf = nt.nodes['Principled BSDF']
 def tn(im, cs):
     t = nt.nodes.new('ShaderNodeTexImage'); t.image = im; im.colorspace_settings.name = cs; return t
-GOLD = opt.get('carpaint', 'gold') == 'gold'
+GOLD = opt.get('carpaint', 'white') == 'gold'          # Standard: weiss (erstmal); --carpaint=gold = Original-Goldgelb
 base = bpy.data.images.load(os.path.join(CAR_DIR, 'tex_0_base_color.png' if GOLD else 'tex_white.png')); base.colorspace_settings.name = 'sRGB'
 tb = tn(base, 'sRGB')
 mr_node = [n for n in src.nodes if n.type == 'TEX_IMAGE' and n.outputs['Color'].links and n.outputs['Color'].links[0].to_node.type == 'SEPARATE_COLOR'][0]
@@ -326,7 +326,7 @@ _cs = F('carsat', 3.2) if GOLD else 1.0                                    # Sat
 hsc.inputs['Saturation'].default_value = min(_cs, 2.0)
 hsc2 = nt.nodes.new('ShaderNodeHueSaturation'); hsc2.inputs['Saturation'].default_value = min(max(_cs / 2.0, 1.0), 2.0); L(hsc.outputs['Color'], hsc2.inputs['Color'])
 hsc = hsc2
-col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.05),) * 3 if GOLD else (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
+col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.05),) * 3 if GOLD else (F('carb', 0.30), F('carb', 0.30) * 0.985, F('carb', 0.30) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
 col = mixc(nt, 1.0, col, aoc, 'MULTIPLY'); col = mixc(nt, 1.0, col, dust, 'MULTIPLY')
 col = mixc(nt, rimv, col, (0.012, 0.012, 0.014))                                   # schwarze Felgen
 L(col, bsdf.inputs['Base Color'])
@@ -443,7 +443,7 @@ else:
     sun('Sonne_Wand', SUN_W, STR_W, [o_wall])
 # Bounce-Karte: unsichtbare Flaeche ueber dem hellen Lichtkeil, nur fuer die Decke verlinkt (ersetzt den fehlenden Bounce vom stark ueberstrahlten Boden)
 bl = bpy.data.objects.new('Bounce_Decke', bpy.data.lights.new('Bounce_Decke', 'AREA')); sc.collection.objects.link(bl)
-bl.data.shape = 'RECTANGLE'; bl.data.size = 7.0; bl.data.size_y = 6.0; bl.data.energy = F('ceilfill', 90.0); bl.data.color = (1.0, 0.95, 0.89)
+bl.data.shape = 'RECTANGLE'; bl.data.size = 7.0; bl.data.size_y = 6.0; bl.data.energy = F('ceilfill', 120.0); bl.data.color = (1.0, 0.95, 0.89)
 bl.data.use_shadow = False; bl.location = (F('bx', WALL_X + 2.0), F('by', SLAB_MID[1] - 2.0), 0.4); bl.rotation_euler = (0, 0, 0)   # leuchtet nach unten -> drehen
 bl.rotation_euler = (math.pi, 0, 0)   # Flaeche zeigt nach oben (Area-Licht strahlt entlang -Z; gedreht -> +Z)
 bcol = bpy.data.collections.new('Bounce_Empfaenger'); sc.collection.children.link(bcol); bcol.objects.link(o_slab)
@@ -454,11 +454,11 @@ sky.sun_disc = False; sky.air_density = 1.0; sky.aerosol_density = 2.0; sky.alti
 sd = -SUN_A.normalized(); sky.sun_elevation = math.asin(sd.z); sky.sun_rotation = -math.atan2(sd.x, sd.y)
 bg = w.node_tree.nodes['Background']; bg.inputs['Strength'].default_value = SKY
 lp = w.node_tree.nodes.new('ShaderNodeLightPath'); cm_ = w.node_tree.nodes.new('ShaderNodeMath'); cm_.operation = 'MULTIPLY_ADD'
-cm_.inputs[1].default_value = F('camskystr', 0.02) - SKY; cm_.inputs[2].default_value = SKY       # Kamera sieht Staerke camskystr, Beleuchtung SKY
+cm_.inputs[1].default_value = F('camskystr', 0.05) - SKY; cm_.inputs[2].default_value = SKY       # Kamera sieht Staerke camskystr, Beleuchtung SKY
 w.node_tree.links.new(lp.outputs['Is Camera Ray'], cm_.inputs[0]); w.node_tree.links.new(cm_.outputs[0], bg.inputs['Strength'])
 hs = w.node_tree.nodes.new('ShaderNodeHueSaturation'); hs.inputs['Saturation'].default_value = F('skysat', 0.5)
 w.node_tree.links.new(sky.outputs['Color'], hs.inputs['Color']); w.node_tree.links.new(hs.outputs['Color'], bg.inputs['Color'])
-sm_ = w.node_tree.nodes.new('ShaderNodeMath'); sm_.operation = 'MULTIPLY_ADD'; sm_.inputs[1].default_value = F('camsat', 0.1); sm_.inputs[2].default_value = F('skysat', 0.5)
+sm_ = w.node_tree.nodes.new('ShaderNodeMath'); sm_.operation = 'MULTIPLY_ADD'; sm_.inputs[1].default_value = F('camsat', 0.55); sm_.inputs[2].default_value = F('skysat', 0.5)
 w.node_tree.links.new(lp.outputs['Is Camera Ray'], sm_.inputs[0]); w.node_tree.links.new(sm_.outputs[0], hs.inputs['Saturation'])
 
 # ---------------------------------------------------------------- Kamera
@@ -560,7 +560,7 @@ sc.render.engine = 'CYCLES'; cy.device = 'CPU'; cy.samples = SAMPLES; cy.use_den
 cy.max_bounces = 14; cy.diffuse_bounces = 10; cy.glossy_bounces = 6; cy.transmission_bounces = 4
 cy.sample_clamp_indirect = 0; cy.sample_clamp_direct = 0; cy.caustics_reflective = False; cy.caustics_refractive = False
 sc.render.resolution_x = sc.render.resolution_y = RES; sc.render.resolution_percentage = 100
-sc.view_settings.view_transform = opt.get('tm', 'AgX').replace('_', ' '); sc.view_settings.exposure = EXPO; sc.view_settings.look = opt.get('look', 'AgX_-_Low_Contrast').replace('_', ' ')
+sc.view_settings.view_transform = opt.get('tm', 'AgX').replace('_', ' '); sc.view_settings.exposure = EXPO; sc.view_settings.look = opt.get('look', 'None').replace('_', ' ')
 sc.render.filepath = out; sc.render.image_settings.file_format = 'PNG'
 bpy.ops.render.render(write_still=True)
 print('DONE', out)
