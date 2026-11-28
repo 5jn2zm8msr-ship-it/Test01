@@ -71,7 +71,7 @@ def img(name, cs):
     return _imgs[(name, cs)]
 
 def dirty_concrete(name, A, B, scale, kind, tint=(1, 1, 1), bright=1.0, rough_mul=1.0, nor=0.7,
-                   mottle=0.25, stain=0.35, streak=0.0, pits=0.4, ao_dirt=0.4, wet=0.0, brown=0.0, rough_min=0.6, fg_dark=0.0, desat=0.4, joints=0.0):
+                   mottle=0.25, stain=0.35, streak=0.0, pits=0.4, ao_dirt=0.4, wet=0.0, brown=0.0, rough_min=0.6, fg_dark=0.0, desat=0.4, joints=0.0, edge=0.0, bug=0.0):
     """Beton mit Schmutz: zwei gemischte Poly-Haven-Texturen, Flecken, Laufspuren, Poren, Ecken-AO, nasse Stellen."""
     mt = bpy.data.materials.new(name); mt.use_nodes = True
     nt = mt.node_tree; nt.nodes.clear(); N = nt.nodes.new; L = nt.links.new
@@ -122,6 +122,34 @@ def dirty_concrete(name, A, B, scale, kind, tint=(1, 1, 1), bright=1.0, rough_mu
         col = mixc(nt, brk, col, mixc(nt, 1.0, col, groove(sx.outputs['Z'], 1.9, 0.012), 'MULTIPLY'))
         brk2 = ramp(nt, noise(nt, obj, 0.7, 3), [(0.55, gray(0)), (0.65, gray(1))])
         col = mixc(nt, brk2, col, mixc(nt, 1.0, col, groove(uu.outputs[0], 3.7, 0.006), 'MULTIPLY'))
+    bug_h = None
+    if edge > 0:   # Raender dunkel vom Regen, am Fuss vermoost/verschmutzt
+        gp = N('ShaderNodeNewGeometry'); wz = N('ShaderNodeSeparateXYZ'); L(gp.outputs['Position'], wz.inputs['Vector'])
+        ragged = ramp(nt, noise(nt, obj, 2.6, 6, 0.6, 0.3), [(0.30, gray(0.15)), (0.70, gray(1))])
+        if kind in ('wall', 'pillar'):
+            band = ramp(nt, wz.outputs['Z'], [(1.9, gray(1)), (2.8, (1 - cap(edge * d_), 1 - cap(edge * d_) * 0.92, 1 - cap(edge * d_) * 1.0))])
+            col = mixc(nt, 1.0, col, mixc(nt, ragged, gray(1), band), 'MULTIPLY')
+            moss = ramp(nt, wz.outputs['Z'], [(0.0, (0.52, 0.58, 0.40)), (0.22, (0.80, 0.85, 0.70)), (0.6, gray(1))])
+            col = mixc(nt, 1.0, col, mixc(nt, ragged, gray(1), moss), 'MULTIPLY')
+        if kind == 'ceiling':
+            wy_ = N('ShaderNodeSeparateXYZ'); L(gp.outputs['Position'], wy_.inputs['Vector'])
+            band = ramp(nt, wy_.outputs['Y'], [(3.9, gray(1)), (5.4, (1 - cap(edge * d_), 1 - cap(edge * d_) * 0.92, 1 - cap(edge * d_) * 0.9))])
+            col = mixc(nt, 1.0, col, mixc(nt, ragged, gray(1), band), 'MULTIPLY')
+    if bug > 0:    # Lufteinschluesse (Lunker): unregelmaessig verteilt, verschieden gross, dunkel, leicht vertieft
+        holes = None
+        for scale_, thr_, rmax_ in ((7.0, 0.72, 0.24), (16.0, 0.60, 0.20), (40.0, 0.50, 0.15)):
+            vr2 = N('ShaderNodeTexVoronoi'); vr2.feature = 'F1'; vr2.inputs['Scale'].default_value = scale_; L(obj, vr2.inputs['Vector'])
+            rc = N('ShaderNodeSeparateColor'); L(vr2.outputs['Color'], rc.inputs['Color'])
+            sub = N('ShaderNodeMath'); sub.operation = 'SUBTRACT'; sub.inputs[1].default_value = thr_; L(rc.outputs['Red'], sub.inputs[0])
+            rad = N('ShaderNodeMath'); rad.operation = 'MULTIPLY'; rad.inputs[1].default_value = rmax_ / (1 - thr_); L(sub.outputs[0], rad.inputs[0])
+            radp = N('ShaderNodeMath'); radp.operation = 'MAXIMUM'; radp.inputs[1].default_value = 0.0; L(rad.outputs[0], radp.inputs[0])
+            dif = N('ShaderNodeMath'); dif.operation = 'SUBTRACT'; L(radp.outputs[0], dif.inputs[0]); L(vr2.outputs['Distance'], dif.inputs[1])
+            ins = N('ShaderNodeMapRange'); ins.inputs['From Min'].default_value = -0.012; ins.inputs['From Max'].default_value = 0.012; L(dif.outputs[0], ins.inputs['Value'])
+            holes = ins.outputs['Result'] if holes is None else (lambda a_, b_: (lambda m_: (L(a_, m_.inputs[0]), L(b_, m_.inputs[1]), m_.outputs[0])[2])(N('ShaderNodeMath')))(holes, ins.outputs['Result'])
+            if holes is not ins.outputs['Result']: pass
+        hm = N('ShaderNodeMath'); hm.operation = 'MINIMUM'; hm.inputs[1].default_value = 1.0; L(holes, hm.inputs[0]); holes = hm.outputs[0]
+        dark_h = ramp(nt, holes, [(0.0, gray(1)), (1.0, gray(1 - cap(bug * d_)))])
+        col = mixc(nt, 1.0, col, dark_h, 'MULTIPLY'); bug_h = holes
     # Schmutz in Ecken / Fugen (Ambient Occlusion)
     ao = N('ShaderNodeAmbientOcclusion'); ao.inputs['Distance'].default_value = 0.9; ao.samples = 8
     aoc = ramp(nt, ao.outputs['AO'], [(0.0, (1 - ao_dirt * d_ * 0.8, 1 - ao_dirt * d_ * 0.85, 1 - ao_dirt * d_)), (0.7, gray(1))])
@@ -140,7 +168,12 @@ def dirty_concrete(name, A, B, scale, kind, tint=(1, 1, 1), bright=1.0, rough_mu
     bsdf = N('ShaderNodeBsdfPrincipled'); outn = N('ShaderNodeOutputMaterial')
     L(col, bsdf.inputs['Base Color']); L(rmin.outputs[0], bsdf.inputs['Roughness'])
     nm = N('ShaderNodeNormalMap'); nm.inputs['Strength'].default_value = nor; L(nA.outputs['Color'], nm.inputs['Color'])
-    L(nm.outputs['Normal'], bsdf.inputs['Normal']); bsdf.inputs['Specular IOR Level'].default_value = 0.25; bsdf.inputs['IOR'].default_value = F('conior', 1.1); L(bsdf.outputs[0], outn.inputs['Surface'])
+    if bug_h is not None:
+        inv = N('ShaderNodeMath'); inv.operation = 'SUBTRACT'; inv.inputs[0].default_value = 1.0; L(bug_h, inv.inputs[1])
+        bp = N('ShaderNodeBump'); bp.inputs['Strength'].default_value = 0.9; bp.inputs['Distance'].default_value = 0.01
+        L(inv.outputs[0], bp.inputs['Height']); L(nm.outputs['Normal'], bp.inputs['Normal']); L(bp.outputs['Normal'], bsdf.inputs['Normal'])
+    else: L(nm.outputs['Normal'], bsdf.inputs['Normal'])
+    bsdf.inputs['Specular IOR Level'].default_value = 0.25; bsdf.inputs['IOR'].default_value = F('conior', 1.1); L(bsdf.outputs[0], outn.inputs['Surface'])
     return mt
 
 def box(name, x0, x1, y0, y1, z0, z1, mat, bevel=0.015):
@@ -153,19 +186,19 @@ def box(name, x0, x1, y0, y1, z0, z1, mat, bevel=0.015):
 
 # ---------------------------------------------------------------- Materialien
 wall = dirty_concrete('Wand', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7),
-                      nor=0.55, mottle=0.30, stain=0.40, streak=0.30, pits=0.6, ao_dirt=0.45, brown=0.0, joints=0.28)
+                      nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 slab = dirty_concrete('Decke', 'concrete_wall_006', 'concrete_wall_007', 0.30, 'ceiling', tint=(0.9, 0.9, 0.9), bright=F('slabb', 2.7),
-                      nor=0.6, mottle=0.30, stain=0.45, streak=0.25, pits=0.5, ao_dirt=0.4, brown=0.1)
+                      nor=0.6, mottle=0.30, stain=0.45, streak=0.25, pits=0.5, ao_dirt=0.5, brown=0.1, edge=F('edge', 0.9), bug=F('bug', 0.6))
 dark = dirty_concrete('Pfeiler', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.80, 0.78, 0.75), bright=F('pilb', 0.26),
-                      nor=0.8, mottle=0.3, stain=0.35, streak=0.35, pits=0.5, ao_dirt=0.4)
+                      nor=0.8, mottle=0.3, stain=0.35, streak=0.35, pits=0.5, ao_dirt=0.5, edge=F('edge', 0.9) * 0.6, bug=F('bug', 0.6))
 floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 2.4),
-                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, fg_dark=F('fgd', 0.04))
+                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.04))
 
 # ---------------------------------------------------------------- Raum
 o_floor = box('Boden', -9, 9, -9, BACK_Y + 0.5, -0.5, 0, floor, bevel=0)
 o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.5, 0, WALL_H + 0.5, wall)
 wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.82),
-                        nor=0.55, mottle=0.30, stain=0.40, streak=0.30, pits=0.6, ao_dirt=0.45, brown=0.0, joints=0.28)
+                        nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 o_back = box('Wand_hinten', WALL_X - 0.6, 6, BACK_Y, BACK_Y + 0.6, 0, WALL_H, wall_b)
 o_slab = box('Decke', WALL_X - 0.6, 9, -9, SLAB_EDGE_Y, WALL_H, WALL_H + SLAB_T, slab, bevel=0.02)
 ya = math.radians(CAM_YAW); a = Vector((-math.sin(ya), math.cos(ya), 0)); r = Vector((math.cos(ya), math.sin(ya), 0))
@@ -192,6 +225,9 @@ print('Radvertices', int(rim.sum()))
 s_ = CAR_LEN / car.dimensions.x
 car.scale = (s_, s_, s_); bpy.context.view_layer.objects.active = car; car.select_set(True)
 bpy.ops.object.transform_apply(scale=True)
+car.scale = (1.0, F('car_w', 2.05) / car.dimensions.y, 1.0)   # nur Breite (lokal Y) auf 2050 mm, Laenge/Hoehe unveraendert
+bpy.ops.object.transform_apply(scale=True)
+print('AUTOMASSE L x B x H [m]: %.3f x %.3f x %.3f' % (car.dimensions.x, car.dimensions.y, car.dimensions.z))
 bb = [car.matrix_world @ Vector(c) for c in car.bound_box]
 mn = Vector((min(v.x for v in bb), min(v.y for v in bb), min(v.z for v in bb)))
 mx = Vector((max(v.x for v in bb), max(v.y for v in bb), max(v.z for v in bb)))
@@ -206,7 +242,8 @@ nt = cm.node_tree; src = car.data.materials[0].node_tree; L = nt.links.new
 bsdf = nt.nodes['Principled BSDF']
 def tn(im, cs):
     t = nt.nodes.new('ShaderNodeTexImage'); t.image = im; im.colorspace_settings.name = cs; return t
-base = bpy.data.images.load(os.path.join(CAR_DIR, 'tex_white.png')); base.colorspace_settings.name = 'sRGB'
+GOLD = opt.get('carpaint', 'gold') == 'gold'
+base = bpy.data.images.load(os.path.join(CAR_DIR, 'tex_0_base_color.png' if GOLD else 'tex_white.png')); base.colorspace_settings.name = 'sRGB'
 tb = tn(base, 'sRGB')
 mr_node = [n for n in src.nodes if n.type == 'TEX_IMAGE' and n.outputs['Color'].links and n.outputs['Color'].links[0].to_node.type == 'SEPARATE_COLOR'][0]
 nm_node = [n for n in src.nodes if n.type == 'TEX_IMAGE' and n.outputs['Color'].links and n.outputs['Color'].links[0].to_node.type == 'NORMAL_MAP'][0]
@@ -225,7 +262,8 @@ low = mixc(nt, DIRT, gray(1), low)
 ao = nt.nodes.new('ShaderNodeAmbientOcclusion'); ao.inputs['Distance'].default_value = 0.14; ao.samples = 8
 aoc = ramp(nt, ao.outputs['AO'], [(0.0, (0.30, 0.28, 0.25)), (0.6, gray(1))]); aoc = mixc(nt, DIRT, gray(1), aoc)
 dust = ramp(nt, noise(nt, geo.outputs['Position'], 22, 6, 0.6), [(0.35, (0.74, 0.72, 0.68)), (0.68, gray(1))]); dust = mixc(nt, DIRT, gray(1), dust)
-col = mixc(nt, 1.0, tb.outputs['Color'], (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
+hsc = nt.nodes.new('ShaderNodeHueSaturation'); hsc.inputs['Saturation'].default_value = F('carsat', 1.7) if GOLD else 1.0; L(tb.outputs['Color'], hsc.inputs['Color'])
+col = mixc(nt, 1.0, hsc.outputs['Color'], ((F('carbg', 0.42),) * 3 if GOLD else (F('carb', 0.63), F('carb', 0.63) * 0.985, F('carb', 0.63) * 0.94)), 'MULTIPLY'); col = mixc(nt, 1.0, col, low, 'MULTIPLY')
 col = mixc(nt, 1.0, col, aoc, 'MULTIPLY'); col = mixc(nt, 1.0, col, dust, 'MULTIPLY')
 col = mixc(nt, rimv, col, (0.012, 0.012, 0.014))                                   # schwarze Felgen
 L(col, bsdf.inputs['Base Color'])
@@ -246,7 +284,7 @@ rv = nt.nodes.new('ShaderNodeMath'); rv.operation = 'MULTIPLY_ADD'; rv.inputs[1]
 r1 = mixf(glassf.outputs['Red'], rv.outputs[0], 0.05)           # Scheiben: Klarglanz-Schwarz
 r2 = mixf(rimv, r1, F('rimrough', 0.42))                                        # Felgen: seidenmatt-glaenzend
 L(r2, bsdf.inputs['Roughness'])
-met = nt.nodes.new('ShaderNodeMath'); met.operation = 'MULTIPLY'; met.inputs[1].default_value = 0.25
+met = nt.nodes.new('ShaderNodeMath'); met.operation = 'MULTIPLY'; met.inputs[1].default_value = F('carmet', 0.15) if GOLD else 0.25
 L(sp.outputs['Blue'], met.inputs[0]); L(mixf(rimv, met.outputs[0], F('rimmet', 0.12)), bsdf.inputs['Metallic'])
 tnor = tn(nm_node.image, 'Non-Color'); nn = nt.nodes.new('ShaderNodeNormalMap'); nn.inputs['Strength'].default_value = 0.5
 L(tnor.outputs['Color'], nn.inputs['Color']); L(nn.outputs['Normal'], bsdf.inputs['Normal'])
