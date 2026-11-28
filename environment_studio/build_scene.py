@@ -43,14 +43,31 @@ mat.blend_method = 'OPAQUE' if hasattr(mat, 'blend_method') else None
 bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
 bsdf.inputs['Specular IOR Level'].default_value = 0.25
 mat.use_backface_culling = False
-KARO = float(os.environ.get('KARO', '0.56'))   # Lack/Karosserie dunkler und neutraler (Referenz: fast Schwarz, matt)
-for l in list(mat.node_tree.links):
-    if l.to_node == bsdf and l.to_socket.name == 'Base Color':
-        mxn = mat.node_tree.nodes.new('ShaderNodeMix'); mxn.data_type = 'RGBA'; mxn.blend_type = 'MULTIPLY'
-        mxn.inputs['Factor'].default_value = 1.0; mxn.inputs['B'].default_value = (KARO, KARO, KARO*1.02, 1)
-        mat.node_tree.links.new(l.from_socket, mxn.inputs['A']); mat.node_tree.links.new(mxn.outputs['Result'], bsdf.inputs['Base Color']); break
-RAU_MIN = float(os.environ.get('RAU_MIN', '0.62'))
+KARO = float(os.environ.get('KARO', '1.0'))   # Lack dunkler
+KONT = float(os.environ.get('KONT', '0.3'))   # Kontrast der Basisfarbe (Textur war zu flau)
+METALL = float(os.environ.get('METALL', '0.25'))  # metallischer Lack/Teile; Weiss (Felgen) bleibt unmetallisch
 nt = mat.node_tree
+for l in list(nt.links):
+    if l.to_node == bsdf and l.to_socket.name == 'Base Color':
+        src = l.from_socket
+        hs = nt.nodes.new('ShaderNodeHueSaturation'); hs.inputs['Saturation'].default_value = float(os.environ.get('SAT', '0.5'))  # Textur-Blaustich raus
+        nt.links.new(src, hs.inputs['Color'])
+        bc = nt.nodes.new('ShaderNodeBrightContrast'); bc.inputs['Contrast'].default_value = KONT; bc.inputs['Bright'].default_value = float(os.environ.get('HELL', '0.05'))
+        nt.links.new(hs.outputs['Color'], bc.inputs['Color'])
+        mxn = nt.nodes.new('ShaderNodeMix'); mxn.data_type = 'RGBA'; mxn.blend_type = 'MULTIPLY'
+        mxn.inputs['Factor'].default_value = 1.0; mxn.inputs['B'].default_value = (KARO, KARO, KARO*1.02, 1)
+        nt.links.new(bc.outputs['Color'], mxn.inputs['A']); nt.links.new(mxn.outputs['Result'], bsdf.inputs['Base Color'])
+        # Metallic nach Helligkeit: dunkle Flaechen metallisch, helle (weisse Felgen) nicht
+        lum = nt.nodes.new('ShaderNodeRGBToBW'); nt.links.new(src, lum.inputs['Color'])
+        mm = nt.nodes.new('ShaderNodeMapRange'); mm.clamp = True
+        mm.inputs['From Min'].default_value = 0.22; mm.inputs['From Max'].default_value = 0.55
+        mm.inputs['To Min'].default_value = METALL; mm.inputs['To Max'].default_value = 0.0
+        nt.links.new(lum.outputs['Val'], mm.inputs['Value'])
+        for ll in list(nt.links):
+            if ll.to_node == bsdf and ll.to_socket.name == 'Metallic': nt.links.remove(ll)
+        nt.links.new(mm.outputs['Result'], bsdf.inputs['Metallic'])
+        break
+RAU_MIN = float(os.environ.get('RAU_MIN', '0.30'))
 for l in list(nt.links):
     if l.to_node == bsdf and l.to_socket.name == 'Roughness':
         mr = nt.nodes.new('ShaderNodeMapRange')
@@ -98,12 +115,13 @@ m2 = cnt.nodes.new('ShaderNodeMath'); m2.operation = 'MAXIMUM'; m2.inputs[1].def
 m3 = cnt.nodes.new('ShaderNodeMath'); m3.operation = 'MULTIPLY'; m3.inputs[1].default_value = 1.4; cnt.links.new(m2.outputs['Value'], m3.inputs[0])
 m4 = cnt.nodes.new('ShaderNodeMath'); m4.operation = 'ADD'; cnt.links.new(m3.outputs['Value'], m4.inputs[0]); cnt.links.new(sx.outputs['Z'], m4.inputs[1])
 mr.inputs['From Min'].default_value = 0.0; mr.inputs['From Max'].default_value = 5.0; mr.clamp = True
-mr.inputs['To Min'].default_value = float(os.environ.get('EM_BODEN', '0.03')); mr.inputs['To Max'].default_value = float(os.environ.get('EM_WAND', '0.72'))
+mr.inputs['To Min'].default_value = float(os.environ.get('EM_BODEN', '0.03')); mr.inputs['To Max'].default_value = float(os.environ.get('EM_WAND', '0.6'))
 cnt.links.new(m4.outputs['Value'], mr.inputs['Value'])
 nz = cnt.nodes.new('ShaderNodeTexNoise'); nz.inputs['Scale'].default_value = 1.6; nz.inputs['Detail'].default_value = 8; nz.inputs['Roughness'].default_value = 0.65
 cnt.links.new(tc.outputs['Object'], nz.inputs['Vector'])
-nr = cnt.nodes.new('ShaderNodeMapRange'); nr.inputs['To Min'].default_value = 0.38; nr.inputs['To Max'].default_value = 0.78
+nr = cnt.nodes.new('ShaderNodeMapRange'); nr.inputs['To Min'].default_value = float(os.environ.get('BO_R0', '0.16')); nr.inputs['To Max'].default_value = float(os.environ.get('BO_R1', '0.48'))
 cnt.links.new(nz.outputs['Fac'], nr.inputs['Value']); cnt.links.new(nr.outputs['Result'], cb.inputs['Roughness'])
+cb.inputs['Metallic'].default_value = float(os.environ.get('BO_M', '0.15')); cb.inputs['Specular IOR Level'].default_value = 0.8
 nz2 = cnt.nodes.new('ShaderNodeTexNoise'); nz2.inputs['Scale'].default_value = 260; nz2.inputs['Detail'].default_value = 4
 cnt.links.new(tc.outputs['Object'], nz2.inputs['Vector'])
 bp = cnt.nodes.new('ShaderNodeBump'); bp.inputs['Strength'].default_value = 0.08; bp.inputs['Distance'].default_value = 0.01
@@ -177,9 +195,9 @@ schatten('Kontaktschatten_Reifen', 2.3, 1.15, float(os.environ.get('SCH2', '0.55
 # Welt: sehr helles, leicht kuehles Grau (Streulicht der weissen Hohlkehle)
 w = bpy.data.worlds.new('Studio'); sc.world = w; w.use_nodes = True
 bgn = w.node_tree.nodes['Background']
-bgn.inputs['Color'].default_value = (0.82, 0.83, 0.85, 1); bgn.inputs['Strength'].default_value = float(os.environ.get('WORLD', '0.13'))
+bgn.inputs['Color'].default_value = (0.82, 0.83, 0.85, 1); bgn.inputs['Strength'].default_value = float(os.environ.get('WORLD', '0.34'))
 
-LK = float(os.environ.get('LK', '0.045'))
+LK = float(os.environ.get('LK', '0.03'))
 def area(name, loc, target, size, power, color=(1, 1, 1), shape='RECTANGLE', size_y=None, spread=1.0):
     ld = bpy.data.lights.new(name, 'AREA'); ld.shape = shape; ld.size = size
     if size_y: ld.size_y = size_y
@@ -202,7 +220,7 @@ area('Streifen_links', (-7.5, -6.0, 3.2), (0, 0, 0.9), 1.8, 5000*LK, (0.97, 0.99
 area('Streifen_rechts', (7.0, 6.5, 3.5), (0, 0, 0.9), 1.8, 4000*LK, (0.97, 0.99, 1.0), size_y=6.0)
 area('Aufheller_vorn', (-9.0, 4.0, 1.5), (0, 0, 0.8), 6.0, 2200*LK, (0.96, 0.98, 1.0), size_y=3.0)
 # Nur fuers Auto (Light-Linking): weiche Formgebung, Streiflicht auf Kanten, Glanz auf Hauben-/Seitenflaechen
-LA = float(os.environ.get('LA', '0.085'))
+LA = float(os.environ.get('LA', '0.12'))
 nur_auto(area('Auto_Deckenbox', (-1.0, 0.5, 6.0), (0, 0, 0.9), 7.0, 12000*LA, (1.0, 0.99, 0.98), size_y=5.0))
 nur_auto(area('Auto_Kante_links', (-6.5, -5.5, 2.4), (0, 0, 1.0), 1.5, 5000*LA, (0.96, 0.98, 1.0), size_y=4.0))
 nur_auto(area('Auto_Kante_rechts', (6.5, 6.0, 2.6), (0, 0, 1.0), 1.5, 4500*LA, (0.96, 0.98, 1.0), size_y=4.0))

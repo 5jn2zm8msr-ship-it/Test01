@@ -18,7 +18,7 @@ def grade(a, p, rng):
     # Glow/Halation: helle Flaechen streuen leicht ueber die dunklen Kanten
     hi = np.clip(lin - 0.72, 0, None)
     glow = np.stack([gaussian_filter(hi[..., c], 9 * W/1179) for c in range(3)], -1)
-    lin = lin + glow * np.array([0.55, 0.42, 0.40]) * 0.9
+    lin = lin + glow * np.array([0.55, 0.42, 0.40]) * 0.5
     # chromatische Aberration (R/B nach aussen, ~1 px an den Raendern)
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     cx, cy = W/2, H/2
@@ -38,7 +38,7 @@ def grade(a, p, rng):
     lin = lin + (1 - np.clip(lum*3, 0, 1)) * np.array([0.0015, 0.0030, 0.0065]) * c
     s = lin2srgb(lin)
     # sanfte S-Kurve (Kontrast), Weiss bleibt unter 1
-    s = s + 0.10 * (s - 0.5) * (1 - np.abs(2*s - 1))
+    s = s + 0.24 * (s - 0.5) * (1 - np.abs(2*s - 1))
     # Mikro-Weichheit (Objektiv) + Korn
     s = np.stack([gaussian_filter(s[..., ch], 0.55 * W/1179) for ch in range(3)], -1)
     # Imperfektionen: grossflaechige Fleckigkeit (Boden/Wand), feiner Staub
