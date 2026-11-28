@@ -3,6 +3,7 @@ Werte aus PrusaSlicer-Lauf (Bambu-aehnliches Profil, 2 Waende, 5 % Gyroid, 0,24 
 import sys, os, json, numpy as np
 from PIL import Image, ImageDraw, ImageFont
 roh, out = sys.argv[1:3]; os.makedirs(out, exist_ok=True); lab = json.load(open(roh + '.json'))
+VIEWS = sys.argv[3:5] if len(sys.argv) > 4 else []     # optional: heck34-, front34-Rohbild (zusammengebaut)
 FB = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; FR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 f = ImageFont.truetype(FB, 30); f2 = ImageFont.truetype(FR, 25); f3 = ImageFont.truetype(FR, 20)
 TIRE = 100.0/(100.0+39.9)                          # Volumenanteil Reifen (schwarz) am Rad
@@ -17,13 +18,22 @@ ROWS = [  # (Nr-Label, Name, Anzahl, Masse mm (Druckausrichtung), g gesamt/Stk, 
 NUM = {}
 for nr, nm, cnt, bb, g, bl, h, o, parts in ROWS:
     for i, p in enumerate(parts): NUM[p] = (nr if len(parts) == 1 else str(int(nr.split('–')[0]) + i))
-im = Image.open(roh).convert('RGB'); a = np.asarray(im).astype(np.float32)/255
-a = np.clip((a - 0.02)/(0.97 - 0.02), 0, 1); im = Image.fromarray((a*255).astype(np.uint8)); W, H = im.size
-dr = ImageDraw.Draw(im)
-for p, (x, y) in lab.items():
-    t = NUM[p]; r = 24 if len(t) < 3 else 30
-    dr.ellipse([x-r, y-r, x+r, y+r], fill=(214, 40, 40), outline=(255, 255, 255), width=3)
-    w = dr.textlength(t, font=f); dr.text((x-w/2, y-17), t, fill=(255, 255, 255), font=f)
+def beschriften(path, labels, small=False):
+    im = Image.open(path).convert('RGB'); a = np.asarray(im).astype(np.float32)/255
+    a = np.clip((a - 0.02)/(0.97 - 0.02), 0, 1); im = Image.fromarray((a*255).astype(np.uint8)); dr = ImageDraw.Draw(im)
+    for p, (x, y) in labels.items():
+        t = NUM[p]; r = (20 if small else 24) if len(t) < 3 else 30
+        dr.ellipse([x-r, y-r, x+r, y+r], fill=(214, 40, 40), outline=(255, 255, 255), width=3)
+        w = dr.textlength(t, font=f); dr.text((x-w/2, y-17), t, fill=(255, 255, 255), font=f)
+    return im
+im = beschriften(roh, lab); W, H = im.size
+side = None
+if VIEWS:
+    ims = []
+    for v in VIEWS: ims.append(beschriften(v, json.load(open(v + '.json')), True))
+    side = Image.new('RGB', (ims[0].width, sum(i.height for i in ims))); yy = 0
+    for i in ims: side.paste(i, (0, yy)); yy += i.height
+    sd = ImageDraw.Draw(side); sd.text((20, 14), '3/4 hinten (zusammengebaut)', fill=(60, 60, 70), font=f2); sd.text((20, ims[0].height + 14), '3/4 vorn (zusammengebaut)', fill=(60, 60, 70), font=f2)
 LW = 900; leg = Image.new('RGB', (LW, H), (250, 250, 251)); ld = ImageDraw.Draw(leg)
 ld.text((24, 18), 'Explosionszeichnung 1:10 · 2 Filamentfarben', fill=(20, 20, 24), font=f)
 ld.rectangle([24, 66, 54, 92], fill=(25, 25, 28)); ld.text((62, 64), 'schwarz', fill=(20, 20, 24), font=f2)
@@ -39,7 +49,10 @@ for nr, nm, cnt, bb, g, bl, h, o, parts in ROWS:
 ld.line([24, y+4, LW-24, y+4], fill=(190, 190, 195), width=2)
 ld.text((24, y+16), 'Summe: schwarz %.0f g · weiß %.0f g · %.0f g PLA' % (tot_b, tot_w, tot_b+tot_w), fill=(20, 20, 24), font=f2)
 ld.text((24, y+52), 'Druckzeit ≈ %.0f h (ohne Farbwechsel/Purge)' % tot_h, fill=(20, 20, 24), font=f2)
-res = Image.new('RGB', (W+LW, H)); res.paste(im, (0, 0)); res.paste(leg, (W, 0)); res.save(os.path.join(out, 'explosion_zweifarbig.png'))
+SW = side.width if side else 0
+res = Image.new('RGB', (SW+W+LW, H)); 
+if side: res.paste(side.resize((SW, H)), (0, 0))
+res.paste(im, (SW, 0)); res.paste(leg, (SW+W, 0)); res.save(os.path.join(out, 'explosion_zweifarbig.png'))
 md = ['| Nr | Teil | Anz. | Maße (mm) | schwarz g | weiß g | Zeit h | Ausrichtung |', '|---|---|---|---|---|---|---|---|']
 for nr, nm, cnt, bb, g, bl, h, o, parts in ROWS:
     md.append('| %s | %s | %d | %s | %.0f | %.0f | %.1f | %s |' % (nr, nm, cnt, bb, g*bl*cnt, g*(1-bl)*cnt, h*cnt, o))
