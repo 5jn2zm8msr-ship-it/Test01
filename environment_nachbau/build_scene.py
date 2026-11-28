@@ -510,7 +510,7 @@ if int(F('match', 1)):
 
 # ---------------------------------------------------------------- Ansichten: Auto drehen / Kamera hinten in der Ecke
 CARROT = F('carrot', 0.0)
-if int(F('match', 1)) and abs(CARROT) > 1e-6:      # Auto um die Z-Achse um seine Mitte drehen (haengt am Anker, Anker wird mitgefuehrt)
+if int(F('match', 1)) and (abs(CARROT) > 1e-6 or abs(F('carshiftx', 0.0)) > 1e-9 or abs(F('carshifty', 0.0)) > 1e-9):      # Auto um die Z-Achse um seine Mitte drehen (haengt am Anker, Anker wird mitgefuehrt)
     _C0 = car.matrix_world.translation.copy(); _thn = anchor.rotation_euler.z + math.radians(CARROT)
     _Cn = _C0 + Vector((F('carshiftx', 0.0), F('carshifty', 0.0), 0.0)); _off = Vector((-float(cf_[0]), -float(cf_[1]), 0.0))
     anchor.rotation_euler = (0, 0, _thn); anchor.location = _Cn - (Matrix.Rotation(_thn, 3, 'Z') @ _off); anchor.location.z = 0.0
