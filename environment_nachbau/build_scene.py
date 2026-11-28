@@ -17,18 +17,41 @@ SAMPLES = int(sys.argv[3]) if len(sys.argv) > 3 else 48
 opt = dict(a.lstrip('-').split('=') for a in sys.argv[4:] if '=' in a)
 F = lambda k, d: float(opt.get(k, d))
 
-CAM_H, FOCAL, CAM_YAW = 1.6, 35.0, 31.6
-HORIZON_PX = F('horizon', 254)
-WALL_X, BACK_Y, WALL_H = -4.94, F('back_y', 10.8), 2.8
-SLAB_EDGE_Y, SLAB_T = F('slab_y', 5.4), 0.45
+# ---- Kamera: laengere Brennweite (weniger Weitwinkel-Eindruck); Raum wird daraus aus Foto-Pixeln neu berechnet
+FOCAL = F('focal', 50.0); FPX = 720.0 * FOCAL / 36.0                  # Brennweite (Kleinbild) -> Pixel bei 720 px Bildbreite
+CAM_H = 1.6; HORIZON_PX = F('horizon', 243.0)                         # Horizont aus den Linien der linken Wand (Fluchtpunkt bei y=243)
+CAM_YAW = math.degrees(math.atan((F('vp1x', 795.0) - 360.0) / FPX))   # Kamera so gedreht, dass die linke Wand parallel zur Welt-Y-Achse liegt
+_ya = math.radians(CAM_YAW)
+CAM_A = (-math.sin(_ya), math.cos(_ya)); CAM_R = (math.cos(_ya), math.sin(_ya))     # Blickrichtung / rechts (Welt, xy)
+def ray(u, v): return (CAM_A[0] * FPX + CAM_R[0] * (u - 360.0), CAM_A[1] * FPX + CAM_R[1] * (u - 360.0), HORIZON_PX - v)
+def at_height(u, v, h):                                               # Foto-Pixel -> Weltpunkt in der Hoehe h
+    d = ray(u, v); t = (h - CAM_H) / d[2]; return (t * d[0], t * d[1], h)
+def on_plane_x(u, v, x0):                                             # Foto-Pixel -> Weltpunkt auf der Ebene x = x0
+    d = ray(u, v); t = x0 / d[0]; return (x0, t * d[1], CAM_H + t * d[2])
+WALL_H = F('wall_h', 2.67); SLAB_T = 0.45
+WALL_X = at_height(0, 487, 0.0)[0]                                    # linke Wand: Fusspunkt am linken Bildrand
+_c = at_height(402, 363.6, 0.0); CORNER = (WALL_X, _c[1]); BACK_Y = CORNER[1]   # Ecke (Wandfuss)
+_rp = at_height(645, 369.5, 0.0)                                      # Rueckwandfuss rechts
+BACK_ANG = math.atan2(_rp[1] - CORNER[1], _rp[0] - CORNER[0])         # Rueckwand-Richtung (nicht rechtwinklig zur linken Wand!)
+_s1 = at_height(225, 126, WALL_H); _s2 = at_height(647, 83, WALL_H)   # Deckenvorderkante (zwei Foto-Punkte)
+_dc = CORNER[0] * CAM_A[0] + CORNER[1] * CAM_A[1]; _dr = _rp[0] * CAM_A[0] + _rp[1] * CAM_A[1]         # Tiefen entlang der Blickachse
+BACK_H0 = CAM_H + (HORIZON_PX - 163.0) * _dc / FPX; BACK_H1 = CAM_H + (HORIZON_PX - 147.0) * _dr / FPX    # Hoehe an der Ecke / am rechten Ende
+BACK_SLOPE = (BACK_H1 - BACK_H0) / math.hypot(_rp[0] - CORNER[0], _rp[1] - CORNER[1])                       # Oberkante steigt im Foto nach rechts
+SLAB_ANG = math.atan2(_s2[1] - _s1[1], _s2[0] - _s1[0]); SLAB_MID = ((_s1[0] + _s2[0]) / 2, (_s1[1] + _s2[1]) / 2)
+SLAB_YA, SLAB_YB = SLAB_MID[1] - 1.8, SLAB_MID[1]
+_G1 = at_height(0, 505, 0.0); FG_YA, FG_YB = _G1[1] - 1.7, _G1[1] - 0.2
+_pf = at_height(640, 555, 0.0)                                        # Pfeiler: ferne Kante (Fusspunkt)
+PIL_LAT = _pf[0] * CAM_R[0] + _pf[1] * CAM_R[1]; PIL_D = _pf[0] * CAM_A[0] + _pf[1] * CAM_A[1]      # seitlicher Abstand / Tiefe der frontalen Flaeche
+PIL_LAT2 = (689.0 - 360.0) * PIL_D / FPX                              # rechte Kante der dunklen Flaeche bei x=689
+PIL_H = CAM_H + (HORIZON_PX - 47.0) * PIL_D / FPX                     # Oberkante bei y=47
 CAR_LEN = F('car_len', 4.25)
 CAR_X, CAR_Y = F('car_x', -3.55), F('car_y', 5.95)
 CAR_YAW = F('car_yaw', 4.0)
-SUN_A = Vector((F('ax', -0.30), F('ay', -0.6), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
+SUN_A = Vector((F('ax', -0.30), F('ay', -0.75), F('az', -1.0)))    # Boden/Decke/Auto/Pfeiler/Rueckwand
 SUN_W = Vector((F('wx', -0.60), F('wy', -0.685), F('wz', -1.0)))   # nur linke Wand
 STR_A, STR_W = F('sunA', 42.0), F('sunW', 30.0)
-SKY = F('sky', 1.05)
-EXPO = F('expo', 2.5)
+SKY = F('sky', 0.6)
+EXPO = F('expo', 2.0)
 DIRT = F('dirt', 1.7)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -108,7 +131,7 @@ def dirty_concrete(name, A, B, scale, kind, tint=(1, 1, 1), bright=1.0, rough_mu
         col = mixc(nt, density, col, mixc(nt, 1.0, col, dot, 'MULTIPLY'))
     if fg_dark > 0:   # Vordergrund (vor dem Lichtkeil) dunkler und fleckiger wie im Foto
         sy = nt.nodes.new('ShaderNodeSeparateXYZ'); L(obj, sy.inputs['Vector'])
-        fgm = ramp(nt, sy.outputs['Y'], [(2.0, gray(1 - fg_dark)), (3.6, gray(1))])
+        fgm = ramp(nt, sy.outputs['Y'], [(FG_YA, gray(1 - fg_dark)), (FG_YB, gray(1))])
         fgn = ramp(nt, noise(nt, obj, 0.9, 8, 0.6, 0.3), [(0.35, gray(0.55)), (0.65, gray(1))])
         col = mixc(nt, 1.0, col, mixc(nt, 1.0, fgm, fgn, 'MULTIPLY'), 'MULTIPLY')
     if joints > 0:   # Schalungsstoesse: waagerecht alle 1,2 m, senkrecht alle 2,4 m
@@ -127,13 +150,13 @@ def dirty_concrete(name, A, B, scale, kind, tint=(1, 1, 1), bright=1.0, rough_mu
         gp = N('ShaderNodeNewGeometry'); wz = N('ShaderNodeSeparateXYZ'); L(gp.outputs['Position'], wz.inputs['Vector'])
         ragged = ramp(nt, noise(nt, obj, 2.6, 6, 0.6, 0.3), [(0.30, gray(0.15)), (0.70, gray(1))])
         if kind in ('wall', 'pillar'):
-            band = ramp(nt, wz.outputs['Z'], [(1.9, gray(1)), (2.8, (1 - cap(edge * d_), 1 - cap(edge * d_) * 0.92, 1 - cap(edge * d_) * 1.0))])
+            band = ramp(nt, wz.outputs['Z'], [(WALL_H - 0.9, gray(1)), (WALL_H, (1 - cap(edge * d_), 1 - cap(edge * d_) * 0.92, 1 - cap(edge * d_) * 1.0))])
             col = mixc(nt, 1.0, col, mixc(nt, ragged, gray(1), band), 'MULTIPLY')
             moss = ramp(nt, wz.outputs['Z'], [(0.0, (0.52, 0.58, 0.40)), (0.22, (0.80, 0.85, 0.70)), (0.6, gray(1))])
             col = mixc(nt, 1.0, col, mixc(nt, ragged, gray(1), moss), 'MULTIPLY')
         if kind == 'ceiling':
             wy_ = N('ShaderNodeSeparateXYZ'); L(gp.outputs['Position'], wy_.inputs['Vector'])
-            band = ramp(nt, wy_.outputs['Y'], [(3.9, gray(1)), (5.4, (1 - cap(edge * d_), 1 - cap(edge * d_) * 0.92, 1 - cap(edge * d_) * 0.9))])
+            band = ramp(nt, wy_.outputs['Y'], [(SLAB_YA, gray(1)), (SLAB_YB, (1 - cap(edge * d_), 1 - cap(edge * d_) * 0.92, 1 - cap(edge * d_) * 0.9))])
             col = mixc(nt, 1.0, col, mixc(nt, ragged, gray(1), band), 'MULTIPLY')
     if bug > 0:    # Lufteinschluesse (Lunker): unregelmaessig verteilt, verschieden gross, dunkel, leicht vertieft
         holes = None
@@ -189,25 +212,45 @@ wall = dirty_concrete('Wand', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'w
                       nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
 slab = dirty_concrete('Decke', 'concrete_wall_006', 'concrete_wall_007', 0.30, 'ceiling', tint=(0.9, 0.9, 0.9), bright=F('slabb', 2.7),
                       nor=0.6, mottle=0.30, stain=0.45, streak=0.25, pits=0.5, ao_dirt=0.5, brown=0.1, edge=F('edge', 0.9), bug=F('bug', 0.6))
-dark = dirty_concrete('Pfeiler', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.80, 0.78, 0.75), bright=F('pilb', 0.26),
+dark = dirty_concrete('Pfeiler', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.80, 0.78, 0.75), bright=F('pilb', 0.57),
                       nor=0.8, mottle=0.3, stain=0.35, streak=0.35, pits=0.5, ao_dirt=0.5, edge=F('edge', 0.9) * 0.6, bug=F('bug', 0.6))
-floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 2.4),
-                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.04))
+floor = dirty_concrete('Boden', 'concrete_floor_worn_001', 'concrete_wall_006', 0.22, 'floor', tint=(0.84, 0.84, 0.82), bright=F('floorb', 1.7),
+                       rough_mul=0.9, nor=0.7, mottle=0.4, stain=0.6, streak=0.62, pits=0.5, ao_dirt=0.5, wet=0.45, rough_min=0.5, desat=0.55, bug=F('bug', 0.25), fg_dark=F('fgd', 0.15))
 
 # ---------------------------------------------------------------- Raum
-o_floor = box('Boden', -9, 9, -9, BACK_Y + 0.5, -0.5, 0, floor, bevel=0)
-o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.5, 0, WALL_H, wall)
-wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.82),
+def rbox(name, cx, cy, sx, sy, z0, z1, ang, mat, bevel=0.015):
+    """Quader um die Z-Achse gedreht (lokal x = Laengsrichtung, lokal y = Tiefe)."""
+    bpy.ops.mesh.primitive_cube_add(); o = bpy.context.object; o.name = name
+    o.scale = (sx / 2, sy / 2, (z1 - z0) / 2); o.location = (cx, cy, (z0 + z1) / 2); o.rotation_euler = (0, 0, ang)
+    bpy.ops.object.transform_apply(scale=True); o.data.materials.append(mat)
+    if bevel:
+        bm_ = o.modifiers.new('Fase', 'BEVEL'); bm_.width = bevel; bm_.segments = 2; bm_.limit_method = 'ANGLE'
+    return o
+o_floor = box('Boden', -14, 14, -16, 16, -0.5, 0, floor, bevel=0)
+o_wall = box('Wand_links', WALL_X - 0.6, WALL_X, -9, BACK_Y + 0.6, 0, WALL_H, wall)
+wall_b = dirty_concrete('Wand_hinten', 'concrete_wall_007', 'concrete_wall_006', 0.33, 'wall', tint=(0.84, 0.84, 0.86), bright=F('wallb', 2.7) * F('backdim', 0.76),
                         nor=0.55, mottle=0.30, stain=0.40, streak=0.45, pits=0.4, ao_dirt=0.6, brown=0.0, joints=0.28, edge=F('edge', 0.9), bug=F('bug', 0.7))
-o_back = box('Wand_hinten', WALL_X - 0.6, 6, BACK_Y, BACK_Y + 0.6, 0, WALL_H, wall_b)
-o_slab = box('Decke', WALL_X - 0.6, 9, -9, SLAB_EDGE_Y, WALL_H, WALL_H + SLAB_T, slab, bevel=0.02)
-ya = math.radians(CAM_YAW); a = Vector((-math.sin(ya), math.cos(ya), 0)); r = Vector((math.cos(ya), math.sin(ya), 0))
-bpy.ops.mesh.primitive_cube_add(); pil = bpy.context.object; pil.name = 'Pfeiler'
-pil.scale = (1.0, 0.3, F('pil_h', 2.55) / 2); bpy.ops.object.transform_apply(scale=True); pil.data.materials.append(dark)
-pil.location = r * (F('pil_lat', 1.6) + 1.0) + a * F('pil_z', 3.7) + Vector((0, 0, F('pil_h', 2.55) / 2)); pil.rotation_euler = Euler((0, 0, ya))
-b = pil.modifiers.new('Fase', 'BEVEL'); b.width = 0.02; b.segments = 2; b.limit_method = 'ANGLE'
-o_back2 = box('Wand_rechts_hinten', 5.5, 6.0, 0, BACK_Y + 0.6, 0, WALL_H, wall_b)
-room = [o_floor, o_back, o_slab, pil, o_back2]
+_bn = (-math.sin(BACK_ANG), math.cos(BACK_ANG)); _bd = (math.cos(BACK_ANG), math.sin(BACK_ANG))
+def wedge_wall(name, p0, dvec, nvec, L, thick, h0, slope, mat, s0=-0.3):
+    """Rueckwand als Keil: Oberkante steigt linear (wie im Foto), Fuss gerade."""
+    import bmesh
+    me_ = bpy.data.meshes.new(name); V = []
+    for z_mode in (0, 1):
+        for s_, off in ((s0, 0.0), (s0 + L, 0.0), (s0 + L, thick), (s0, thick)):
+            V.append((p0[0] + dvec[0] * s_ + nvec[0] * off, p0[1] + dvec[1] * s_ + nvec[1] * off, (h0 + slope * max(s_, 0.0)) if z_mode else 0.0))
+    me_.from_pydata(V, [], [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]); me_.update()
+    bm_ = bmesh.new(); bm_.from_mesh(me_); bmesh.ops.recalc_face_normals(bm_, faces=bm_.faces); bm_.to_mesh(me_); bm_.free()
+    o = bpy.data.objects.new(name, me_); sc.collection.objects.link(o); o.data.materials.append(mat); return o
+o_back = wedge_wall('Wand_hinten', CORNER, _bd, _bn, 10.0, 0.6, BACK_H0, BACK_SLOPE, wall_b)
+_sn = (-math.sin(SLAB_ANG), math.cos(SLAB_ANG)); _SD = 14.0
+o_slab = rbox('Decke', SLAB_MID[0] - _sn[0] * _SD / 2, SLAB_MID[1] - _sn[1] * _SD / 2, 26.0, _SD, WALL_H, WALL_H + SLAB_T, SLAB_ANG, slab, bevel=0.02)
+def _cam_xy(lat, dep): return (CAM_R[0] * lat + CAM_A[0] * dep, CAM_R[1] * lat + CAM_A[1] * dep)
+_pa = _cam_xy((PIL_LAT + PIL_LAT2) / 2, PIL_D + 0.025); _pb = _cam_xy((PIL_LAT2 + 3.4) / 2, PIL_D + 0.025)
+pil = rbox('Pfeiler', _pa[0], _pa[1], PIL_LAT2 - PIL_LAT, 0.05, 0, PIL_H, _ya, dark, bevel=0.0)          # dunkle frontale Flaeche (x 640-689)
+wall_p = dirty_concrete('Pfeiler_hell', 'concrete_wall_006', 'concrete_wall_007', 0.4, 'pillar', tint=(0.82, 0.82, 0.82), bright=F('pilb2', 1.5),
+                        nor=0.7, mottle=0.3, stain=0.3, streak=0.35, pits=0.4, ao_dirt=0.4, edge=0.0, bug=F('bug', 0.6))
+pilB = rbox('Pfeiler_hell', _pb[0], _pb[1], 3.4 - PIL_LAT2, 0.05, 0, WALL_H, _ya, wall_p, bevel=0.0)    # hellere Flaeche rechts davon (x>689)
+room = [o_floor, o_back, o_slab, pil, pilB]
 
 # ---------------------------------------------------------------- Auto (Meshy multi-image-to-3d 01a21f80, goldener Lamborghini -> weiss)
 import numpy as np
@@ -365,18 +408,23 @@ def masked_spot(name, d, strength, poly, receivers, blockers, eps=None):
 if int(F('spotmask', 1)):
     # Lichtkeil auf dem Boden: Polygon aus den Foto-Messpunkten (Unterkante schraeg, rechte Kante schraeg), siehe README
     ky = F('wedge_y', 0.0)
-    floor_poly = [(-5.5, 2.53 + ky, 0), (-1.60, 3.73 + ky, 0), (-2.54, 11.0, 0), (-5.5, 11.0, 0)]
-    masked_spot('Sonne_Boden', SUN_A, STR_A, floor_poly, [o_floor, o_back, o_slab, pil, o_back2, car, cs], [car, pil, o_back, o_back2])
-    # Lichtflaeche auf der linken Wand: Halbebene, Diagonale (y - z/1.036 > 2.82) wie im Foto
-    wall_poly = [(WALL_X, 2.82, 0), (WALL_X, 7.65, 5.0), (WALL_X, 13.0, 5.0), (WALL_X, 13.0, 0)]
-    masked_spot('Sonne_Wand', SUN_W, STR_W, wall_poly, [o_wall], [car, pil, o_back, o_back2])
+    G1 = at_height(0, 505, 0.0); G2 = at_height(470, 552, 0.0); G3 = at_height(590, 395, 0.0)     # Keil: Unterkante (G1-G2), rechte Kante (G2-G3)
+    e1 = (G2[0] - G1[0], G2[1] - G1[1]); e2 = (G3[0] - G2[0], G3[1] - G2[1]); xl = WALL_X - 1.0; yfar = BACK_Y + 3.0
+    P1 = (xl, G1[1] + e1[1] * (xl - G1[0]) / e1[0] + ky, 0.0); P3 = (G2[0] + e2[0] * (yfar - G2[1]) / e2[1], yfar, 0.0)
+    floor_poly = [P1, (G2[0], G2[1] + ky, 0.0), P3, (xl, yfar, 0.0)]
+    masked_spot('Sonne_Boden', SUN_A, STR_A, floor_poly, [o_floor, o_back, o_slab, pil, pilB, car, cs], [car, pil, pilB, o_back])
+    # Lichtflaeche auf der linken Wand: Halbebene durch zwei Foto-Punkte der Schattendiagonale
+    W1 = on_plane_x(225, 127, WALL_X); W2 = on_plane_x(0, 430, WALL_X); dv = (W1[1] - W2[1], W1[2] - W2[2])
+    plow = (WALL_X, W2[1] + dv[0] * (-W2[2] / dv[1]), 0.0); phigh = (WALL_X, W1[1] + dv[0] * ((6.0 - W1[2]) / dv[1]), 6.0)
+    wall_poly = [plow, phigh, (WALL_X, yfar, 6.0), (WALL_X, yfar, 0.0)]
+    masked_spot('Sonne_Wand', SUN_W, STR_W, wall_poly, [o_wall], [car, pil, pilB, o_back])
 else:
     sun('Sonne_Boden', SUN_A, STR_A, room + [car])
     sun('Sonne_Wand', SUN_W, STR_W, [o_wall])
 # Bounce-Karte: unsichtbare Flaeche ueber dem hellen Lichtkeil, nur fuer die Decke verlinkt (ersetzt den fehlenden Bounce vom stark ueberstrahlten Boden)
 bl = bpy.data.objects.new('Bounce_Decke', bpy.data.lights.new('Bounce_Decke', 'AREA')); sc.collection.objects.link(bl)
-bl.data.shape = 'RECTANGLE'; bl.data.size = 6.0; bl.data.size_y = 5.0; bl.data.energy = F('ceilfill', 170.0); bl.data.color = (1.0, 0.95, 0.89)
-bl.data.use_shadow = False; bl.location = (F('bx', -2.0), F('by', 7.0), 0.4); bl.rotation_euler = (0, 0, 0)   # leuchtet nach unten -> drehen
+bl.data.shape = 'RECTANGLE'; bl.data.size = 7.0; bl.data.size_y = 6.0; bl.data.energy = F('ceilfill', 130.0); bl.data.color = (1.0, 0.95, 0.89)
+bl.data.use_shadow = False; bl.location = (F('bx', WALL_X + 2.0), F('by', 6.2), 0.4); bl.rotation_euler = (0, 0, 0)   # leuchtet nach unten -> drehen
 bl.rotation_euler = (math.pi, 0, 0)   # Flaeche zeigt nach oben (Area-Licht strahlt entlang -Z; gedreht -> +Z)
 bcol = bpy.data.collections.new('Bounce_Empfaenger'); sc.collection.children.link(bcol); bcol.objects.link(o_slab)
 bl.light_linking.receiver_collection = bcol
@@ -386,7 +434,7 @@ sky.sun_disc = False; sky.air_density = 1.0; sky.aerosol_density = 2.0; sky.alti
 sd = -SUN_A.normalized(); sky.sun_elevation = math.asin(sd.z); sky.sun_rotation = -math.atan2(sd.x, sd.y)
 bg = w.node_tree.nodes['Background']; bg.inputs['Strength'].default_value = SKY
 lp = w.node_tree.nodes.new('ShaderNodeLightPath'); cm_ = w.node_tree.nodes.new('ShaderNodeMath'); cm_.operation = 'MULTIPLY_ADD'
-cm_.inputs[1].default_value = -F('camsky', 0.931) * SKY; cm_.inputs[2].default_value = SKY
+cm_.inputs[1].default_value = -F('camsky', 0.975) * SKY; cm_.inputs[2].default_value = SKY
 w.node_tree.links.new(lp.outputs['Is Camera Ray'], cm_.inputs[0]); w.node_tree.links.new(cm_.outputs[0], bg.inputs['Strength'])
 hs = w.node_tree.nodes.new('ShaderNodeHueSaturation'); hs.inputs['Saturation'].default_value = F('skysat', 0.5)
 w.node_tree.links.new(sky.outputs['Color'], hs.inputs['Color']); w.node_tree.links.new(hs.outputs['Color'], bg.inputs['Color'])
@@ -421,7 +469,10 @@ if int(F('match', 1)):
         v = world_to_camera_view(sc, cam_obj, w_); return np.array([v.x * 720.0, (1 - v.y) * 720.0])
     def resid(p):
         return np.concatenate([WF * (pix(wpt(cf_, *p)) - PF), WR * (pix(wpt(cr_, *p)) - PR)])
-    p = np.array([CAR_X, CAR_Y, CAR_YAW], float)
+    _gf = at_height(PF[0], PF[1], 0.0); _gr = at_height(PR[0], PR[1], 0.0)
+    _th = math.atan2(-(_gf[1] - _gr[1]), -(_gf[0] - _gr[0])); _y0 = math.degrees(_th) - 90 - 180 * int(F('flip', 0))
+    _X0 = _gf[0] - (math.cos(_th) * cf_[0] - math.sin(_th) * cf_[1]); _Y0 = _gf[1] - (math.sin(_th) * cf_[0] + math.cos(_th) * cf_[1])
+    p = np.array([_X0, _Y0, _y0], float)
     for _ in range(40):
         r0 = resid(p); J = np.zeros((4, 3))
         for k, e in enumerate((1e-3, 1e-3, 1e-2)):
@@ -433,13 +484,35 @@ if int(F('match', 1)):
     car.rotation_euler = (0, 0, math.radians(90 + 180 * int(F('flip', 0)) + CAR_YAW)); car.location = (CAR_X, CAR_Y, -0.005)
     cs.location = car.location + Vector((0, 0, 0.009)); cs.rotation_euler = (0, 0, car.rotation_euler.z)
 
+# ---------------------------------------------------------------- Linienpruefung (ohne Rendern): --check=1
+if int(F('check', 0)):
+    from bpy_extras.object_utils import world_to_camera_view
+    sc.render.resolution_x = sc.render.resolution_y = 720; bpy.context.view_layer.update()
+    def pxl(P):
+        v = world_to_camera_view(sc, sc.camera, Vector(P)); return np.array([v.x * 720.0, (1 - v.y) * 720.0])
+    _w0 = at_height(0, 487, 0.0)
+    _pn = _cam_xy(PIL_LAT2, PIL_D) + (0.0,)
+    pts = [('linke Wand Fuss links', (WALL_X, _w0[1], 0.0), (0, 487)), ('linke Wand Oberkante links', (WALL_X, _w0[1], WALL_H), (0, 80)),
+           ('Ecke unten', (CORNER[0], CORNER[1], 0.0), (402, 363.6)), ('Ecke oben', (CORNER[0], CORNER[1], BACK_H0), (402, 163)),
+           ('Rueckwand Fuss rechts', (_rp[0], _rp[1], 0.0), (645, 369.5)), ('Rueckwand Oberkante rechts', (_rp[0], _rp[1], BACK_H1), (645, 147)),
+           ('Decke links (Wand/Kante)', (_s1[0], _s1[1], WALL_H), (225, 126)), ('Decke rechts', (_s2[0], _s2[1], WALL_H), (647, 83)),
+           ('Pfeiler fern unten', (_pf[0], _pf[1], 0.0), (640, 555)), ('Pfeiler fern oben', (_pf[0], _pf[1], PIL_H), (650, 47)),
+           ('Pfeiler nah unten', _pn, (689, 558)), ('Pfeiler nah oben', (_pn[0], _pn[1], PIL_H), (695, 47))]
+    print('LINIENPRUEFUNG  Brennweite %.0f mm  Kameradrehung %.2f Grad  Horizont y=%.0f  WALL_X=%.3f  Ecke y=%.3f  Rueckwand-Winkel %.1f Grad  Deckenkante-Winkel %.1f Grad  Wandhoehe %.2f  Pfeiler h=%.2f' % (
+        FOCAL, CAM_YAW, HORIZON_PX, WALL_X, BACK_Y, math.degrees(BACK_ANG), math.degrees(SLAB_ANG), WALL_H, PIL_H))
+    for nm_, w3, ph in pts:
+        q = pxl(w3); print('  %-28s Render (%6.1f|%6.1f)  Foto (%5.1f|%5.1f)  Abweichung %+5.1f / %+5.1f px' % (nm_, q[0], q[1], ph[0], ph[1], q[0] - ph[0], q[1] - ph[1]))
+    q = at_height(150, 441, 0.0); print('  Wandfusslinie-Test (150|441): Abstand zur Wandebene %+.3f m (0 = parallel zur Wand)' % (q[0] - WALL_X))
+    q = on_plane_x(150, 110.7, WALL_X); print('  Wandoberkante-Test (150|111): Hoehe %.3f m, Soll %.3f m' % (q[2], WALL_H))
+    import sys as _s; _s.exit(0)
+
 # ---------------------------------------------------------------- Render
 cy = sc.cycles
 sc.render.engine = 'CYCLES'; cy.device = 'CPU'; cy.samples = SAMPLES; cy.use_denoising = True
 cy.max_bounces = 14; cy.diffuse_bounces = 10; cy.glossy_bounces = 6; cy.transmission_bounces = 4
 cy.sample_clamp_indirect = 0; cy.sample_clamp_direct = 0; cy.caustics_reflective = False; cy.caustics_refractive = False
 sc.render.resolution_x = sc.render.resolution_y = RES; sc.render.resolution_percentage = 100
-sc.view_settings.view_transform = opt.get('tm', 'AgX'); sc.view_settings.exposure = EXPO; sc.view_settings.look = 'None'
+sc.view_settings.view_transform = opt.get('tm', 'Standard'); sc.view_settings.exposure = EXPO; sc.view_settings.look = opt.get('look', 'None')
 sc.render.filepath = out; sc.render.image_settings.file_format = 'PNG'
 bpy.ops.render.render(write_still=True)
 print('DONE', out)
