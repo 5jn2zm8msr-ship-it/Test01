@@ -30,6 +30,13 @@ Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tausc
 
 Prüfung: 7.1 + 2K-Textur kostete real **30 Credits** (Preisseite: 30).
 
+## Textur neu (Retexture)
+Skizzen als Eingabe führen dazu, dass Meshy die **Schraffur der Zeichnung in die Textur backt** (Test: graues Flickwerk statt Lack). Abhilfe ohne neue Form:
+Box *Textur neu* am gewählten Auto → Beschreibung (*Look*, Standard: glänzender graphit-metallic Lack, schwarze Scheiben, Carbon/Chrom, „no sketch strokes“) → Bestätigung → Knopf.
+Meshy-Retexture (`enable_original_uv`, Form bleibt) kostet **10 Credits** (2K/4K, 8K: 15). Das neue Auto wird importiert, das alte ausgeblendet.
+Meshys Doku nennt Multi-Image-Tasks nicht als Quelle: lehnt Meshy die Task-ID ab (HTTP 400), geht das lokale GLB als `model_url` hoch (max. 100 MB).
+Tests: `test_retexture.py` (Mock), `check_retexture_flow_bpy.py` (bpy). Live noch nicht getestet.
+
 ## Bewusst weggelassen: Remesh/Quads (0.5–0.7)
 Remesh (auch mit Quads) wurde ausprobiert und wieder entfernt: Das Modell wird dabei von ~1,1 Mio. auf ~61.000 Dreiecke reduziert, die Textur wird neu gebacken,
 und das Ergebnis war sichtbar schlechter als der Lauf ohne Remesh. Standard ist jetzt immer der Lauf **ohne Remesh** (volles Detail). Der Code steht weiter in der
@@ -41,4 +48,4 @@ Git-Historie (Commit `378a914`, Version 0.7.0). Vergleichsbilder des Remesh-Lauf
 - Credit-Preise: Pricing-Seite nicht selbst geprüft – vor Nutzung im Meshy-Dashboard nachsehen.
 
 ## Test
-`python -I tests/meshy_cars/test_client.py` `test_sizing.py` und `test_prices.py` (Mock-Server, ohne Netz/Blender). Die Blender-Oberfläche ist hier **nicht** in Blender getestet.
+`python -I tests/meshy_cars/test_client.py` `test_sizing.py`, `test_prices.py` und `test_retexture.py` (Mock-Server, ohne Netz/Blender). Die Blender-Oberfläche ist hier **nicht** in Blender getestet.

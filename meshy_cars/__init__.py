@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 8, 0),
+    "version": (0, 9, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
@@ -63,6 +63,10 @@ def _apply_width(self, context):
     root.scale = (f, f, f)
 
 
+RETEX_DEFAULT = ("glossy metallic graphite car paint, clean smooth surface, black tinted glass, dark carbon fiber and chrome details, "
+                 "no sketch strokes, no hatching, no pencil texture")
+
+
 def api_key(context=None):
     try:
         k = bpy.context.preferences.addons[__package__].preferences.api_key
@@ -103,6 +107,9 @@ class MeshyCarsSettings(PropertyGroup):
                             update=_apply_width,
                             description="Jedes Auto wird beim Import auf diese Breite skaliert (Bounding-Box quer zur Fahrtrichtung); Länge und Radstand ergeben sich")
     confirm: BoolProperty(name="Ich weiß: kostenpflichtig (Credits)", default=False)
+    retex_prompt: StringProperty(name="Look", default=RETEX_DEFAULT,
+                                 description="Beschreibung der neuen Textur (englisch klappt am besten, max. 800 Zeichen). Ersetzt die Skizzen-Schraffur durch sauberen Lack")
+    retex_confirm: BoolProperty(name="Ich weiß: Retexture kostet Credits", default=False)
     # Fortschritt (vom Timer gesetzt)
     progress: FloatProperty(default=0.0, min=0.0, max=1.0)
     status: StringProperty(default="")
@@ -124,6 +131,16 @@ def _worker(key, paths, out_dir, opts, state, cancel):
         state.update(done=True, error=str(e))
 
 
+def _retexture_worker(key, task_id, glb, out_dir, opts, state, cancel):
+    def prog(f, txt):
+        state["progress"], state["status"] = f, txt
+    try:
+        out, tid, credits, way = client.run_retexture(key, task_id, glb, out_dir, opts, prog, cancel.is_set)
+        state.update(done=True, glb=out, task_id=tid, credits=credits, way=way)
+    except Exception as e:  # noqa: BLE001
+        state.update(done=True, error=str(e))
+
+
 def credit_estimate(s):
     """(Credits, Fehltext) für die aktuellen Einstellungen, nach der Preisseite."""
     try:
@@ -132,7 +149,7 @@ def credit_estimate(s):
         return None, str(e)
 
 
-def _import_glb(context, glb, name, task_id=None):
+def _import_glb(context, glb, name, task_id=None, hide_root=None):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=glb)
     new = [o for o in bpy.data.objects if o not in before]
@@ -150,6 +167,10 @@ def _import_glb(context, glb, name, task_id=None):
     root["mc_glb"] = glb
     if task_id:
         root["mc_task_id"] = task_id
+    if hide_root is not None:                         # Vorgänger-Auto ausblenden (liegt sonst deckungsgleich darunter)
+        for o in [hide_root] + list(hide_root.children_recursive):
+            o.hide_set(True)
+        root["mc_parent"] = hide_root.name
     bpy.ops.object.select_all(action="DESELECT")
     root.select_set(True)
     context.view_layer.objects.active = root
@@ -271,6 +292,41 @@ class MESHYCARS_OT_generate(_JobMixin, Operator):
         return "Fertig: %d Mesh-Objekt(e) in %s (Credits: %s)" % (n, coll.name, st.get("credits"))
 
 
+class MESHYCARS_OT_retexture(_JobMixin, Operator):
+    bl_idname = "meshycars.retexture"
+    bl_label = "Textur neu erzeugen"
+    bl_description = "Meshy-Retexture (10 Credits bei 2K/4K): gleiche Form, neue Textur nach deiner Beschreibung; das alte Auto wird ausgeblendet"
+
+    def execute(self, context):
+        s = context.scene.meshycars
+        root = active_car_root(context)
+        if root is None or not root.get("mc_task_id"):
+            self.report({"ERROR"}, "Auto wählen, das mit diesem Add-on erzeugt wurde.")
+            return {"CANCELLED"}
+        if not s.retex_confirm:
+            self.report({"ERROR"}, "Bitte erst bestätigen, dass Retexture %d Credits kostet." % client.retexture_credits(s.tex_res))
+            return {"CANCELLED"}
+        key = api_key()
+        if not key:
+            self.report({"ERROR"}, "Kein Meshy-API-Key in den Add-on-Preferences.")
+            return {"CANCELLED"}
+        opts = dict(prompt=s.retex_prompt, texture_resolution=s.tex_res, enable_pbr=s.pbr)
+        try:
+            client.build_retexture_payload(input_task_id=root["mc_task_id"], **opts)      # Eingaben vorab prüfen
+        except client.MeshyError as e:
+            self.report({"ERROR"}, str(e))
+            return {"CANCELLED"}
+        s.retex_confirm = False
+        self._src = root.name
+        out = os.path.join(tempfile.gettempdir(), "meshy_cars")
+        return self._start(context, _retexture_worker, (key, root["mc_task_id"], root.get("mc_glb", ""), out, opts))
+
+    def _done(self, context, st):
+        old = bpy.data.objects.get(getattr(self, "_src", ""))
+        coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"), hide_root=old)
+        return "Retexture fertig in %s (Weg: %s, Credits: %s)" % (coll.name, st.get("way"), st.get("credits"))
+
+
 class MESHYCARS_OT_flip(Operator):
     bl_idname = "meshycars.flip_front"
     bl_label = "Front/Heck tauschen (180°)"
@@ -329,7 +385,14 @@ class MESHYCARS_PT_main(Panel):
             f = root.scale.x
             w.label(text="Länge: %.0f mm" % (root[_LEN] * f * 1000))
             w.label(text="Radstand ≈ %.0f mm (geschätzt, ~60 %% der Länge)" % (sizing.estimate_wheelbase_m(root[_LEN], 0) * f * 1000))
-_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_flip, MESHYCARS_PT_main)
+            if root.get("mc_task_id"):
+                m = L.box()
+                m.label(text="Textur neu – %s" % root.name)
+                m.prop(s, "retex_prompt")
+                m.label(text="Kosten: %d Credits (Form bleibt)" % client.retexture_credits(s.tex_res), icon="INFO")
+                m.prop(s, "retex_confirm")
+                m.operator("meshycars.retexture", icon="TEXTURE")
+_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_retexture, MESHYCARS_OT_flip, MESHYCARS_PT_main)
 
 
 def register():

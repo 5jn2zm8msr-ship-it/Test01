@@ -7,6 +7,8 @@ Stand der API: docs.meshy.ai/en/api/multi-image-to-3d und /changelog, gelesen am
   GET    /openapi/v1/multi-image-to-3d/{id}       -> Task (status PENDING|IN_PROGRESS|SUCCEEDED|FAILED|CANCELED, progress, model_urls.glb)
   DELETE /openapi/v1/multi-image-to-3d/{id}       -> 200 (409, wenn IN_PROGRESS)
   Auth: Authorization: Bearer <Key>. 1-4 Bilder (jpg/jpeg/png/webp, <= 20 MB, >= 32 px), erstes Bild = Vorderansicht.
+  Retexture (docs.meshy.ai/en/api/retexture, 28.11.2026): POST /openapi/v1/retexture {input_task_id | model_url, text_style_prompt (max. 800), enable_original_uv,
+    enable_pbr, texture_resolution}; Preis 10 Credits (2K/4K), 15 (8K). Multi-Image-Tasks sind als input_task_id weder erlaubt noch ausgeschlossen -> Rueckfall auf model_url.
   Preise (docs.meshy.ai/en/api/pricing, 27.11.2026): Multi-Image mesh 20 (7.1/6) bzw. 5 (6-lite), Textur 2K/4K +10, 8K +15
   (6-lite: nur 2K, +10), Ultra-Geometrie 2k +5 (nur 7.1/latest). VERALTET (nicht mehr senden): ai_model "meshy-7" (endet 31.12.2026, danach HTTP 400), "meshy-5"/"meshy-4" (eingestellt),
   ultra_mode (-> geometry_resolution), hd_texture (-> texture_resolution), symmetry_mode (ohne Wirkung), is_a_t_pose.
@@ -22,6 +24,8 @@ import urllib.request
 
 BASE_URL = "https://api.meshy.ai"
 ENDPOINT = "/openapi/v1/multi-image-to-3d"
+RETEXTURE_ENDPOINT = "/openapi/v1/retexture"
+MAX_DATA_URI_BYTES = 100 * 1024 * 1024        # model_url als Data-URI: max. 100 MB
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ALLOWED_EXT = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 AI_MODELS = ("latest", "meshy-7.1", "meshy-6", "meshy-6-lite")      # "meshy-7" bewusst nicht mehr dabei
@@ -210,3 +214,58 @@ def run_job(key, image_paths, out_dir, options, progress=None, cancelled=None, b
     glb = download(url, os.path.join(out_dir, "meshy_car_%s.glb" % tid))
     return glb, tid, task.get("consumed_credits")
 
+
+
+def retexture_credits(texture_resolution="2k"):
+    """Credits eines Retexture-Tasks (Preisseite 28.11.2026: 2K/4K = 10, 8K = 15)."""
+    return 15 if texture_resolution == "8k" else 10
+
+
+def build_retexture_payload(prompt, input_task_id=None, glb_path=None, texture_resolution="2k", enable_pbr=True):
+    """Retexture-Body: Form bleibt (enable_original_uv). Kein ai_model (Doku nennt meshy-7.1 hier nicht; Standard 'latest'), keine veralteten Felder."""
+    if not prompt.strip():
+        raise MeshyError("Textur-Beschreibung fehlt (z.B. 'glossy graphite metallic car paint').")
+    if texture_resolution not in ("2k", "4k", "8k"):
+        raise MeshyError("Textur-Auflösung muss 2k, 4k oder 8k sein.")
+    p = {"text_style_prompt": prompt.strip()[:800], "enable_original_uv": True, "enable_pbr": bool(enable_pbr),
+         "texture_resolution": texture_resolution, "target_formats": ["glb"]}
+    if input_task_id:
+        p["input_task_id"] = input_task_id
+    elif glb_path:
+        if not os.path.isfile(glb_path):
+            raise MeshyError("GLB nicht gefunden: %s" % glb_path)
+        if os.path.getsize(glb_path) > MAX_DATA_URI_BYTES:
+            raise MeshyError("GLB größer als 100 MB – als Data-URI nicht sendbar.")
+        with open(glb_path, "rb") as f:
+            p["model_url"] = "data:application/octet-stream;base64," + base64.b64encode(f.read()).decode("ascii")
+    else:
+        raise MeshyError("Retexture braucht input_task_id oder eine GLB-Datei.")
+    return p
+
+
+def run_retexture(key, input_task_id, glb_path, out_dir, options, progress=None, cancelled=None, base_url=BASE_URL, interval=4.0):
+    """Neue Textur fuer ein fertiges Auto. Erst mit input_task_id; lehnt Meshy ab (HTTP 400), Rueckfall auf die lokale GLB als model_url.
+    Liefert (glb_pfad, task_id, credits, benutzter_weg)."""
+    client = MeshyClient(key, base_url)
+    way = "input_task_id"
+    if progress:
+        progress(0.01, "Retexture wird gestartet …")
+    try:
+        if not input_task_id:
+            raise MeshyError("keine Task-ID", 400)
+        tid = client.create(build_retexture_payload(input_task_id=input_task_id, **options), RETEXTURE_ENDPOINT)
+    except MeshyError as e:
+        if e.code != 400 or not glb_path:
+            raise
+        way = "model_url"
+        if progress:
+            progress(0.02, "Task-ID abgelehnt – lade lokale GLB hoch …")
+        tid = client.create(build_retexture_payload(glb_path=glb_path, **options), RETEXTURE_ENDPOINT)
+    task = client.wait(tid, progress, cancelled, interval, endpoint=RETEXTURE_ENDPOINT, label="Meshy texturiert neu")
+    url = (task.get("model_urls") or {}).get("glb")
+    if not url:
+        raise MeshyError("Retexture fertig, aber ohne GLB-Link.")
+    os.makedirs(out_dir, exist_ok=True)
+    if progress:
+        progress(0.97, "Lade GLB …")
+    return download(url, os.path.join(out_dir, "meshy_car_retex_%s.glb" % tid)), tid, task.get("consumed_credits"), way
