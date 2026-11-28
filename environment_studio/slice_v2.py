@@ -22,6 +22,11 @@ JOBS = {  # name: (dateien, Ausrichtung)
  'Heck_Schnittflaeche_unten_gedreht': (['Karosserie_3_Heck'], R(Y, 90)),
  'Front_liegend_seite': (['Karosserie_1_Front'], R(X, 90)),
  'Heck_liegend_seite': (['Karosserie_3_Heck'], R(X, 90)),
+ 'FrontKabine_stehend': (['Karosserie_1_Front_Kabine'], R(Y, 90)),
+ 'Heck4_natuerlich': (['Karosserie_2_Heck'], np.eye(4)),
+ 'Heck4_stehend': (['Karosserie_2_Heck'], R(Y, -90)),
+ 'Aufbau_natuerlich': (['Karosserie_3_Aufbau'], np.eye(4)),
+ 'Duebel_klein': (['Duebel_klein'], R(Y, -90)),
  'Rad_zweifarbig': (['Rad_Reifen_schwarz', 'Rad_Felge_weiss'], R(X, 90)),
  'Duebel': (['Duebel'], R(Y, -90)),
 }

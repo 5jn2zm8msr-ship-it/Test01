@@ -9,7 +9,8 @@ P = float(sys.argv[3]) if len(sys.argv) > 3 else 0.6
 RC = float(sys.argv[4]) if len(sys.argv) > 4 else 1.6
 RO = float(sys.argv[5]) if len(sys.argv) > 5 else 0.9
 MINV = float(sys.argv[6]) if len(sys.argv) > 6 else 300.0
-CAB_X0, CAB_X1, PLUG_X1, CABZ0, SHELL = -40.0, 45.0, 62.5, 73.0, 3.0    # Kabine hohl von -40 bis 45, Stecker 45..62,5
+CAB_X0, CAB_X1, PLUG_X1, CABZ0, SHELL = -40.0, 33.0, 62.5, 73.0, 3.0    # Kabine hohl von -40 bis 33 (Dach als 45-Grad-Walm), massiver Stecker 33..62,5
+STRAIGHT = 18.0                                                          # gerader Hohlraum ab Trennflaeche x=33, danach 45 Grad
 HOOD = (-215.0, -40.0, 84.0)               # Motorraum/Keil massiv x0,x1,|y|
 t0 = time.time()
 m = trimesh.load(src); m.merge_vertices(); print('geladen', len(m.faces), round(time.time()-t0), flush=True)
@@ -33,7 +34,7 @@ def dil(a, r): d = ndi.distance_transform_edt(~a, sampling=P); return d <= r
 def ero(a, r): d = ndi.distance_transform_edt(a, sampling=P); return d > r
 occ = ero(dil(occ, RC), RC); print('Closing', round(time.time()-t0), flush=True)
 occ = dil(ero(occ, RO), RO); print('Opening', round(time.time()-t0), 'Vol cm3', occ.sum()*P**3/1000, flush=True)
-# Fuellen: Kabine (Seitenscheiben geschlossen, innen massiv) und Motorraum unter der Haube -> keine geschlossenen Hohlraeume (Stuetzen innen unmoeglich)
+# Fuellen: Kabine (Seitenscheiben geschlossen) und Motorraum unter der Haube -> keine geschlossenen Hohlraeume (Stuetzen innen unmoeglich)
 X = lambda x: int(round((x - lo[0])/P)); Y = lambda y: int(round((y - lo[1])/P)); Z = lambda z: int(round((z - lo[2])/P))
 if not __import__('os').environ.get('NOFILL'):
     # Kabine x in [CAB_X0, CAB_X1]: Silhouette (Projektion entlang x) -> hohles Prisma, 3 mm Wand, Fenster geschlossen, Innenleben entfernt
@@ -48,8 +49,11 @@ if not __import__('os').environ.get('NOFILL'):
     ax0, ax1, ax2 = X(CAB_X0), X(CAB_X1), X(PLUG_X1)
     blk = occ[ax0:ax2, y0:y1, z0:z1]
     blk &= ~sil[None]                                   # alles innerhalb der Silhouette raus
-    blk[:ax1-ax0] |= shell2[None]                       # Prisma-Huelle
-    blk[ax1-ax0:] |= sil[None]                          # massiver Stecker (Dueubel-Platte) hinter der Kabine bis zur Rueckwand
+    edt_in = ndi.distance_transform_edt(sil, sampling=P) - SHELL        # Abstand zur Aussenhaut minus Wandstaerke
+    for k in range(ax1 - ax0):                          # x von -40 (vorn) bis 33 (Trennflaeche)
+        xk = CAB_X0 + k*P; d = max(0.0, (CAB_X1 - xk) - STRAIGHT)       # 45 Grad: Hohlraum schrumpft ab 18 mm Hoehe ueber der Trennflaeche
+        blk[k] |= sil & ~(edt_in > d)                   # fest = Silhouette ohne Hohlraum
+    blk[ax1-ax0:] |= sil[None]                          # massiver Stecker hinter der Trennflaeche bis zur Rueckwand
     occ[ax0:ax2, y0:y1, z0:z1] = blk
     # Motorraum + Windschutzscheiben-Keil vorn: je (x,y) von tiefster bis hoechster Stelle fuellen
     zone = occ[X(HOOD[0]):X(HOOD[1]), Y(-HOOD[2]):Y(HOOD[2]), :]

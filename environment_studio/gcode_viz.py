@@ -33,14 +33,15 @@ for line in open(path, errors='ignore'):
 tot = sum(vol.values()); stats = {k: dict(cm3=round(v/1000, 2), prozent=round(100*v/tot, 1)) for k, v in sorted(vol.items(), key=lambda kv: -kv[1])}
 json.dump(dict(gesamt_cm3=round(tot/1000, 1), typen=stats), open(pre + '_stats.json', 'w'), indent=1, ensure_ascii=False); print(json.dumps(stats, ensure_ascii=False)[:600])
 # Seitenschnitt
-fig, ax = plt.subplots(figsize=(11, 9), dpi=170); ax.set_facecolor('#101114'); fig.patch.set_facecolor('#101114')
+allp = np.array([p for v in pts.values() for p in v]); xr = np.ptp(allp[:, 0]) + 10; zr = np.ptp(allp[:, 1]) + 10
+fig, ax = plt.subplots(figsize=(11, max(3.0, min(11*zr/xr, 12)) + 0.8), dpi=170); ax.set_facecolor('#101114'); fig.patch.set_facecolor('#101114')
 order = ['Skirt/Brim', 'Internal infill', 'Solid infill', 'Top solid infill', 'Perimeter', 'External perimeter', 'Gap fill', 'Support material', 'Support material interface', 'Bridge infill', 'Overhang perimeter']
 for t in order:
     if t in pts:
-        a = np.array(pts[t]); ax.scatter(a[:, 0], a[:, 1], s=0.5, c=COL.get(t, '#fff'), marker='.', linewidths=0, label=NAME.get(t, t))
+        a = np.array(pts[t]); ax.scatter(a[:, 0], a[:, 1], s=max(1.5, 3600/xr), c=COL.get(t, '#fff'), marker='s', linewidths=0, label=NAME.get(t, t))
 ax.set_aspect('equal'); ax.tick_params(colors='#aaa'); [sp.set_color('#444') for sp in ax.spines.values()]
 ax.set_xlabel('x (mm), Bett', color='#bbb'); ax.set_ylabel('z (mm), Bauhöhe', color='#bbb'); ax.set_title('Seitenschnitt durch den G-Code (y = %.0f mm)' % CY, color='#eee')
-lg = ax.legend(markerscale=14, facecolor='#1b1c20', edgecolor='#444', labelcolor='#ddd', fontsize=9, loc='upper left', bbox_to_anchor=(1.0, 1.0)); fig.tight_layout(); fig.savefig(pre + '_schnitt.png', facecolor=fig.get_facecolor()); plt.close(fig)
+lg = ax.legend(markerscale=1.0, facecolor='#1b1c20', edgecolor='#444', labelcolor='#ddd', fontsize=9, loc='upper left', bbox_to_anchor=(1.0, 1.0)); fig.savefig(pre + '_schnitt.png', facecolor=fig.get_facecolor(), bbox_inches='tight'); plt.close(fig)
 # Schichtansichten
 fig, axs = plt.subplots(1, len(layers), figsize=(5.4*len(layers), 5.6), dpi=170); fig.patch.set_facecolor('#101114')
 axs = np.atleast_1d(axs)
