@@ -4,8 +4,8 @@ from PIL import Image, ImageDraw, ImageFont
 d, out = sys.argv[1:3]
 FB = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; FR = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 f = ImageFont.truetype(FB, 34); f2 = ImageFont.truetype(FR, 24); f3 = ImageFont.truetype(FR, 21)
-S = {n: json.load(open(f'{d}/{n}_stats.json')) for n in ('front6', 'heck6', 'aufbau6', 'rad6')}
-NAMES = {'front6': 'Front + Kabine', 'heck6': 'Heck-Fahrwerk', 'aufbau6': 'Aufbau (Motorrad)', 'rad6': 'Rad (1 Stück)'}
+S = {n: json.load(open(f'{d}/{n}_stats.json')) for n in ('front6', 'heck7', 'aufbau6', 'rad6')}
+NAMES = {'front6': 'Front + Kabine', 'heck7': 'Heck-Fahrwerk', 'aufbau6': 'Aufbau (Motorrad)', 'rad6': 'Rad (1 Stück)'}
 def share(n, k): return S[n]['typen'].get(k, {}).get('prozent', 0.0)
 W = 2800; pad = 40
 a = Image.open(f'{d}/aufbau6_schnitt.png').convert('RGB'); b = Image.open(f'{d}/front6_schichten.png').convert('RGB')
@@ -21,7 +21,7 @@ dr.text((pad, y), 'Materialanteile nach Strukturtyp (Volumen, PrusaSlicer-Lauf, 
 cols = ['Teil', 'Wände', 'Infill', 'Vollfläche/Deckel', 'Brücken', 'Stützen (+ Kontaktschicht)', 'Gesamt cm³']; xs = [pad, 330, 560, 790, 1130, 1380, 1900]
 for c, x in zip(cols, xs): dr.text((x, y), c, fill=(150, 160, 175), font=f3)
 y += 40
-for n in ('front6', 'heck6', 'aufbau6', 'rad6'):
+for n in ('front6', 'heck7', 'aufbau6', 'rad6'):
     row = [NAMES[n], '%.0f %%' % (share(n, 'Perimeter') + share(n, 'External perimeter') + share(n, 'Overhang perimeter')), '%.0f %%' % share(n, 'Internal infill'),
            '%.0f %%' % (share(n, 'Solid infill') + share(n, 'Top solid infill')), '%.1f %%' % share(n, 'Bridge infill'),
            '%.1f %%' % (share(n, 'Support material') + share(n, 'Support material interface')), '%.0f' % S[n]['gesamt_cm3']]

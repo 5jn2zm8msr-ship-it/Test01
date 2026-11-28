@@ -10,7 +10,8 @@ RC = float(sys.argv[4]) if len(sys.argv) > 4 else 1.6
 RO = float(sys.argv[5]) if len(sys.argv) > 5 else 0.9
 MINV = float(sys.argv[6]) if len(sys.argv) > 6 else 300.0
 CAB_X0, CAB_X1, PLUG_X1, CABZ0, SHELL = -40.0, 33.0, 62.5, 73.0, 3.0    # Kabine hohl von -40 bis 33 (Dach als 45-Grad-Walm), massiver Stecker 33..62,5
-STRAIGHT = 18.0                                                          # gerader Hohlraum ab Trennflaeche x=33, danach 45 Grad
+STRAIGHT = 18.0
+BED_Y, BED_CLOSE, BED_Z0, BED_Z1 = 64.0, 6.0, 71.0, 76.5       # Boden zwischen den Hinterraedern (|y| <= 64), Luecken bis 12 mm schliessen, Plattenhoehe z 71..76,5                                                          # gerader Hohlraum ab Trennflaeche x=33, danach 45 Grad
 HOOD = (-215.0, -40.0, 84.0)               # Motorraum/Keil massiv x0,x1,|y|
 t0 = time.time()
 m = trimesh.load(src); m.merge_vertices(); print('geladen', len(m.faces), round(time.time()-t0), flush=True)
@@ -34,6 +35,16 @@ def dil(a, r): d = ndi.distance_transform_edt(~a, sampling=P); return d <= r
 def ero(a, r): d = ndi.distance_transform_edt(a, sampling=P); return d > r
 occ = ero(dil(occ, RC), RC); print('Closing', round(time.time()-t0), flush=True)
 occ = dil(ero(occ, RO), RO); print('Opening', round(time.time()-t0), 'Vol cm3', occ.sum()*P**3/1000, flush=True)
+X = lambda x: int(round((x - lo[0])/P)); Y = lambda y: int(round((y - lo[1])/P)); Z = lambda z: int(round((z - lo[2])/P))
+# Pritschenboden schliessen: Grundriss der Ladeflaeche (Material bei z 64..80, x > 62) zusammenfassen, Luecken zumachen, als 5,5 mm Platte einsetzen
+if not __import__('os').environ.get('NOBED'):
+    bx0, bx1, by0, by1, bz0, bz1 = X(62.6), X(214.5), Y(-BED_Y), Y(BED_Y), Z(64.0), Z(80.0)
+    fp = occ[bx0:bx1, by0:by1, bz0:bz1].any(2)
+    fp = ndi.binary_closing(fp, iterations=int(round(BED_CLOSE/P)), border_value=0); fp = ndi.binary_fill_holes(fp)
+    z0p, z1p = Z(BED_Z0), Z(BED_Z1)
+    before = occ[bx0:bx1, by0:by1, z0p:z1p].sum()*P**3/1000
+    occ[bx0:bx1, by0:by1, z0p:z1p] |= fp[:, :, None]
+    print('Pritschenboden: Flaeche %.0f cm2, Plattenvolumen +%.0f cm3' % (fp.sum()*P*P/100, occ[bx0:bx1, by0:by1, z0p:z1p].sum()*P**3/1000 - before), flush=True)
 # Fuellen: Kabine (Seitenscheiben geschlossen) und Motorraum unter der Haube -> keine geschlossenen Hohlraeume (Stuetzen innen unmoeglich)
 X = lambda x: int(round((x - lo[0])/P)); Y = lambda y: int(round((y - lo[1])/P)); Z = lambda z: int(round((z - lo[2])/P))
 if not __import__('os').environ.get('NOFILL'):

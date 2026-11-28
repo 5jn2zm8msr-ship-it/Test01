@@ -8,9 +8,9 @@ FB = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; FR = '/usr/share/fo
 f = ImageFont.truetype(FB, 30); f2 = ImageFont.truetype(FR, 25); f3 = ImageFont.truetype(FR, 20)
 TIRE = 95.3/(95.3+37.3)                          # Volumenanteil Reifen (schwarz) am Rad
 ROWS = [  # (Nr, Name, Anzahl, Masse mm (Druckausrichtung), g/Stk, schwarz-Anteil, h/Stk, Ausrichtung, Teile in Zeichnung)
- ('1', 'Front + Kabine (ein Stück, Hohlraum mit 45°-Dach, 4 Pfosten)', 1, '168×198×247', 660.4, 1.0, 20.4, 'stehend auf der Trennfläche, Nase oben', ['Karosserie_1_Front_Kabine']),
- ('2', 'Heck-Fahrwerk (Boden, Rahmen, Stecker zur Kabine)', 1, '178×187×168', 294.2, 1.0, 10.8, 'wie im Auto (Räder unten)', ['Karosserie_2_Heck']),
- ('3', 'Aufbau: Motorrad, Käfig, Rohre', 1, '151×187×114', 252.0, 1.0, 13.4, 'wie im Auto, 4 Dübelpunkte unten', ['Karosserie_3_Aufbau']),
+ ('1', 'Front + Kabine (ein Stück, Hohlraum mit 45°-Dach, 4 Pfosten)', 1, '168×198×247', 660.2, 1.0, 20.4, 'stehend auf der Trennfläche, Nase oben', ['Karosserie_1_Front_Kabine']),
+ ('2', 'Heck-Fahrwerk (durchgehende Ladefläche, Rahmen, Stecker zur Kabine)', 1, '178×187×168', 300.5, 1.0, 10.9, 'wie im Auto (Räder unten)', ['Karosserie_2_Heck']),
+ ('3', 'Aufbau: Motorrad, Käfig, Rohre', 1, '151×187×114', 250.9, 1.0, 13.4, 'wie im Auto, 4 Dübelpunkte unten', ['Karosserie_3_Aufbau']),
  ('4–7', 'Rad: Reifen schwarz + Felge weiß, EIN Teil', 4, '81×81×50', 40.9, TIRE, 2.0, 'liegend, Außenseite unten, Zapfen oben', ['Rad_VL', 'Rad_VR', 'Rad_HL', 'Rad_HR']),
  ('8–11', 'Dübel groß ⌀ 5,8 × 24 mm (weiß)', 4, '6×6×24', 0.86, 0.0, 0.14, 'stehend', ['Duebel_%d' % i for i in range(1, 5)]),
  ('12–15', 'Dübel klein ⌀ 3,0 × 13 mm (weiß)', 4, '3×3×13', 0.15, 0.0, 0.03, 'stehend', ['Pin_%d' % i for i in range(1, 5)]),
