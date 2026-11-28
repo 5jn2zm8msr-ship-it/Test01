@@ -1,0 +1,228 @@
+{
+ "_bohrungen_anteil": [
+  1.0,
+  0.96,
+  0.96,
+  0.97,
+  0.86,
+  0.83,
+  0.91,
+  0.91,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0
+ ],
+ "Rad_VL": {
+  "faces": 180758,
+  "vol_cm3": 128.87,
+  "area_cm2": 264.4,
+  "bbox_mm": [
+   79.8,
+   50.1,
+   80.8
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 5,
+  "grosse_huellen_vol_mm3": [
+   128869
+  ]
+ },
+ "Rad_VR": {
+  "faces": 152484,
+  "vol_cm3": 130.42,
+  "area_cm2": 226.4,
+  "bbox_mm": [
+   79.9,
+   50.1,
+   80.7
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 4,
+  "grosse_huellen_vol_mm3": [
+   130424
+  ]
+ },
+ "Rad_HL": {
+  "faces": 148002,
+  "vol_cm3": 132.56,
+  "area_cm2": 219.6,
+  "bbox_mm": [
+   80.6,
+   49.7,
+   80.9
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 3,
+  "grosse_huellen_vol_mm3": [
+   132563
+  ]
+ },
+ "Rad_HR": {
+  "faces": 142226,
+  "vol_cm3": 131.97,
+  "area_cm2": 214.3,
+  "bbox_mm": [
+   80.5,
+   49.6,
+   80.9
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 5,
+  "grosse_huellen_vol_mm3": [
+   131973
+  ]
+ },
+ "Spiegel_L": {
+  "faces": 3884,
+  "vol_cm3": 0.79,
+  "area_cm2": 8.5,
+  "bbox_mm": [
+   7.0,
+   21.3,
+   27.7
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   791
+  ]
+ },
+ "Spiegel_R": {
+  "faces": 3696,
+  "vol_cm3": 0.81,
+  "area_cm2": 8.5,
+  "bbox_mm": [
+   6.8,
+   21.3,
+   27.7
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   805
+  ]
+ },
+ "Reserverad": {
+  "faces": 22240,
+  "vol_cm3": 10.69,
+  "area_cm2": 55.2,
+  "bbox_mm": [
+   44.0,
+   16.0,
+   58.0
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   10688
+  ]
+ },
+ "Karosserie_vorn": {
+  "faces": 995762,
+  "vol_cm3": 1005.57,
+  "area_cm2": 3618.0,
+  "bbox_mm": [
+   205.5,
+   194.4,
+   167.7
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 13,
+  "grosse_huellen_vol_mm3": [
+   1005566
+  ]
+ },
+ "Karosserie_hinten": {
+  "faces": 1013002,
+  "vol_cm3": 487.51,
+  "area_cm2": 3084.7,
+  "bbox_mm": [
+   221.6,
+   186.8,
+   168.2
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 58,
+  "grosse_huellen_vol_mm3": [
+   487507
+  ]
+ },
+ "Duebel_1": {
+  "faces": 252,
+  "vol_cm3": 0.63,
+  "area_cm2": 4.9,
+  "bbox_mm": [
+   5.8,
+   5.8,
+   24.0
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   633
+  ]
+ },
+ "Duebel_2": {
+  "faces": 252,
+  "vol_cm3": 0.63,
+  "area_cm2": 4.9,
+  "bbox_mm": [
+   5.8,
+   5.8,
+   24.0
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   633
+  ]
+ },
+ "Duebel_3": {
+  "faces": 252,
+  "vol_cm3": 0.63,
+  "area_cm2": 4.9,
+  "bbox_mm": [
+   5.8,
+   5.8,
+   24.0
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   633
+  ]
+ },
+ "Duebel_4": {
+  "faces": 252,
+  "vol_cm3": 0.63,
+  "area_cm2": 4.9,
+  "bbox_mm": [
+   5.8,
+   5.8,
+   24.0
+  ],
+  "watertight": true,
+  "huellen": 1,
+  "kleinteile_verworfen": 0,
+  "grosse_huellen_vol_mm3": [
+   633
+  ]
+ }
+}

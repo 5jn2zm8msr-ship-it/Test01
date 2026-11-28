@@ -55,7 +55,16 @@ for l in list(nt.links):
         bc = nt.nodes.new('ShaderNodeBrightContrast'); bc.inputs['Contrast'].default_value = KONT; bc.inputs['Bright'].default_value = float(os.environ.get('HELL', '0.05'))
         nt.links.new(hs.outputs['Color'], bc.inputs['Color'])
         mxn = nt.nodes.new('ShaderNodeMix'); mxn.data_type = 'RGBA'; mxn.blend_type = 'MULTIPLY'
-        mxn.inputs['Factor'].default_value = 1.0; mxn.inputs['B'].default_value = (KARO, KARO, KARO*1.02, 1)
+        mxn.inputs['Factor'].default_value = 1.0
+        lum0 = nt.nodes.new('ShaderNodeRGBToBW'); nt.links.new(src, lum0.inputs['Color'])
+        dk = nt.nodes.new('ShaderNodeValToRGB'); nt.links.new(lum0.outputs['Val'], dk.inputs['Fac'])
+        FEN = float(os.environ.get('FENDER', '0.80'))   # Kotfluegel/graue Teile 20 % dunkler, Felgen-Weiss bleibt
+        cr_ = dk.color_ramp; cr_.interpolation = 'LINEAR'
+        cr_.elements[0].position = 0.0; cr_.elements[0].color = (KARO, KARO, KARO*1.02, 1)
+        e1 = cr_.elements.new(0.22); e1.color = (FEN, FEN, FEN, 1)
+        e2 = cr_.elements.new(0.55); e2.color = (FEN, FEN, FEN, 1)
+        cr_.elements[-1].position = 0.80; cr_.elements[-1].color = (1, 1, 1, 1)
+        nt.links.new(dk.outputs['Color'], mxn.inputs['B'])
         nt.links.new(bc.outputs['Color'], mxn.inputs['A']); nt.links.new(mxn.outputs['Result'], bsdf.inputs['Base Color'])
         # Metallic nach Helligkeit: dunkle Flaechen metallisch, helle (weisse Felgen) nicht
         lum = nt.nodes.new('ShaderNodeRGBToBW'); nt.links.new(src, lum.inputs['Color'])
@@ -67,6 +76,56 @@ for l in list(nt.links):
             if ll.to_node == bsdf and ll.to_socket.name == 'Metallic': nt.links.remove(ll)
         nt.links.new(mm.outputs['Result'], bsdf.inputs['Metallic'])
         break
+
+# ---- Windschutzscheibe (Positionsmaske), Dirt ----
+def mathn(op, a=None, b=None, clamp=False):
+    n_ = nt.nodes.new('ShaderNodeMath'); n_.operation = op; n_.use_clamp = clamp
+    if a is not None: n_.inputs[0].default_value = a
+    if b is not None: n_.inputs[1].default_value = b
+    return n_
+tcm = nt.nodes.new('ShaderNodeTexCoord'); spm = nt.nodes.new('ShaderNodeSeparateXYZ'); nt.links.new(tcm.outputs['Object'], spm.inputs['Vector'])
+def cmp_(op, sock, v):
+    n_ = mathn(op, None, v); nt.links.new(sock, n_.inputs[0]); return n_.outputs[0]
+absy = mathn('ABSOLUTE'); nt.links.new(spm.outputs['Y'], absy.inputs[0])
+WS = [float(v) for v in os.environ.get('WS', '-1.30,-0.60,0.72,1.22,1.62').split(',')]   # x0,x1,|y|max,z0,z1
+conds = [cmp_('GREATER_THAN', spm.outputs['X'], WS[0]), cmp_('LESS_THAN', spm.outputs['X'], WS[1]), cmp_('LESS_THAN', absy.outputs[0], WS[2]),
+         cmp_('GREATER_THAN', spm.outputs['Z'], WS[3]), cmp_('LESS_THAN', spm.outputs['Z'], WS[4])]
+mask = conds[0]
+for c_ in conds[1:]:
+    mm_ = mathn('MULTIPLY'); nt.links.new(mask, mm_.inputs[0]); nt.links.new(c_, mm_.inputs[1]); mask = mm_.outputs[0]
+def mixc(fac_sock, a_sock_or_val, b_val, dtype='RGBA'):
+    n_ = nt.nodes.new('ShaderNodeMix'); n_.data_type = dtype
+    nt.links.new(fac_sock, n_.inputs['Factor'])
+    ia = n_.inputs['A']; ib = n_.inputs['B']
+    if hasattr(a_sock_or_val, 'node'): nt.links.new(a_sock_or_val, ia)
+    else: ia.default_value = a_sock_or_val
+    ib.default_value = b_val
+    return n_
+# Dirt: grober + feiner Noise, unten (Schweller/Reifen) staerker, Staubfarbe, leicht rauer
+nz1 = nt.nodes.new('ShaderNodeTexNoise'); nz1.inputs['Scale'].default_value = 9.0; nz1.inputs['Detail'].default_value = 12; nz1.inputs['Roughness'].default_value = 0.7
+nz2 = nt.nodes.new('ShaderNodeTexNoise'); nz2.inputs['Scale'].default_value = 90.0; nz2.inputs['Detail'].default_value = 6
+nt.links.new(tcm.outputs['Object'], nz1.inputs['Vector']); nt.links.new(tcm.outputs['Object'], nz2.inputs['Vector'])
+r1 = nt.nodes.new('ShaderNodeMapRange'); r1.inputs['From Min'].default_value = 0.42; r1.inputs['From Max'].default_value = 0.68; nt.links.new(nz1.outputs['Fac'], r1.inputs['Value'])
+r2 = nt.nodes.new('ShaderNodeMapRange'); r2.inputs['From Min'].default_value = 0.50; r2.inputs['From Max'].default_value = 0.75; r2.inputs['To Max'].default_value = 0.5; nt.links.new(nz2.outputs['Fac'], r2.inputs['Value'])
+hz = nt.nodes.new('ShaderNodeMapRange'); hz.inputs['From Min'].default_value = 1.4; hz.inputs['From Max'].default_value = 0.15; nt.links.new(spm.outputs['Z'], hz.inputs['Value'])
+d1 = mathn('MULTIPLY'); nt.links.new(r1.outputs[0], d1.inputs[0]); nt.links.new(hz.outputs[0], d1.inputs[1])
+d2 = mathn('ADD'); nt.links.new(d1.outputs[0], d2.inputs[0]); nt.links.new(r2.outputs[0], d2.inputs[1])
+DIRT = float(os.environ.get('DIRT', '0.42'))
+d3 = mathn('MULTIPLY', None, DIRT, True); nt.links.new(d2.outputs[0], d3.inputs[0])
+inv = mathn('SUBTRACT', 1.0, None); nt.links.new(mask, inv.inputs[1])
+dirtf = mathn('MULTIPLY', None, None, True); nt.links.new(d3.outputs[0], dirtf.inputs[0]); nt.links.new(inv.outputs[0], dirtf.inputs[1])
+bclink = next(l for l in nt.links if l.to_node == bsdf and l.to_socket.name == 'Base Color')
+base_src = bclink.from_socket
+m_dirt = mixc(dirtf.outputs[0], base_src, (0.16, 0.135, 0.11, 1)); nt.links.new(base_src, m_dirt.inputs['A'])
+m_glass = mixc(mask, m_dirt.outputs['Result'], (0.012, 0.014, 0.018, 1)); nt.links.new(m_dirt.outputs['Result'], m_glass.inputs['A'])
+nt.links.new(m_glass.outputs['Result'], bsdf.inputs['Base Color'])
+# Normal-Map in der Scheibe nahezu aus (weniger Noise)
+for n_ in nt.nodes:
+    if n_.type == 'NORMAL_MAP':
+        sm = mathn('SUBTRACT', 1.0, None); mk = mathn('MULTIPLY', None, 0.92); nt.links.new(mask, mk.inputs[0]); nt.links.new(mk.outputs[0], sm.inputs[1])
+        nt.links.new(sm.outputs[0], n_.inputs['Strength'])
+GLASS_R = float(os.environ.get('GLASS_R', '0.07')); GLASS_M = float(os.environ.get('GLASS_M', '0.9'))
+
 RAU_MIN = float(os.environ.get('RAU_MIN', '0.30'))
 for l in list(nt.links):
     if l.to_node == bsdf and l.to_socket.name == 'Roughness':
@@ -75,6 +134,17 @@ for l in list(nt.links):
         mr.inputs['To Min'].default_value = RAU_MIN; mr.inputs['To Max'].default_value = 1.0
         nt.links.new(l.from_socket, mr.inputs['Value']); nt.links.new(mr.outputs['Result'], bsdf.inputs['Roughness'])
         break
+# Scheibe: glatt + metallisch, Dirt: rauer
+rl = next(l for l in nt.links if l.to_node == bsdf and l.to_socket.name == 'Roughness')
+r_dirt = mixc(dirtf.outputs[0], rl.from_socket, 0.92, 'FLOAT'); nt.links.new(rl.from_socket, r_dirt.inputs['A'])
+r_gl = mixc(mask, r_dirt.outputs['Result'], GLASS_R, 'FLOAT'); nt.links.new(r_dirt.outputs['Result'], r_gl.inputs['A'])
+nt.links.new(r_gl.outputs['Result'], bsdf.inputs['Roughness'])
+ml = next((l for l in nt.links if l.to_node == bsdf and l.to_socket.name == 'Metallic'), None)
+m_gl = mixc(mask, ml.from_socket if ml else bsdf.inputs['Metallic'].default_value, GLASS_M, 'FLOAT')
+if ml: nt.links.new(ml.from_socket, m_gl.inputs['A'])
+nt.links.new(m_gl.outputs['Result'], bsdf.inputs['Metallic'])
+if os.environ.get('DEBUGMASK'):
+    bsdf.inputs['Emission Color'].default_value = (1, 0, 0, 1); nt.links.new(mask, bsdf.inputs['Emission Strength'])
 
 # ---------------- Studio -----------------
 def mk_mat(name, col, rough, spec=0.3):
@@ -195,9 +265,9 @@ schatten('Kontaktschatten_Reifen', 2.3, 1.15, float(os.environ.get('SCH2', '0.55
 # Welt: sehr helles, leicht kuehles Grau (Streulicht der weissen Hohlkehle)
 w = bpy.data.worlds.new('Studio'); sc.world = w; w.use_nodes = True
 bgn = w.node_tree.nodes['Background']
-bgn.inputs['Color'].default_value = (0.82, 0.83, 0.85, 1); bgn.inputs['Strength'].default_value = float(os.environ.get('WORLD', '0.34'))
+bgn.inputs['Color'].default_value = (0.82, 0.83, 0.85, 1); bgn.inputs['Strength'].default_value = float(os.environ.get('WORLD', '0.22'))
 
-LK = float(os.environ.get('LK', '0.03'))
+LK = float(os.environ.get('LK', '0.02'))
 def area(name, loc, target, size, power, color=(1, 1, 1), shape='RECTANGLE', size_y=None, spread=1.0):
     ld = bpy.data.lights.new(name, 'AREA'); ld.shape = shape; ld.size = size
     if size_y: ld.size_y = size_y
@@ -215,7 +285,9 @@ def nur_auto(o):
     try: o.light_linking.receiver_collection = car_coll
     except Exception as e: print('Light-Linking nicht moeglich:', e)
 # grosse Deckensoftbox (weich, Hauptlicht), seitliche Streifenboxen fuer Kantenlicht, Aufhellung vorn
-area('Softbox_Decke', (-1.5, 1.0, 7.5), (0, 0, 0.8), 9.0, 12000*LK, (1.0, 0.99, 0.98), size_y=7.0)
+area('Softbox_Decke', (-1.5, 1.0, 7.5), (0, 0, 0.8), 5.5, 12000*LK, (1.0, 0.99, 0.98), size_y=4.5)
+# Hauptlicht seitlich/hoch, klein -> klarere Schlagschatten-Konturen auf dem Boden
+area('Key_Schlagschatten', (float(os.environ.get('KX', '5.5')), float(os.environ.get('KY', '5.0')), 6.5), (0, 0, 0.4), 2.6, float(os.environ.get('KP', '55000'))*LK, (1.0, 0.98, 0.96), size_y=2.6)
 area('Streifen_links', (-7.5, -6.0, 3.2), (0, 0, 0.9), 1.8, 5000*LK, (0.97, 0.99, 1.0), size_y=6.0)
 area('Streifen_rechts', (7.0, 6.5, 3.5), (0, 0, 0.9), 1.8, 4000*LK, (0.97, 0.99, 1.0), size_y=6.0)
 area('Aufheller_vorn', (-9.0, 4.0, 1.5), (0, 0, 0.8), 6.0, 2200*LK, (0.96, 0.98, 1.0), size_y=3.0)

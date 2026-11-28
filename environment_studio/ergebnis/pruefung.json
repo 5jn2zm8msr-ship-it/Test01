@@ -1,0 +1,105 @@
+{
+ "Duebel_1": {
+  "volumen_cm3": 0.7279360000000001,
+  "filament_cm3": 0.4551744000000001,
+  "gramm": 0.5644162560000001,
+  "zeit_h": 0.014160981333333338,
+  "duenn_mm3": 1.4080000000000004,
+  "duenn_prozent": 0.19342359767891684,
+  "duenn_cluster_ueber_1mm3": 0,
+  "shell_prozent": 55.91700369263232
+ },
+ "Duebel_2": null,
+ "Duebel_3": null,
+ "Duebel_4": null,
+ "Karosserie_hinten": {
+  "volumen_cm3": 532.490752,
+  "filament_cm3": 301.3545088000001,
+  "gramm": 373.6795909120001,
+  "zeit_h": 9.375473607111113,
+  "duenn_mm3": 6476.032000000002,
+  "duenn_prozent": 1.2161773656493475,
+  "duenn_cluster_ueber_1mm3": 255,
+  "shell_prozent": 48.669461962787295
+ },
+ "Karosserie_vorn": {
+  "volumen_cm3": 1048.1970560000002,
+  "filament_cm3": 429.6737888000001,
+  "gramm": 532.7954981120001,
+  "zeit_h": 13.367628984888894,
+  "duenn_mm3": 2581.6320000000005,
+  "duenn_prozent": 0.2462926207646208,
+  "duenn_cluster_ueber_1mm3": 223,
+  "shell_prozent": 30.432848687565862
+ },
+ "Rad_HL": {
+  "volumen_cm3": 134.07648000000003,
+  "filament_cm3": 38.148934400000016,
+  "gramm": 47.30467865600002,
+  "zeit_h": 1.1868557368888892,
+  "duenn_mm3": 182.20800000000006,
+  "duenn_prozent": 0.13589855580934107,
+  "duenn_cluster_ueber_1mm3": 6,
+  "shell_prozent": 15.818410507197084
+ },
+ "Rad_HR": {
+  "volumen_cm3": 133.51897600000004,
+  "filament_cm3": 37.66775360000001,
+  "gramm": 46.708014464000016,
+  "zeit_h": 1.1718856675555558,
+  "duenn_mm3": 163.84000000000003,
+  "duenn_prozent": 0.12270914959683334,
+  "duenn_cluster_ueber_1mm3": 3,
+  "shell_prozent": 15.534115540250998
+ },
+ "Rad_VL": {
+  "volumen_cm3": 129.41664000000003,
+  "filament_cm3": 40.86366720000001,
+  "gramm": 50.67094732800001,
+  "zeit_h": 1.271314090666667,
+  "duenn_mm3": 203.20000000000005,
+  "duenn_prozent": 0.15701226673787852,
+  "duenn_cluster_ueber_1mm3": 2,
+  "shell_prozent": 19.491131897721964
+ },
+ "Rad_VR": {
+  "volumen_cm3": 131.64691200000004,
+  "filament_cm3": 38.31957760000001,
+  "gramm": 47.51627622400001,
+  "zeit_h": 1.192164636444445,
+  "duenn_mm3": 189.18400000000005,
+  "duenn_prozent": 0.14370561156801004,
+  "duenn_cluster_ueber_1mm3": 2,
+  "shell_prozent": 16.588421002993215
+ },
+ "Reserverad": {
+  "volumen_cm3": 11.127168000000003,
+  "filament_cm3": 4.882809600000001,
+  "gramm": 6.054683904000001,
+  "zeit_h": 0.15190963200000002,
+  "duenn_mm3": 370.9440000000001,
+  "duenn_prozent": 3.333678434620561,
+  "duenn_cluster_ueber_1mm3": 3,
+  "shell_prozent": 33.887796068145995
+ },
+ "Spiegel_L": {
+  "volumen_cm3": 0.9239040000000002,
+  "filament_cm3": 0.7559712000000002,
+  "gramm": 0.9374042880000002,
+  "zeit_h": 0.02351910400000001,
+  "duenn_mm3": 16.000000000000004,
+  "duenn_prozent": 1.7317816569686895,
+  "duenn_cluster_ueber_1mm3": 4,
+  "shell_prozent": 78.28345802161265
+ },
+ "Spiegel_R": {
+  "volumen_cm3": 0.9359360000000002,
+  "filament_cm3": 0.7572864000000001,
+  "gramm": 0.9390351360000002,
+  "zeit_h": 0.023560021333333337,
+  "duenn_mm3": 13.952000000000004,
+  "duenn_prozent": 1.4907002188183807,
+  "duenn_cluster_ueber_1mm3": 3,
+  "shell_prozent": 77.14715536105032
+ }
+}
