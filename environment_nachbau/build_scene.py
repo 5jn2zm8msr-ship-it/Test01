@@ -8,7 +8,7 @@ streng mit einer einzigen Sonne vereinbar ist (Bodenkeil: Sonne fast von hinten;
 """
 import math, os, sys
 import bpy
-from mathutils import Vector, Euler
+from mathutils import Vector, Euler, Matrix
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 out = sys.argv[1]
@@ -261,8 +261,8 @@ car = [o for o in bpy.data.objects if o.type == 'MESH' and o.name.startswith('Me
 # Radmaske aus der Geometrie (lokale Koordinaten, aus den Speichen-Vertices vermessen): Felgen + Reifen -> schwarz
 me = car.data; nv = len(me.vertices); co = np.zeros(nv * 3, np.float32); me.vertices.foreach_get('co', co); co = co.reshape(-1, 3)
 rim = np.zeros(nv, np.float32)
-for cx in (-0.552, 0.62):
-    d = np.hypot(co[:, 0] - cx, co[:, 2] - (-0.085))
+for cx in (F('wfx', -0.552), F('wrx', 0.62)):
+    d = np.hypot(co[:, 0] - cx, co[:, 2] - F('wz', -0.085))
     rim[(d < F('rimr', 0.153)) & (np.abs(co[:, 1]) > 0.20)] = 1.0
 att = me.attributes.new('rimmask', 'FLOAT', 'POINT'); att.data.foreach_set('value', rim)
 print('Radvertices', int(rim.sum()))
@@ -483,7 +483,16 @@ if int(F('match', 1)):
         p[0], p[1], p[2], PF.round(1), pix(wpt(cf_, *p)).round(1), PR.round(1), pix(wpt(cr_, *p)).round(1)))
     CAR_X, CAR_Y, CAR_YAW = p
     car.rotation_euler = (0, 0, math.radians(90 + 180 * int(F('flip', 0)) + CAR_YAW)); car.location = (CAR_X, CAR_Y, -0.005)
-    cs.location = car.location + Vector((0, 0, 0.009)); cs.rotation_euler = (0, 0, car.rotation_euler.z)
+    # ---- Anker-Empty am Vorderreifen-Aufstandspunkt (Auto haengt daran; ein neues Auto wird mit seinem Vorderrad hier platziert)
+    anchor = bpy.data.objects.new('Anker_Vorderrad', None); anchor.empty_display_type = 'ARROWS'; anchor.empty_display_size = 0.6; sc.collection.objects.link(anchor)
+    _Fw = wpt(cf_, *p); anchor.location = (_Fw.x, _Fw.y, 0.0); anchor.rotation_euler = (0, 0, car.rotation_euler.z)    # Drehung = Fahrtrichtung des Autos
+    car.parent = anchor; car.matrix_parent_inverse = Matrix.Identity(4); car.rotation_euler = (0, 0, 0)
+    car.location = (-float(cf_[0]), -float(cf_[1]), -0.005)                                                           # Kontaktpunkt des Autos liegt im Anker (5 mm im Boden)
+    cfe = bpy.data.objects.new('Auto_Vorderrad_Kontakt', None); cfe.empty_display_type = 'PLAIN_AXES'; cfe.empty_display_size = 0.3
+    cfe.parent = car; cfe.location = (float(cf_[0]), float(cf_[1]), 0.0); sc.collection.objects.link(cfe)             # Kontaktpunkt des Autos (lokal)
+    bpy.context.view_layer.update()
+    cs.location = car.matrix_world.translation + Vector((0, 0, 0.009)); cs.rotation_euler = (0, 0, anchor.rotation_euler.z)
+    print('ANKER Anker_Vorderrad: Welt (%.3f, %.3f, 0.000)  Drehung %.2f Grad  | Auto-Kontaktpunkt lokal (%.3f, %.3f, 0)' % (_Fw.x, _Fw.y, math.degrees(anchor.rotation_euler.z), cf_[0], cf_[1]))
 
 # ---------------------------------------------------------------- Linienpruefung (ohne Rendern): --check=1
 if int(F('check', 0)):
@@ -503,6 +512,8 @@ if int(F('check', 0)):
         FOCAL, CAM_YAW, HORIZON_PX, WALL_X, BACK_Y, math.degrees(BACK_ANG), math.degrees(SLAB_ANG), WALL_H, PIL_H))
     for nm_, w3, ph in pts:
         q = pxl(w3); print('  %-28s Render (%6.1f|%6.1f)  Foto (%5.1f|%5.1f)  Abweichung %+5.1f / %+5.1f px' % (nm_, q[0], q[1], ph[0], ph[1], q[0] - ph[0], q[1] - ph[1]))
+    _cw = car.matrix_world @ Vector((float(cf_[0]), float(cf_[1]), 0.0)); _q = pxl(_cw)
+    print('  Vorderreifen nach Anker: Welt (%.3f, %.3f, %.3f) -> Pixel (%.1f|%.1f), Foto (437|478); Anker-Abstand %.4f m' % (_cw.x, _cw.y, _cw.z, _q[0], _q[1], (Vector((_cw.x, _cw.y, 0.0)) - anchor.location).length))
     q = at_height(150, 441, 0.0); print('  Wandfusslinie-Test (150|441): Abstand zur Wandebene %+.3f m (0 = parallel zur Wand)' % (q[0] - WALL_X))
     q = on_plane_x(150, 110.7, WALL_X); print('  Wandoberkante-Test (150|111): Hoehe %.3f m, Soll %.3f m' % (q[2], WALL_H))
     import sys as _s; _s.exit(0)
