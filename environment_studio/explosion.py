@@ -12,11 +12,11 @@ POST = [(-74.0, 83.0), (74.0, 83.0), (-64.0, 181.0), (64.0, 181.0)]
 AUF = [(95.0, -10.0), (125.0, -10.0), (182.0, -24.0), (168.0, 55.0)]
 XJ, ZC = 33.0, 78.0
 WH = {'Rad_VL': (-159.0, -1), 'Rad_VR': (-159.0, 1), 'Rad_HL': (116.0, -1), 'Rad_HR': (116.0, 1)}
-OFF = {'Karosserie_1_Front_Kabine': (-45, 0, 0), 'Karosserie_2_Heck': (45, 0, 0), 'Karosserie_3_Aufbau': (45, 0, 95)}
+OFF = {'Karosserie_1_Front_Kabine': (-45, 0, 0), 'Karosserie_2_Heck': (45, 0, 0), 'Karosserie_3_Aufbau': (55, 0, 60)}
 VIEW = os.environ.get('VIEW', 'explosion')       # explosion | front34 | heck34
 ASM = VIEW != 'explosion'
 if ASM: OFF = {k: (0, 0, 0) for k in OFF}
-SCHWARZ = float(os.environ.get('SCHWARZ', '0.10'))     # mattes Schwarzgrau
+SCHWARZ = float(os.environ.get('SCHWARZ', '0.55'))     # schwarzes Filament als Mittelgrau (Shading wie in der ersten Explosionszeichnung)
 objs = {}
 def load(path, name):
     bpy.ops.wm.stl_import(filepath=path); o = bpy.context.object
@@ -25,13 +25,12 @@ def load(path, name):
     bpy.ops.object.shade_smooth(); o.name = name; return o
 def mat(o, g, name):
     m = bpy.data.materials.new(name); m.use_nodes = True; b = m.node_tree.nodes['Principled BSDF']
-    b.inputs['Base Color'].default_value = (g, g, g*1.02, 1); b.inputs['Roughness'].default_value = 1.0
-    b.inputs['Specular IOR Level'].default_value = 0.0; o.data.materials.append(m)
+    b.inputs['Base Color'].default_value = (g, g, g*1.02, 1); b.inputs['Roughness'].default_value = 0.55; o.data.materials.append(m)
 for n in ('Karosserie_1_Front_Kabine', 'Karosserie_2_Heck', 'Karosserie_3_Aufbau'):
     o = load(os.path.join(d, n + '.stl'), n); o.location = OFF[n]; mat(o, SCHWARZ, n); objs[n] = o
 for n, (cx, sg) in WH.items():
     parts = []
-    for f, g in (('Rad_Reifen_schwarz', SCHWARZ), ('Rad_Felge_weiss', 0.85)):
+    for f, g in (('Rad_Reifen_schwarz', SCHWARZ), ('Rad_Felge_weiss', 0.95)):
         o = load(os.path.join(d, f + '.stl'), n + '_' + f); mat(o, g, n + f)
         if sg > 0: o.rotation_euler = (0, 0, math.pi)
         o.location = (cx, (0 if ASM else (-75 if sg < 0 else 75)), 40.0 if ASM else 35.0); parts.append(o)
@@ -40,18 +39,18 @@ if not ASM:
     for i in range(4):
         y, z = POST[i]
         bpy.ops.mesh.primitive_cylinder_add(radius=2.9, depth=24, location=(XJ, y, z), rotation=(0, math.pi/2, 0), vertices=24); o = bpy.context.object
-        o.name = 'Duebel_%d' % (i+1); mat(o, 0.85, o.name); objs[o.name] = o
+        o.name = 'Duebel_%d' % (i+1); mat(o, 0.95, o.name); objs[o.name] = o
         x, y2 = AUF[i]
-        bpy.ops.mesh.primitive_cylinder_add(radius=1.5, depth=13, location=(x + 45, y2, ZC + 95 - 6), vertices=16); o = bpy.context.object
-        o.name = 'Pin_%d' % (i+1); mat(o, 0.85, o.name); objs[o.name] = o
+        bpy.ops.mesh.primitive_cylinder_add(radius=1.5, depth=13, location=(x + 45, y2, ZC + 60 - 6), vertices=16); o = bpy.context.object
+        o.name = 'Pin_%d' % (i+1); mat(o, 0.95, o.name); objs[o.name] = o
 # Boden-Schatten
 bpy.ops.mesh.primitive_plane_add(size=40000, location=(0, 0, -0.5)); fl = bpy.context.object
 fm = bpy.data.materials.new('fl'); fm.use_nodes = True; fm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.93, 0.93, 0.94, 1); fl.data.materials.append(fm)
-w = bpy.data.worlds.new('w'); sc.world = w; w.use_nodes = True; w.node_tree.nodes['Background'].inputs['Color'].default_value = (0.95, 0.95, 0.96, 1); w.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.0
-ld = bpy.data.lights.new('k', 'AREA'); ld.energy = 9e5; ld.size = 600; lo = bpy.data.objects.new('k', ld); sc.collection.objects.link(lo); lo.location = (-250, -350, 600); lo.rotation_euler = (math.radians(40), 0, math.radians(-35))
+w = bpy.data.worlds.new('w'); sc.world = w; w.use_nodes = True; w.node_tree.nodes['Background'].inputs['Color'].default_value = (0.95, 0.95, 0.96, 1); w.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.75
+ld = bpy.data.lights.new('k', 'AREA'); ld.energy = 6e5; ld.size = 600; lo = bpy.data.objects.new('k', ld); sc.collection.objects.link(lo); lo.location = (-250, -350, 600); lo.rotation_euler = (math.radians(40), 0, math.radians(-35))
 cd = bpy.data.cameras.new('c'); cd.lens = 70 if not ASM else 62; cd.sensor_width = 36; cd.clip_start = 10; cd.clip_end = 100000
 co = bpy.data.objects.new('c', cd); sc.collection.objects.link(co); sc.camera = co
-co.location = {'explosion': (-420, -720, 1500), 'front34': (-640, -560, 330), 'heck34': (640, 560, 330)}[VIEW]; tg = bpy.data.objects.new('t', None); sc.collection.objects.link(tg); tg.location = (0, 0, 70 if not ASM else 85)
+co.location = {'explosion': (-640, -1000, 1000), 'front34': (-640, -560, 330), 'heck34': (640, 560, 330)}[VIEW]; tg = bpy.data.objects.new('t', None); sc.collection.objects.link(tg); tg.location = ((15 if not ASM else 0), 0, 70 if not ASM else 85)
 tr = co.constraints.new('TRACK_TO'); tr.target = tg; tr.track_axis = 'TRACK_NEGATIVE_Z'; tr.up_axis = 'UP_Y'
 sc.render.engine = 'BLENDER_EEVEE'; sc.eevee.taa_render_samples = 48
 try: sc.eevee.use_raytracing = True

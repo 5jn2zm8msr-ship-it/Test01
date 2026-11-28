@@ -28,7 +28,7 @@ JOBS = {  # name: (dateien, Ausrichtung)
  'Aufbau_natuerlich': (['Karosserie_3_Aufbau'], np.eye(4)),
  'Duebel_klein': (['Duebel_klein'], R(Y, -90)),
  'Rad_zweifarbig': (['Rad_Reifen_schwarz', 'Rad_Felge_weiss'], R(X, 90)),
- 'Duebel': (['Duebel'], R(Y, -90)),
+ 'Duebel': (['Duebel_gross'], R(Y, -90)),
 }
 res = {}
 for job, (files, T) in JOBS.items():

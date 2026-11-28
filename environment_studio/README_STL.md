@@ -9,14 +9,17 @@ Pipeline (alle Skripte in diesem Ordner, Reihenfolge):
 | C | `stl_c_pruefung.py` | Schicht-für-Schicht-Raster (0,4 mm): Dünnstellen < 0,8 mm, Filament, Zeit |
 | – | `explosion.py`, `stueckliste.py` | Explosionszeichnung (grau, nummeriert) und Stückliste |
 
-## Teile (siehe `ergebnis/stueckliste.md`, `ergebnis/explosion_teile.png`)
-- 2 Karosseriehälften, getrennt bei x = −8 mm (Spalt 0,3 mm), verbunden mit 4 losen Dübeln ⌀ 5,8 × 24 mm in Bohrungen ⌀ 6,4 mm (Bosse an den Innenwänden/Dach der Kabine).
-- 4 Räder, liegend gedruckt (Außenseite unten, Zapfen ⌀ 6,0 oben); Bohrung in der Achse ⌀ 6,4 mm → Räder drehen frei.
-- 2 Spiegel (Arm + Pfosten ⌀ 3,0 mm in ⌀ 3,4-mm-Bohrung in der Karosseriewand), 1 Reserverad (2 Zapfen ⌀ 4,0 mm).
-- Alle Teile passen auf ein 256 × 256 × 256 mm Druckbett (X1/P1/A1); die hintere Hälfte ist 222 mm lang und steht auf der Trennfläche.
+## Teile (Stand v5, siehe `ergebnis/stueckliste_v3.md`, `ergebnis/explosion_zweifarbig.png`)
+- **Front + Kabine** (ein Stück, 168 × 198 × 247 mm): Motorraum und Keil unter der Scheibe massiv, Kabine hohl (3 mm Wand, Seitenfenster geschlossen) mit 45°-Dach, 4 Pfosten für die Dübel zum Heck.
+- **Heck-Fahrwerk** (Boden, Rahmen, Stecker zur Kabine) und **Aufbau** (Motorrad, Käfig, Rohre) mit 4 kleinen Dübeln.
+- **Rad** (4×, zweifarbig: Reifen schwarz, Felge weiß, ein Teil): Zapfen ⌀ 6,0 mm in ⌀ 6,4-mm-Bohrung (frei drehend, nicht gesichert).
+- 4 große Dübel ⌀ 5,8 × 24 mm und 4 kleine ⌀ 3,0 × 13 mm.
+- Motorraum bewusst nicht hohl: bei 3 % Infill kosten die zusätzlichen Wände des Hohlraums mehr, als der gesparte Infill bringt.
+
+## Skripte der letzten Stufen
+`stl_a2_vereinfachen.py` (Hülle, Kabinen-Hohlraum), `stl_b4_teile.py` (Aufteilung, Bohrungen, Räder aus der Original-Hülle), `slice_v2.py` (Slicing-Varianten), `gcode_viz.py` + `doku_stuetzen.py` (Stützen-Doku), `explosion.py` + `stueckliste3.py` (Zeichnung, Stückliste).
 
 ## Grenzen (ehrlich)
-- Mit Bambu Studio nicht geslict (hier nicht verfügbar); Filament/Zeit sind Schätzungen (Annahmen im Kopf von `stl_c_pruefung.py`, ±30 %), Stützmaterial ist nicht enthalten.
-- Das Meshy-Mesh ist keine Konstruktion: Wände sind teils nur ca. 2,5 mm (Kabine), Details unter ca. 0,6 mm (Wischer, Antenne) sind durch das Voxel-Remesh weg oder dünn.
-- Die Spiegel- und Reserveradbohrungen liegen zu 83–91 % im Material (Rest ragt in Hohlraum): Zapfen halten, sind aber mit Kleber sicherer.
-- Lose Einzelteile im Hohlraum der hinteren Hälfte (z. B. 0,5 cm³) wurden verworfen.
+- Mit PrusaSlicer gesliced (Bambu-ähnliches Profil), nicht mit Bambu Studio; Werte ±30 %. Farbwechsel/Purge nicht enthalten.
+- Der Aufbau (Motorrad) besteht zu rund 43 % aus Stützmaterial, das Heck-Fahrwerk zu rund 30 %.
+- Front + Kabine steht 247 mm hoch (Bambu-Studio-Standard 250 mm).
