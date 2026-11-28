@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 7, 0),
+    "version": (0, 8, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
@@ -98,24 +98,11 @@ class MeshyCarsSettings(PropertyGroup):
     tex_res: EnumProperty(name="Textur", default="2k", items=[("2k", "2K", ""), ("4k", "4K", ""), ("8k", "8K", "")])
     prompt: StringProperty(name="Textur-Hinweis", description="Optional, max. 800 Zeichen (z.B. 'Lack metallic, Chromteile')")
     enhance: BoolProperty(name="Bildverbesserung", default=True, description="Aus = Aussehen der Bilder exakt halten")
-    remesh: BoolProperty(name="Remesh beim Erzeugen (Quads)", default=False,
-                         description="Meshy remesht schon beim Erzeugen (Quads). Alternativ nachträglich per Knopf 'Remesh' (5 Credits)")
-    gen_topology: EnumProperty(name="Topologie", default="quad", items=[
-        ("quad", "Quads (quad-dominant)", "Überwiegend Vierecke, kein von Hand gelegter Käfig"), ("triangle", "Dreiecke", "Decimated Triangle Mesh")])
-    to_quads: BoolProperty(name="Dreiecke → Quads (lokal, kostenlos)", default=True,
-                           description="GLB kennt nur Dreiecke. Beim Import mit Quad-Topologie werden Dreieckspaare in Blender wieder zu Quads verbunden (UV-Nähte bleiben)")
-    polycount: IntProperty(name="Polygone", default=30000, min=100, max=300000,
-                           description="Zielwert beim Erzeugen (nur mit Remesh), kein garantierter Wert (Meshy: 100–300.000)")
     auto_size: BoolProperty(name="Echte Größe schätzen", default=False)
     width_mm: FloatProperty(name="Breite (mm)", default=2020.0, min=500.0, max=4000.0, step=100, precision=0,
                             update=_apply_width,
                             description="Jedes Auto wird beim Import auf diese Breite skaliert (Bounding-Box quer zur Fahrtrichtung); Länge und Radstand ergeben sich")
     confirm: BoolProperty(name="Ich weiß: kostenpflichtig (Credits)", default=False)
-    rm_topology: EnumProperty(name="Topologie", default="quad", items=[
-        ("quad", "Quads (quad-dominant)", "Überwiegend Vierecke – kein von Hand gelegter Käfig"), ("triangle", "Dreiecke", "Decimated Triangle Mesh")])
-    rm_polycount: IntProperty(name="Ziel-Polygone", default=30000, min=100, max=300000,
-                              description="Zielwert, kein garantierter Wert (Meshy: 100–300.000)")
-    rm_confirm: BoolProperty(name="Ich weiß: Remesh kostet Credits", default=False)
     # Fortschritt (vom Timer gesetzt)
     progress: FloatProperty(default=0.0, min=0.0, max=1.0)
     status: StringProperty(default="")
@@ -124,8 +111,7 @@ class MeshyCarsSettings(PropertyGroup):
 
 def _options(s):
     return dict(ai_model=s.ai_model, geometry_resolution=s.geometry, should_texture=True, enable_pbr=s.pbr,
-                texture_resolution=s.tex_res, texture_prompt=s.prompt, should_remesh=s.remesh,
-                topology=s.gen_topology, target_polycount=s.polycount, image_enhancement=s.enhance, auto_size=s.auto_size)
+                texture_resolution=s.tex_res, texture_prompt=s.prompt, image_enhancement=s.enhance, auto_size=s.auto_size)
 
 
 def _worker(key, paths, out_dir, opts, state, cancel):
@@ -138,16 +124,6 @@ def _worker(key, paths, out_dir, opts, state, cancel):
         state.update(done=True, error=str(e))
 
 
-def _remesh_worker(key, task_id, glb, out_dir, opts, state, cancel):
-    def prog(f, txt):
-        state["progress"], state["status"] = f, txt
-    try:
-        out, tid, credits, way = client.run_remesh(key, task_id, glb, out_dir, opts, prog, cancel.is_set)
-        state.update(done=True, glb=out, task_id=tid, credits=credits, way=way)
-    except Exception as e:  # noqa: BLE001
-        state.update(done=True, error=str(e))
-
-
 def credit_estimate(s):
     """(Credits, Fehltext) für die aktuellen Einstellungen, nach der Preisseite."""
     try:
@@ -156,24 +132,7 @@ def credit_estimate(s):
         return None, str(e)
 
 
-def tris_to_quads(meshes):
-    """Verbindet Dreieckspaare zu Quads (bmesh.ops.join_triangles; UV-Nähte und Materialgrenzen bleiben). Liefert (Flächen, Quads)."""
-    import bmesh
-    faces = quads = 0
-    for o in meshes:
-        bm = bmesh.new()
-        bm.from_mesh(o.data)
-        bmesh.ops.join_triangles(bm, faces=bm.faces[:], angle_face_threshold=math.radians(60), angle_shape_threshold=math.radians(90),
-                                 cmp_seam=False, cmp_sharp=False, cmp_uvs=True, cmp_materials=True)
-        bm.to_mesh(o.data)
-        faces += len(bm.faces)
-        quads += sum(1 for f in bm.faces if len(f.verts) == 4)
-        bm.free()
-        o.data.update()
-    return faces, quads
-
-
-def _import_glb(context, glb, name, task_id=None, hide_root=None, to_quads=False):
+def _import_glb(context, glb, name, task_id=None):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=glb)
     new = [o for o in bpy.data.objects if o not in before]
@@ -187,16 +146,10 @@ def _import_glb(context, glb, name, task_id=None, hide_root=None, to_quads=False
             c.objects.unlink(o)
         coll.objects.link(o)
     meshes = [o for o in new if o.type == "MESH"]
-    if to_quads:
-        tris_to_quads(meshes)
     root = _make_root(context, coll, new, meshes, "Meshy_Car_%02d" % n)
-    root["mc_glb"] = glb                              # für Remesh (Rückfall auf model_url)
+    root["mc_glb"] = glb
     if task_id:
         root["mc_task_id"] = task_id
-    if hide_root is not None:                         # Vorgänger-Auto ausblenden (liegt sonst deckungsgleich darunter)
-        for o in [hide_root] + list(hide_root.children_recursive):
-            o.hide_set(True)
-        root["mc_parent"] = hide_root.name
     bpy.ops.object.select_all(action="DESELECT")
     root.select_set(True)
     context.view_layer.objects.active = root
@@ -231,13 +184,6 @@ def _make_root(context, coll, new, meshes, name):
     root.rotation_euler = (0.0, 0.0, -math.pi / 2 if (hi.y - lo.y) > (hi.x - lo.x) else 0.0)
     root.location = (0.0, 0.0, 0.0)               # Pivot = Boden-Mittelpunkt des Meshes -> Auto sitzt zentriert auf dem Ursprung
     return root
-
-
-def _face_info(coll):
-    ms = [o for o in coll.all_objects if o.type == "MESH"]
-    faces = sum(len(o.data.polygons) for o in ms)
-    quads = sum(1 for o in ms for p in o.data.polygons if len(p.vertices) == 4)
-    return "%d Flächen, davon %d Quads (%.0f %%)" % (faces, quads, 100.0 * quads / max(1, faces))
 
 
 class _JobMixin:
@@ -321,59 +267,8 @@ class MESHYCARS_OT_generate(_JobMixin, Operator):
         return self._start(context, _worker, (key, paths, out, _options(s)))
 
     def _done(self, context, st):
-        s = context.scene.meshycars
-        coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"),
-                              to_quads=s.to_quads and s.remesh and s.gen_topology == "quad")
-        return "Fertig: %d Mesh-Objekt(e) in %s – %s (Credits: %s)" % (n, coll.name, _face_info(coll), st.get("credits"))
-
-
-class MESHYCARS_OT_remesh(_JobMixin, Operator):
-    bl_idname = "meshycars.remesh"
-    bl_label = "Remesh (Quads) für dieses Auto"
-    bl_description = "Meshy-Remesh (5 Credits): neue Topologie/Polygonzahl; das neue Auto wird importiert, das alte ausgeblendet"
-
-    def execute(self, context):
-        s = context.scene.meshycars
-        root = active_car_root(context)
-        if root is None or not root.get("mc_task_id"):
-            self.report({"ERROR"}, "Auto mit Meshy-Task wählen (nur von diesem Add-on erzeugte Autos).")
-            return {"CANCELLED"}
-        if not s.rm_confirm:
-            self.report({"ERROR"}, "Bitte erst bestätigen, dass der Remesh %d Credits kostet." % client.REMESH_CREDITS)
-            return {"CANCELLED"}
-        key = api_key()
-        if not key:
-            self.report({"ERROR"}, "Kein Meshy-API-Key in den Add-on-Preferences.")
-            return {"CANCELLED"}
-        s.rm_confirm = False
-        self._src = root.name
-        out = os.path.join(tempfile.gettempdir(), "meshy_cars")
-        opts = dict(topology=s.rm_topology, target_polycount=s.rm_polycount)
-        return self._start(context, _remesh_worker, (key, root["mc_task_id"], root.get("mc_glb", ""), out, opts))
-
-    def _done(self, context, st):
-        old = bpy.data.objects.get(getattr(self, "_src", ""))
-        s = context.scene.meshycars
-        coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"), hide_root=old,
-                              to_quads=s.to_quads and s.rm_topology == "quad")
-        return "Remesh fertig: %s in %s, Weg: %s, Credits: %s" % (_face_info(coll), coll.name, st.get("way"), st.get("credits"))
-
-
-class MESHYCARS_OT_to_quads(Operator):
-    bl_idname = "meshycars.to_quads"
-    bl_label = "Dreiecke → Quads (kostenlos)"
-    bl_description = "Verbindet Dreieckspaare des gewählten Autos lokal zu Quads (keine Credits). Sinnvoll nur bei Meshy-Meshes mit Quad-Remesh"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        root = active_car_root(context)
-        if root is None:
-            self.report({"ERROR"}, "Kein Meshy-Auto gefunden (Auto-Objekt wählen).")
-            return {"CANCELLED"}
-        ms = [o for o in root.children_recursive if o.type == "MESH"]
-        faces, quads = tris_to_quads(ms)
-        self.report({"INFO"}, "%d Flächen, davon %d Quads (%.0f %%)" % (faces, quads, 100.0 * quads / max(1, faces)))
-        return {"FINISHED"}
+        coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"))
+        return "Fertig: %d Mesh-Objekt(e) in %s (Credits: %s)" % (n, coll.name, st.get("credits"))
 
 
 class MESHYCARS_OT_flip(Operator):
@@ -410,14 +305,7 @@ class MESHYCARS_PT_main(Panel):
         L.prop(s, "tex_res")
         L.prop(s, "prompt")
         L.prop(s, "enhance")
-        r = L.row()
-        r.prop(s, "remesh")
-        r.prop(s, "auto_size")
-        if s.remesh:
-            L.prop(s, "gen_topology")
-            L.prop(s, "polycount")
-            L.prop(s, "to_quads")
-            L.label(text="Remesh beim Erzeugen: kein Aufpreis (live bestätigt: 30 Credits)", icon="INFO")
+        L.prop(s, "auto_size")
         L.separator()
         cr, err = credit_estimate(s)
         L.label(text=("Kosten ≈ %d Credits (Preisseite 27.11.2026)" % cr) if cr is not None else err, icon="INFO" if cr is not None else "ERROR")
@@ -438,22 +326,10 @@ class MESHYCARS_PT_main(Panel):
             w.label(text="Größe – %s" % root.name)
             w.prop(s, "width_mm")
             w.operator("meshycars.flip_front", icon="LOOP_BACK")
-            w.operator("meshycars.to_quads", icon="MOD_TRIANGULATE")
             f = root.scale.x
             w.label(text="Länge: %.0f mm" % (root[_LEN] * f * 1000))
             w.label(text="Radstand ≈ %.0f mm (geschätzt, ~60 %% der Länge)" % (sizing.estimate_wheelbase_m(root[_LEN], 0) * f * 1000))
-            if root.get("mc_task_id"):
-                m = L.box()
-                m.label(text="Remesh – %s" % root.name)
-                m.prop(s, "rm_topology")
-                m.prop(s, "rm_polycount")
-                m.prop(s, "to_quads")
-                m.label(text="Kosten: %d Credits" % client.REMESH_CREDITS, icon="INFO")
-                m.prop(s, "rm_confirm")
-                m.operator("meshycars.remesh", icon="MOD_REMESH")
-
-
-_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_remesh, MESHYCARS_OT_to_quads, MESHYCARS_OT_flip, MESHYCARS_PT_main)
+_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_flip, MESHYCARS_PT_main)
 
 
 def register():

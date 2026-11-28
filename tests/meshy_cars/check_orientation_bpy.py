@@ -11,7 +11,7 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 import meshy_cars
 meshy_cars.register()
 sc = bpy.context.scene
-coll, n = meshy_cars._import_glb(bpy.context, glb, "Meshy_Car", to_quads="--quads" in sys.argv)
+coll, n = meshy_cars._import_glb(bpy.context, glb, "Meshy_Car")
 bpy.context.view_layer.update()
 meshes = [o for o in coll.all_objects if o.type == "MESH"]
 # --- Ausrichtung am echten Mesh nachmessen (Weltkoordinaten, mm)
@@ -40,20 +40,8 @@ STYLES = {"textur": dict(color_type="TEXTURE", show_cavity=False),
           "grau": dict(color_type="SINGLE", show_cavity=True)}      # grau = Modeling-/Solid-Ansicht: Form beurteilen
 sh.single_color = (0.72, 0.72, 0.72)
 sh.cavity_type = "BOTH"; sh.cavity_ridge_factor = 1.0; sh.cavity_valley_factor = 1.0
-_ms = [o for o in meshes]
-_f = sum(len(o.data.polygons) for o in _ms); _q = sum(1 for o in _ms for p in o.data.polygons if len(p.vertices) == 4)
-print("Flaechen: %d, davon Quads: %d (%.0f %%)" % (_f, _q, 100.0 * _q / max(1, _f)))
-STYLES["draht"] = dict(color_type="SINGLE", show_cavity=False)        # Drahtgitter: Topologie (Quads) sichtbar
 for style, opts in STYLES.items():
-    for _o in meshes:                                   # Workbench-Render ignoriert Wire-Anzeige -> Wireframe-Modifier als sichtbares Gitter
-        for _m in [m for m in _o.modifiers if m.name == "Draht"]:
-            _o.modifiers.remove(_m)
-        if style == "draht":
-            _m = _o.modifiers.new("Draht", "WIREFRAME"); _m.thickness = 0.004; _m.use_replace = False
-    sh.color_type, sh.show_cavity = opts["color_type"], opts["show_cavity"]
     for k, v in views.items():
-        if style == "draht" and k not in ("schraeg_front_links", "seite_von_minus_y"):
-            continue
         t0 = time.time()
         if v is None:
             cam.location = (0, 0.001, 8.5); cam.data.lens = 35

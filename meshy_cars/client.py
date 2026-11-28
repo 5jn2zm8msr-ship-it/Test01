@@ -7,11 +7,8 @@ Stand der API: docs.meshy.ai/en/api/multi-image-to-3d und /changelog, gelesen am
   GET    /openapi/v1/multi-image-to-3d/{id}       -> Task (status PENDING|IN_PROGRESS|SUCCEEDED|FAILED|CANCELED, progress, model_urls.glb)
   DELETE /openapi/v1/multi-image-to-3d/{id}       -> 200 (409, wenn IN_PROGRESS)
   Auth: Authorization: Bearer <Key>. 1-4 Bilder (jpg/jpeg/png/webp, <= 20 MB, >= 32 px), erstes Bild = Vorderansicht.
-  Remesh: POST /openapi/v1/remesh {input_task_id | model_url, topology "quad"|"triangle", target_polycount 100..300000, target_formats}
-  Preise (docs.meshy.ai/en/api/pricing, 27.11.2026): Remesh 5 Credits; Multi-Image mesh 20 (7.1/6) bzw. 5 (6-lite), Textur 2K/4K +10, 8K +15
-  (6-lite: nur 2K, +10), Ultra-Geometrie 2k +5 (nur 7.1/latest). Quell-Tasks fuer Remesh laut Doku: Text/Image-to-3D, Retexture, Remesh –
-  Multi-Image NICHT ausdruecklich genannt -> run_remesh faellt bei HTTP 400 auf model_url (lokale GLB als Data-URI) zurueck.
-VERALTET (nicht mehr senden): ai_model "meshy-7" (endet 31.12.2026, danach HTTP 400), "meshy-5"/"meshy-4" (eingestellt),
+  Preise (docs.meshy.ai/en/api/pricing, 27.11.2026): Multi-Image mesh 20 (7.1/6) bzw. 5 (6-lite), Textur 2K/4K +10, 8K +15
+  (6-lite: nur 2K, +10), Ultra-Geometrie 2k +5 (nur 7.1/latest). VERALTET (nicht mehr senden): ai_model "meshy-7" (endet 31.12.2026, danach HTTP 400), "meshy-5"/"meshy-4" (eingestellt),
   ultra_mode (-> geometry_resolution), hd_texture (-> texture_resolution), symmetry_mode (ohne Wirkung), is_a_t_pose.
 """
 import base64
@@ -25,9 +22,6 @@ import urllib.request
 
 BASE_URL = "https://api.meshy.ai"
 ENDPOINT = "/openapi/v1/multi-image-to-3d"
-REMESH_ENDPOINT = "/openapi/v1/remesh"
-MAX_DATA_URI_BYTES = 100 * 1024 * 1024        # Remesh: model_url als Data-URI max. 100 MB
-REMESH_CREDITS = 5
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ALLOWED_EXT = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 AI_MODELS = ("latest", "meshy-7.1", "meshy-6", "meshy-6-lite")      # "meshy-7" bewusst nicht mehr dabei
@@ -76,8 +70,7 @@ def image_to_data_uri(path):
 
 
 def build_payload(image_paths, ai_model="meshy-7.1", geometry_resolution="standard", should_texture=True,
-                  enable_pbr=True, texture_resolution="2k", texture_prompt="", should_remesh=False,
-                  topology="quad", target_polycount=30000, image_enhancement=True, auto_size=False,
+                  enable_pbr=True, texture_resolution="2k", texture_prompt="", image_enhancement=True, auto_size=False,
                   target_formats=("glb",), moderation=False):
     """Request-Body. Reihenfolge der Bilder: erstes = Vorderansicht. Keine veralteten Felder."""
     paths = [p for p in image_paths if p]
@@ -95,7 +88,6 @@ def build_payload(image_paths, ai_model="meshy-7.1", geometry_resolution="standa
         "ai_model": ai_model,
         "geometry_resolution": geometry_resolution,
         "should_texture": bool(should_texture),
-        "should_remesh": bool(should_remesh),
         "target_formats": list(target_formats),
         "auto_size": bool(auto_size),
         "moderation": bool(moderation),
@@ -105,9 +97,6 @@ def build_payload(image_paths, ai_model="meshy-7.1", geometry_resolution="standa
         p["texture_resolution"] = texture_resolution
         if texture_prompt.strip():
             p["texture_prompt"] = texture_prompt.strip()[:800]
-    if should_remesh:                              # topology/target_polycount wirken nur mit Remesh
-        p["topology"] = topology
-        p["target_polycount"] = int(max(100, min(300000, target_polycount)))
     if ai_model != "meshy-6-lite":                 # image_enhancement mit meshy-6-lite -> HTTP 400
         p["image_enhancement"] = bool(image_enhancement)
     return p
@@ -221,49 +210,3 @@ def run_job(key, image_paths, out_dir, options, progress=None, cancelled=None, b
     glb = download(url, os.path.join(out_dir, "meshy_car_%s.glb" % tid))
     return glb, tid, task.get("consumed_credits")
 
-
-def build_remesh_payload(input_task_id=None, glb_path=None, topology="quad", target_polycount=30000, target_formats=("glb",)):
-    """Remesh-Body. input_task_id ODER glb_path (wird als Data-URI gesendet, max. 100 MB). Keine veralteten Felder (resize_*, auto_size ...)."""
-    if topology not in ("quad", "triangle"):
-        raise MeshyError("Topologie muss 'quad' oder 'triangle' sein.")
-    p = {"topology": topology, "target_polycount": int(max(100, min(300000, target_polycount))), "target_formats": list(target_formats)}
-    if input_task_id:
-        p["input_task_id"] = input_task_id
-    elif glb_path:
-        if not os.path.isfile(glb_path):
-            raise MeshyError("GLB nicht gefunden: %s" % glb_path)
-        if os.path.getsize(glb_path) > MAX_DATA_URI_BYTES:
-            raise MeshyError("GLB größer als 100 MB – als Data-URI nicht sendbar.")
-        with open(glb_path, "rb") as f:
-            p["model_url"] = "data:application/octet-stream;base64," + base64.b64encode(f.read()).decode("ascii")
-    else:
-        raise MeshyError("Remesh braucht input_task_id oder eine GLB-Datei.")
-    return p
-
-
-def run_remesh(key, input_task_id, glb_path, out_dir, options, progress=None, cancelled=None, base_url=BASE_URL, interval=4.0):
-    """Remesh eines fertigen Autos (5 Credits). Erst mit input_task_id; lehnt Meshy den Task ab (HTTP 400, Multi-Image ist in der Doku
-    nicht als Quelle genannt), Rückfall auf die lokale GLB als model_url. Liefert (glb_pfad, task_id, credits, benutzter_weg)."""
-    client = MeshyClient(key, base_url)
-    way = "input_task_id"
-    if progress:
-        progress(0.01, "Remesh wird gestartet …")
-    try:
-        if not input_task_id:
-            raise MeshyError("keine Task-ID", 400)
-        tid = client.create(build_remesh_payload(input_task_id=input_task_id, **options), REMESH_ENDPOINT)
-    except MeshyError as e:
-        if e.code != 400 or not glb_path:
-            raise
-        way = "model_url"
-        if progress:
-            progress(0.02, "Task-ID abgelehnt – lade lokale GLB hoch …")
-        tid = client.create(build_remesh_payload(glb_path=glb_path, **options), REMESH_ENDPOINT)
-    task = client.wait(tid, progress, cancelled, interval, endpoint=REMESH_ENDPOINT, label="Meshy baut die Topologie um")
-    url = (task.get("model_urls") or {}).get("glb")
-    if not url:
-        raise MeshyError("Remesh fertig, aber ohne GLB-Link.")
-    os.makedirs(out_dir, exist_ok=True)
-    if progress:
-        progress(0.97, "Lade GLB …")
-    return download(url, os.path.join(out_dir, "meshy_car_remesh_%s.glb" % tid)), tid, task.get("consumed_credits"), way
