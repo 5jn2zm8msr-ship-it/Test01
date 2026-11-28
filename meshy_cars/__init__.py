@@ -6,7 +6,7 @@ Bedienung: 3D-Viewport -> Seitenleiste (N) -> Reiter "Meshy Cars". Der API-Key s
 bl_info = {
     "name": "Meshy Cars",
     "author": "Felge3D",
-    "version": (0, 9, 0),
+    "version": (0, 10, 0),
     "blender": (3, 5, 0),
     "location": "3D-Viewport > Seitenleiste (N) > Meshy Cars",
     "description": "Auto aus 4 Bildern via Meshy (Multi-Image-to-3D) als texturiertes Mesh importieren",
@@ -114,6 +114,7 @@ class MeshyCarsSettings(PropertyGroup):
     progress: FloatProperty(default=0.0, min=0.0, max=1.0)
     status: StringProperty(default="")
     busy: BoolProperty(default=False)
+    balance_text: StringProperty(default="")
 
 
 def _options(s):
@@ -126,7 +127,7 @@ def _worker(key, paths, out_dir, opts, state, cancel):
         state["progress"], state["status"] = f, txt
     try:
         glb, tid, credits = client.run_job(key, paths, out_dir, opts, prog, cancel.is_set)
-        state.update(done=True, glb=glb, task_id=tid, credits=credits)
+        state.update(done=True, glb=glb, task_id=tid, credits=credits, balance=client.safe_balance(key))
     except Exception as e:  # noqa: BLE001
         state.update(done=True, error=str(e))
 
@@ -136,7 +137,7 @@ def _retexture_worker(key, task_id, glb, out_dir, opts, state, cancel):
         state["progress"], state["status"] = f, txt
     try:
         out, tid, credits, way = client.run_retexture(key, task_id, glb, out_dir, opts, prog, cancel.is_set)
-        state.update(done=True, glb=out, task_id=tid, credits=credits, way=way)
+        state.update(done=True, glb=out, task_id=tid, credits=credits, way=way, balance=client.safe_balance(key))
     except Exception as e:  # noqa: BLE001
         state.update(done=True, error=str(e))
 
@@ -289,7 +290,7 @@ class MESHYCARS_OT_generate(_JobMixin, Operator):
 
     def _done(self, context, st):
         coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"))
-        return "Fertig: %d Mesh-Objekt(e) in %s (Credits: %s)" % (n, coll.name, st.get("credits"))
+        return "Fertig: %d Mesh-Objekt(e) in %s (Credits: %s) – Guthaben: %s" % (n, coll.name, st.get("credits"), st.get("balance"))
 
 
 class MESHYCARS_OT_retexture(_JobMixin, Operator):
@@ -324,7 +325,23 @@ class MESHYCARS_OT_retexture(_JobMixin, Operator):
     def _done(self, context, st):
         old = bpy.data.objects.get(getattr(self, "_src", ""))
         coll, n = _import_glb(context, st["glb"], "Meshy_Car", task_id=st.get("task_id"), hide_root=old)
-        return "Retexture fertig in %s (Weg: %s, Credits: %s)" % (coll.name, st.get("way"), st.get("credits"))
+        return "Retexture fertig in %s (Weg: %s, Credits: %s) – Guthaben: %s" % (coll.name, st.get("way"), st.get("credits"), st.get("balance"))
+
+
+class MESHYCARS_OT_balance(Operator):
+    bl_idname = "meshycars.balance"
+    bl_label = "Guthaben abfragen"
+    bl_description = "Fragt das aktuelle Meshy-Guthaben ab (kostenlos)"
+
+    def execute(self, context):
+        key = api_key()
+        if not key:
+            self.report({"ERROR"}, "Kein Meshy-API-Key in den Add-on-Preferences.")
+            return {"CANCELLED"}
+        txt = client.safe_balance(key)
+        context.scene.meshycars.balance_text = txt
+        self.report({"INFO"}, "Guthaben: " + txt)
+        return {"FINISHED"}
 
 
 class MESHYCARS_OT_flip(Operator):
@@ -366,6 +383,9 @@ class MESHYCARS_PT_main(Panel):
         cr, err = credit_estimate(s)
         L.label(text=("Kosten ≈ %d Credits (Preisseite 27.11.2026)" % cr) if cr is not None else err, icon="INFO" if cr is not None else "ERROR")
         L.prop(s, "confirm")
+        b = L.row()
+        b.operator("meshycars.balance", icon="FILE_REFRESH")
+        b.label(text=s.balance_text or "Guthaben: noch nicht abgefragt")
         r = L.row()
         r.scale_y = 1.5
         r.operator("meshycars.generate", icon="AUTO")
@@ -392,7 +412,7 @@ class MESHYCARS_PT_main(Panel):
                 m.label(text="Kosten: %d Credits (Form bleibt)" % client.retexture_credits(s.tex_res), icon="INFO")
                 m.prop(s, "retex_confirm")
                 m.operator("meshycars.retexture", icon="TEXTURE")
-_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_retexture, MESHYCARS_OT_flip, MESHYCARS_PT_main)
+_CLASSES = (MESHYCARS_Prefs, MeshyCarsSettings, MESHYCARS_OT_generate, MESHYCARS_OT_retexture, MESHYCARS_OT_balance, MESHYCARS_OT_flip, MESHYCARS_PT_main)
 
 
 def register():

@@ -19,6 +19,8 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.endswith("/model.glb"):
             return self._send(200, raw=b"glTF" + b"0" * 2000)
+        if self.path == "/openapi/v1/balance":
+            return self._send(200, {"balance": 830, "monthly_credits": 800, "permanent_credits": 30, "monthly_resets_at": None})
         STATE["polls"] += 1
         if STATE["fail"]:
             return self._send(200, {"status": "FAILED", "task_error": {"message": "kaputt"}})
@@ -60,6 +62,10 @@ def main():
     except client.MeshyError: pass
     assert "image_enhancement" not in client.build_payload(imgs, ai_model="meshy-6-lite")
     assert "should_remesh" not in b and "topology" not in b and "target_polycount" not in b     # kein Remesh: volles Detail
+    assert client.balance_text(client.MeshyClient("k", base).balance()) == "830 Credits (monatlich 800, dauerhaft 30)"
+    assert client.safe_balance("k", base).startswith("830 Credits")
+    assert "nicht abrufbar" in client.safe_balance("k", "http://127.0.0.1:1")          # Fehler -> Hinweistext, kein Absturz
+    assert client.balance_text({}) == "Guthaben unbekannt"
     STATE["fail"] = True
     try: client.run_job("k", imgs, d, opts, base_url=base, interval=0.01); raise SystemExit("FAILED nicht erkannt")
     except client.MeshyError as e: assert "kaputt" in str(e)

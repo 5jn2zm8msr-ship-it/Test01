@@ -20,6 +20,10 @@ Das Auto sitzt **zentriert auf dem Weltursprung** (Mitte der Bounding-Box auf X/
 Achsen/Breite entlang **Y**, **Front nach −X**. Liegt die Länge nach dem Import entlang Y, wird um −90° um Z gedreht. Welche Seite „vorn“ ist, kann
 Meshy nicht garantieren – zeigt die Front nach +X, im Panel **Front/Heck tauschen (180°)** drücken. Prüfung: `tests/meshy_cars/check_orientation_bpy.py` (braucht `pip install bpy`) – macht je Lauf Workbench-Screenshots ohne Rendering, immer **mit Textur und grau (Form)**; Ergebnisse in `testbilder/ergebnis/`.
 
+## Guthaben
+Knopf *Guthaben abfragen* im Panel und automatische Anzeige nach jedem Lauf (`GET /openapi/v1/balance`, kostenlos, docs.meshy.ai/en/api/balance).
+Monatliche Credits verfallen beim nächsten Refresh, dauerhafte nicht.
+
 ## Kosten (Preisseite docs.meshy.ai/en/api/pricing, 27.11.2026; das Panel rechnet vorab mit)
 | Leistung | meshy-7.1 / latest | meshy-6 | meshy-6-lite |
 |---|---|---|---|

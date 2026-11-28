@@ -13,7 +13,7 @@ def has_op(name):      # hasattr(bpy.ops.x, ...) ist immer True (lazy) -> über 
         return True
     except (KeyError, RuntimeError):
         return False
-for op in ("generate", "retexture", "flip_front"):
+for op in ("generate", "retexture", "balance", "flip_front"):
     assert has_op(op), op
 assert not has_op("remesh") and not has_op("to_quads") and not has_op("nonsense"), "Quads/Remesh müssen weg sein"
 s = bpy.context.scene.meshycars

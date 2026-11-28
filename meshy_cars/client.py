@@ -24,6 +24,7 @@ import urllib.request
 
 BASE_URL = "https://api.meshy.ai"
 ENDPOINT = "/openapi/v1/multi-image-to-3d"
+BALANCE_ENDPOINT = "/openapi/v1/balance"        # kostenlos (docs.meshy.ai/en/api/balance)
 RETEXTURE_ENDPOINT = "/openapi/v1/retexture"
 MAX_DATA_URI_BYTES = 100 * 1024 * 1024        # model_url als Data-URI: max. 100 MB
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -143,6 +144,10 @@ class MeshyClient:
             return "Task läuft bereits (HTTP 409) und lässt sich nicht löschen."
         return "Meshy-Fehler HTTP %d: %s" % (code, body)
 
+    def balance(self):
+        """Guthaben (kostenlos): {'balance', 'monthly_credits', 'permanent_credits', 'monthly_resets_at' (ms oder None)}."""
+        return self._call("GET", BALANCE_ENDPOINT)
+
     def create(self, payload, endpoint=ENDPOINT):
         r = self._call("POST", endpoint, payload)
         tid = r.get("result")
@@ -195,6 +200,21 @@ def download(url, dest, timeout=300):
     if os.path.getsize(dest) < 1000:
         raise MeshyError("Heruntergeladene Datei zu klein – kein gültiges Modell.")
     return dest
+
+
+def balance_text(info):
+    """Kurztext für die Anzeige, z.B. '830 Credits (monatlich 830, dauerhaft 0)'."""
+    if not isinstance(info, dict) or "balance" not in info:
+        return "Guthaben unbekannt"
+    return "%s Credits (monatlich %s, dauerhaft %s)" % (info.get("balance"), info.get("monthly_credits", "?"), info.get("permanent_credits", "?"))
+
+
+def safe_balance(key, base_url=BASE_URL):
+    """Guthaben-Text; Fehler werden zu einem Hinweistext (die Abfrage darf einen fertigen Lauf nie scheitern lassen)."""
+    try:
+        return balance_text(MeshyClient(key, base_url).balance())
+    except MeshyError as e:
+        return "Guthaben nicht abrufbar (%s)" % e
 
 
 def run_job(key, image_paths, out_dir, options, progress=None, cancelled=None, base_url=BASE_URL, interval=4.0):
