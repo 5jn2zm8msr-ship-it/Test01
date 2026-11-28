@@ -34,6 +34,10 @@ Im Szenenbaum gibt es den Empty **`Anker_Vorderrad`** genau dort, wo der Vorderr
 - **Licht:** Das Foto ist nicht mit *einer* Sonne vereinbar (Bodenkeil verlangt Licht fast von hinten, die helle Wandfläche links Licht von rechts hinten). Lösung: zwei weit entfernte Spots mit polygonaler Maske im Richtungsraum (Light-Nodes), kalibriert gegen eine echte Sonne. Die Masken geben dem Lichtkeil genau die schräge Foto-Geometrie. Das Himmelslicht bleibt unberührt.
 - **Bounce:** unsichtbare Flächenlicht-Karte, nur für die Decke verlinkt (`ceilfill`), weil Cycles den überstrahlten Boden sonst zu schwach auf die Decke bounct.
 
+## Tonwerte / Kontrast (Stand 28.11.2026)
+Der Look ist bewusst ruhig wie das Foto. Gemessen mit `score.py` (Helligkeits-Perzentile Foto vs. Render) und `contrast.py` (Textur-Kontrast je Region): Standard-Tonemapper mit +2 EV brannte ~15 % der Pixel aus (Foto 0 %) und hatte zu tiefe Schatten. Jetzt: **AgX „Low Contrast“, +2,7 EV**, Schwarzpunkt-Anhebung 5 % in `grain.py` (Foto: 2. Perzentil = 34/255), Sonne 60/45, weniger Fülllicht (`sky` 0,45, `ceilfill` 90). Verteilungsabstand zum Foto 17,1 → 6,2, ausgebrannt 15 % → 0,1 %.
+Lack: Original-Goldgelb (Farbton 37°); die Betonwände haben für die Helligkeit Albedo > 1 und würden sich sonst im Klarlack spiegeln und das Gold ausbleichen, deshalb Klarlack/Spekular klein (`--coat`, `--carspec`) und Albedo niedrig (`--carbg`).
+
 ## Messung
 `measure.py` vergleicht die mittlere Helligkeit an 10 festen Regionen (Foto vs. Render); `edges.py` zeigt Perspektivversatz; `compare.py` baut das Vergleichsbild. `runden/` (lokal) enthält alle Zwischenstände mit Kritik-Runden.
 
